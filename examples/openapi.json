@@ -44,6 +44,20 @@
             "anyOf": [{ "type": "object", "properties": { "source": { "type": "string" } } }, { "type": "null" }]
           }
         }
+      },
+      "UploadFailure": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["error"],
+            "properties": { "error": { "type": "string" } }
+          },
+          {
+            "type": "object",
+            "required": ["retryAfter"],
+            "properties": { "retryAfter": { "type": "integer" } }
+          }
+        ]
       }
     },
     "parameters": {
@@ -284,6 +298,8 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "required": ["requestId"],
+                  "properties": { "requestId": { "type": "string" } },
                   "anyOf": [
                     {
                       "type": "object",
@@ -293,11 +309,7 @@
                         "widget": { "$ref": "#/components/schemas/WidgetDetail" }
                       }
                     },
-                    {
-                      "type": "object",
-                      "required": ["error"],
-                      "properties": { "error": { "type": "string" } }
-                    }
+                    { "$ref": "#/components/schemas/UploadFailure" }
                   ]
                 }
               }

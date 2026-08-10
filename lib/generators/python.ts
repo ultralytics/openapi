@@ -356,6 +356,38 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   const generated = new Set<string>();
   const references = new Map<string, string>();
 
+  function objectUnion(
+    input: JsonSchema | undefined,
+    depth = 0,
+  ): { nullable: boolean; variants: JsonSchema[] } | undefined {
+    const schema = resolveSchema(document, input);
+    const union = schema?.oneOf ?? schema?.anyOf;
+    if (!schema || !union?.length || depth > 10) return undefined;
+    const shared = { ...schema };
+    delete shared.oneOf;
+    delete shared.anyOf;
+    const sharedAllOf = shared.allOf ?? [];
+    const objects: JsonSchema[] = [];
+    let nullable = isNullable(document, { ...schema, oneOf: undefined, anyOf: undefined });
+    for (const variant of union) {
+      const resolved = resolveSchema(document, variant) ?? variant;
+      if (resolved.const === null || resolved.type === "null") {
+        nullable = true;
+        continue;
+      }
+      const nested = objectUnion(resolved, depth + 1);
+      const variants = nested?.variants ?? [objectSchema(document, resolved)];
+      if (variants.some((item) => !item?.properties)) return undefined;
+      nullable ||= nested?.nullable ?? false;
+      for (const item of variants) {
+        const merged = objectSchema(document, { ...shared, allOf: [...sharedAllOf, item as JsonSchema] });
+        if (!merged?.properties) return undefined;
+        objects.push(merged);
+      }
+    }
+    return objects.length ? { nullable, variants: objects } : undefined;
+  }
+
   function modelType(input: JsonSchema | undefined, name: string): string {
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
@@ -366,15 +398,14 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (input?.$ref) references.set(input.$ref, name);
     if (schema.format === "binary") return result("bytes");
     if (schema.format === "date-time") return result("str");
-    const variants = schema.oneOf ?? schema.anyOf;
-    const variantObjects = variants?.map((variant) => objectSchema(document, variant));
-    if (variants?.length && variantObjects?.every((variant) => variant?.properties)) {
-      const names = variantObjects.map((variant, index) => {
+    const union = objectUnion(schema);
+    if (union && union.variants.length > 1) {
+      const names = union.variants.map((variant, index) => {
         const variantName = `${name}Variant${index + 1}`;
-        addModel(variant as JsonSchema, variantName);
+        addModel(variant, variantName);
         return variantName;
       });
-      return result(names.join(" | "));
+      return result(`${names.join(" | ")}${union.nullable ? " | None" : ""}`);
     }
     const object = objectSchema(document, schema);
     if (object?.properties) {
@@ -410,12 +441,17 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     for (const operation of operations) {
       if (!operation.responseName) continue;
       const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
-      const variants = response?.oneOf ?? response?.anyOf;
-      if (variants?.length && variants.every((variant) => objectSchema(document, variant)?.properties)) {
+      const union = objectUnion(response);
+      if (union && union.variants.length > 1) {
         if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
           references.set(operation.responseSchema.$ref, operation.responseName);
         }
-        classes.push(`${operation.responseName} = ${modelType(response, operation.responseName)}`);
+        const names = union.variants.map((variant, index) => {
+          const name = `${operation.responseName}Variant${index + 1}`;
+          addModel(variant, name);
+          return name;
+        });
+        classes.push(`${operation.responseName} = ${names.join(" | ")}${union.nullable ? " | None" : ""}`);
         defined.add(operation.responseName);
         continue;
       }
