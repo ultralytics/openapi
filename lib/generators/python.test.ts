@@ -108,6 +108,33 @@ describe("Python generator", () => {
     expect(types).toContain('"metadata": NotRequired[WidgetsRetrieveResponseValueMetadata | None]');
     expect(types).toContain("WidgetsRetrieveResponse = WidgetsRetrieveResponseValue | None");
     expect(types).toContain('"widget": NotRequired[WidgetsRetrieveResponseValue]');
+    expect(types).toContain(
+      'UploadsUploadFileResponseVariant1 = TypedDict("UploadsUploadFileResponseVariant1", {"requestId": str, "success":',
+    );
+    expect(types).toContain(
+      'UploadsUploadFileResponseVariant2 = TypedDict("UploadsUploadFileResponseVariant2", {"requestId": str, "failureId": str, "error": str, "retryAfter": NotRequired[int]}',
+    );
+    expect(types).toContain(
+      'UploadsUploadFileResponseVariant3 = TypedDict("UploadsUploadFileResponseVariant3", {"requestId": str, "failureId": str, "error": NotRequired[str], "retryAfter": int}',
+    );
+    expect(types).toContain(
+      "UploadsUploadFileResponse = UploadsUploadFileResponseVariant1 | UploadsUploadFileResponseVariant2 | UploadsUploadFileResponseVariant3",
+    );
+    expect(types).toContain(
+      "UploadsUploadFileResponseVariant1PrimaryFailure = UploadsUploadFileResponseVariant1PrimaryFailureVariant1 | UploadsUploadFileResponseVariant1PrimaryFailureVariant2",
+    );
+    expect(types).toContain(
+      '"mixed": NotRequired[dict[str, Any] | str], "constrained": NotRequired[UploadsUploadFileResponseVariant1ConstrainedVariant1 | UploadsUploadFileResponseVariant1ConstrainedVariant2]',
+    );
+    expect(types).toContain(
+      'UploadsUploadFileResponseVariant1ConstrainedVariant1 = TypedDict("UploadsUploadFileResponseVariant1ConstrainedVariant1", {"code": str, "message": NotRequired[str]})',
+    );
+    expect(types).toContain(
+      'UploadsUploadFileResponseVariant1ConstrainedVariant2 = TypedDict("UploadsUploadFileResponseVariant1ConstrainedVariant2", {"code": NotRequired[str], "message": str})',
+    );
+    expect(types).toContain(
+      '"primaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure], "secondaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure]',
+    );
     expect(widgets).toContain("description: str | None");
     expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");

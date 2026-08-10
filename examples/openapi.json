@@ -44,6 +44,19 @@
             "anyOf": [{ "type": "object", "properties": { "source": { "type": "string" } } }, { "type": "null" }]
           }
         }
+      },
+      "UploadFailure": {
+        "allOf": [
+          {
+            "type": "object",
+            "required": ["failureId"],
+            "properties": { "failureId": { "type": "string" } }
+          },
+          {
+            "properties": { "error": { "type": "string" }, "retryAfter": { "type": "integer" } },
+            "oneOf": [{ "required": ["error"] }, { "required": ["retryAfter"] }, { "enum": [null] }]
+          }
+        ]
       }
     },
     "parameters": {
@@ -284,12 +297,43 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": ["success"],
-                  "properties": {
-                    "success": { "type": "boolean", "const": true },
-                    "widget": { "$ref": "#/components/schemas/WidgetDetail" }
-                  }
+                  "required": ["requestId"],
+                  "properties": { "requestId": { "type": "string" } },
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["success"],
+                      "properties": {
+                        "success": { "type": "boolean", "const": true },
+                        "widget": { "$ref": "#/components/schemas/WidgetDetail" },
+                        "mixed": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "required": ["message"],
+                              "properties": { "message": { "type": "string" } }
+                            },
+                            { "type": "string" }
+                          ]
+                        },
+                        "constrained": {
+                          "allOf": [
+                            { "type": "object" },
+                            {
+                              "properties": {
+                                "code": { "type": "string" },
+                                "message": { "type": "string" }
+                              },
+                              "anyOf": [{ "required": ["code"] }, { "required": ["message"] }, { "type": "string" }]
+                            }
+                          ]
+                        },
+                        "primaryFailure": { "$ref": "#/components/schemas/UploadFailure" },
+                        "secondaryFailure": { "$ref": "#/components/schemas/UploadFailure" }
+                      }
+                    },
+                    { "$ref": "#/components/schemas/UploadFailure" }
+                  ]
                 }
               }
             }

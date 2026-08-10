@@ -68,17 +68,25 @@ function pythonDocstringText(value: string, indentation = ""): string {
     .replaceAll("\n", `\n${indentation}`);
 }
 
-function isNullable(document: OpenApiDocument, schema: JsonSchema): boolean {
-  if (schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"))) return true;
-  return (schema.oneOf ?? schema.anyOf ?? []).some((variant) => {
-    const resolved = resolveSchema(document, variant) ?? variant;
-    return (
-      resolved.const === null ||
-      resolved.nullable === true ||
-      resolved.type === "null" ||
-      (Array.isArray(resolved.type) && resolved.type.includes("null"))
-    );
-  });
+function isNullable(document: OpenApiDocument, schema: JsonSchema, depth = 0): boolean {
+  if (depth > 10) return false;
+  const union = schema.oneOf ?? schema.anyOf;
+  let nullable = false;
+  if (schema.const !== undefined) nullable = schema.const === null;
+  else if (schema.enum) nullable = schema.enum.includes(null);
+  else if (schema.nullable === true) nullable = true;
+  else if (schema.type !== undefined)
+    nullable = schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null"));
+  else if (union)
+    nullable = union.some((variant) => isNullable(document, resolveSchema(document, variant) ?? variant, depth + 1));
+  else nullable = !schema.properties && !schema.required;
+  return (
+    nullable &&
+    (schema.allOf ?? []).every((item) => {
+      const resolved = resolveSchema(document, item) ?? item;
+      return isNullable(document, resolved, depth + 1);
+    })
+  );
 }
 
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
@@ -356,16 +364,146 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   const generated = new Set<string>();
   const references = new Map<string, string>();
 
+  function possibleTypes(input: JsonSchema, depth = 0): { object: boolean; other: boolean } {
+    const schema = resolveSchema(document, input) ?? input;
+    if (depth > 10) return { object: true, other: true };
+    const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+    let result = types.length
+      ? { object: types.includes("object"), other: types.some((type) => type !== "object" && type !== "null") }
+      : { object: true, other: true };
+    if (schema.const !== undefined) {
+      result = {
+        object: schema.const !== null && typeof schema.const === "object" && !Array.isArray(schema.const),
+        other: schema.const !== null && (typeof schema.const !== "object" || Array.isArray(schema.const)),
+      };
+    } else if (schema.enum) {
+      result = {
+        object: schema.enum.some((value) => value !== null && typeof value === "object" && !Array.isArray(value)),
+        other: schema.enum.some((value) => value !== null && (typeof value !== "object" || Array.isArray(value))),
+      };
+    }
+    const union = schema.oneOf ?? schema.anyOf;
+    if (union) {
+      const variants = union.map((item) => possibleTypes(item, depth + 1));
+      result.object &&= variants.some((item) => item.object);
+      result.other &&= variants.some((item) => item.other);
+    }
+    for (const item of schema.allOf ?? []) {
+      const nested = possibleTypes(item, depth + 1);
+      result.object &&= nested.object;
+      result.other &&= nested.other;
+    }
+    return result;
+  }
+
+  function objectUnion(
+    input: JsonSchema | undefined,
+    depth = 0,
+    objectOnly = false,
+  ): { nullable: boolean; variants: JsonSchema[] } | undefined {
+    const schema = resolveSchema(document, input);
+    if (!schema || depth > 10) return undefined;
+    const union = schema.oneOf ?? schema.anyOf;
+    if (!union?.length) {
+      for (const [index, item] of (schema.allOf ?? []).entries()) {
+        const shared = { ...schema, allOf: schema.allOf?.filter((_, itemIndex) => itemIndex !== index) };
+        const sharedTypes = possibleTypes(shared);
+        const nested = objectUnion(item, depth + 1, objectOnly || (sharedTypes.object && !sharedTypes.other));
+        if (!nested) continue;
+        const variants: JsonSchema[] = [];
+        const nullable = isNullable(document, schema);
+        for (const variant of nested.variants) {
+          const composed = {
+            ...shared,
+            allOf: [...(shared.allOf ?? []), variant],
+            required: [...new Set([...(shared.required ?? []), ...(variant.required ?? [])])],
+          };
+          const expanded = objectUnion(composed, depth + 1, objectOnly);
+          if (expanded) {
+            variants.push(...expanded.variants);
+          } else {
+            const object = objectSchema(document, composed);
+            if (!object?.properties) return undefined;
+            variants.push(object);
+          }
+        }
+        return variants.length ? { nullable, variants } : undefined;
+      }
+      return undefined;
+    }
+    const shared = { ...schema };
+    delete shared.oneOf;
+    delete shared.anyOf;
+    const sharedAllOf = shared.allOf ?? [];
+    const sharedTypes = possibleTypes(shared);
+    const constrained = objectOnly || (sharedTypes.object && !sharedTypes.other);
+    const objects: JsonSchema[] = [];
+    const nullable = isNullable(document, schema);
+    for (const variant of union) {
+      const resolved = resolveSchema(document, variant) ?? variant;
+      if (
+        resolved.const === null ||
+        (resolved.enum?.length === 1 && resolved.enum[0] === null) ||
+        resolved.type === "null" ||
+        (Array.isArray(resolved.type) && resolved.type.length === 1 && resolved.type[0] === "null")
+      ) {
+        continue;
+      }
+      const types = possibleTypes(resolved);
+      if (!types.object) {
+        if (constrained) continue;
+        return undefined;
+      }
+      if (types.other && !constrained) return undefined;
+      const nested = objectUnion(resolved, depth + 1, constrained);
+      const variants = nested?.variants ?? [resolved];
+      for (const item of variants) {
+        const composed = {
+          ...shared,
+          allOf: [...sharedAllOf, item as JsonSchema],
+          required: [...new Set([...(shared.required ?? []), ...(item.required ?? [])])],
+        };
+        const expanded = objectUnion(composed, depth + 1, objectOnly);
+        if (expanded) {
+          objects.push(...expanded.variants);
+        } else {
+          const merged = objectSchema(document, composed);
+          if (!merged?.properties) return undefined;
+          objects.push(merged);
+        }
+      }
+    }
+    return objects.length ? { nullable, variants: objects } : undefined;
+  }
+
   function modelType(input: JsonSchema | undefined, name: string): string {
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
     const nullable = isNullable(document, schema);
-    const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
+    const union = objectUnion(schema);
+    const effectiveNullable = nullable || (union?.nullable ?? false);
+    const result = (type: string) =>
+      effectiveNullable && !type.split(" | ").includes("None") ? `${type} | None` : type;
     const reference = input?.$ref ? references.get(input.$ref) : undefined;
     if (reference) return defined.has(reference) ? result(reference) : quote(result(reference));
     if (input?.$ref) references.set(input.$ref, name);
     if (schema.format === "binary") return result("bytes");
     if (schema.format === "date-time") return result("str");
+    if (union && union.variants.length > 1) {
+      const names = union.variants.map((variant, index) => {
+        const variantName = `${name}Variant${index + 1}`;
+        addModel(variant, variantName);
+        return variantName;
+      });
+      const type = names.join(" | ");
+      if (input?.$ref) {
+        classes.push(`${name} = ${type}`);
+        defined.add(name);
+        return result(name);
+      }
+      return result(type);
+    }
+    if (!union && (schema.oneOf?.length || schema.anyOf?.length)) return pythonType(document, schema, true);
     const object = objectSchema(document, schema);
     if (object?.properties) {
       addModel(object, name);
@@ -400,6 +538,29 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     for (const operation of operations) {
       if (!operation.responseName) continue;
       const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
+      const union = objectUnion(response);
+      if (union && union.variants.length > 1) {
+        const valueName = union.nullable ? `${operation.responseName}Value` : operation.responseName;
+        if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
+          references.set(operation.responseSchema.$ref, valueName);
+        }
+        const names = union.variants.map((variant, index) => {
+          const name = `${operation.responseName}Variant${index + 1}`;
+          addModel(variant, name);
+          return name;
+        });
+        if (union.nullable) {
+          classes.push(`${valueName} = ${names.join(" | ")}`);
+          defined.add(valueName);
+        }
+        classes.push(`${operation.responseName} = ${union.nullable ? `${valueName} | None` : names.join(" | ")}`);
+        defined.add(operation.responseName);
+        continue;
+      }
+      if (!union && response && (response.oneOf?.length || response.anyOf?.length)) {
+        classes.push(`${operation.responseName} = ${modelType(operation.responseSchema, operation.responseName)}`);
+        continue;
+      }
       const schema = objectSchema(document, operation.responseSchema);
       const nullableObject = !!schema?.properties && !!response && isNullable(document, response);
       const modelName = nullableObject ? `${operation.responseName}Value` : operation.responseName;
