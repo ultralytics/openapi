@@ -239,18 +239,23 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": ["id", "displayName"],
-                  "properties": {
-                    "id": { "type": "string" },
-                    "displayName": { "type": "string", "nullable": true },
-                    "metadata": {
-                      "anyOf": [
-                        { "type": "object", "properties": { "source": { "type": "string" } } },
-                        { "type": "null" }
-                      ]
-                    }
-                  }
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["id", "displayName"],
+                      "properties": {
+                        "id": { "type": "string" },
+                        "displayName": { "type": "string", "nullable": true },
+                        "metadata": {
+                          "anyOf": [
+                            { "type": "object", "properties": { "source": { "type": "string" } } },
+                            { "type": "null" }
+                          ]
+                        }
+                      }
+                    },
+                    { "type": "null" }
+                  ]
                 }
               }
             }

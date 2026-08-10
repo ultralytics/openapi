@@ -403,8 +403,14 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
         references.set(operation.responseSchema.$ref, operation.responseName);
       }
       const schema = objectSchema(document, operation.responseSchema);
-      if (schema?.properties) addModel(schema, operation.responseName);
-      else if (operation.responseSchema) {
+      if (schema?.properties) {
+        const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
+        if (response && isNullable(document, response)) {
+          const valueName = `${operation.responseName}Value`;
+          addModel(schema, valueName);
+          classes.push(`${operation.responseName} = ${valueName} | None`);
+        } else addModel(schema, operation.responseName);
+      } else if (operation.responseSchema) {
         const type = modelType(operation.responseSchema, operation.responseName);
         classes.push(`${operation.responseName} = ${type}`);
       }
