@@ -6,6 +6,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 export interface OpenApiConfig {
   apiKey: { environment: string };
   docs?: { basePath?: string };
+  header?: string;
   license?: { file: string; id: string };
   name: string;
   python: {

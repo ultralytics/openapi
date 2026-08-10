@@ -47,7 +47,7 @@ OPENAPI_CONFIG=../product/openapi.config.json bun run generate
 OPENAPI_CONFIG=../product/openapi.config.json bun run build
 ```
 
-Static documentation builds are deterministic for the same configuration and contract.
+Static documentation builds are deterministic for the same configuration and contract. Set `header` to add a consumer-owned source header to generated Python, JavaScript, CSS, HTML, and TOML files.
 
 ## 🐍 Python
 
