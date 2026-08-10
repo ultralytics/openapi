@@ -12,6 +12,7 @@
     "typecheck": "next typegen && tsgo --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "knip": "knip --exclude binaries",
     "test": "bun test"
   },
   "dependencies": {
@@ -34,6 +35,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@typescript/native-preview": "^7.0.0-dev.20260707.2",
-    "typescript": "^6.0.3"
+    "knip": "^6.32.1",
+    "typescript": "^7.0.2"
   }
 }

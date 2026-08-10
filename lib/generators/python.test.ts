@@ -40,9 +40,13 @@ describe("Python generator", () => {
   test("generates configured sync and async clients", async () => {
     const source = await Bun.file(join(output, "src/example_api/__init__.py")).text();
     const client = await Bun.file(join(output, "src/example_api/client.py")).text();
+    const project = await Bun.file(join(output, "pyproject.toml")).text();
     expect(source).toContain("from .client import Example");
     expect(source).toContain("from .async_client import AsyncExample");
     expect(client).toContain('base_url: str = "https://api.example.com/v1"');
+    expect(project).toContain('license = "AGPL-3.0-only"');
+    expect(project).toContain('dependencies = ["httpx>=0.28,<1"]');
+    expect(await Bun.file(join(output, "LICENSE")).text()).toBe(await Bun.file("LICENSE").text());
     expect(resolveServerUrl({ ...document, servers: [{ url: "/v2" }] })).toBe("http://localhost:3000/v2");
     expect(serializeSimplePath({ role: "admin/user" }, true)).toBe("role=admin%2Fuser");
     const operation = getOperations(document)[0];
@@ -95,15 +99,15 @@ describe("Python generator", () => {
     expect(uploads).toContain('files={"file": file}');
   });
 
-  test("generates response models with JSON aliases", async () => {
+  test("generates typed dictionary responses with wire keys", async () => {
     const types = await Bun.file(join(output, "src/example_api/types.py")).text();
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
-    expect(types).toContain("class APIModel(BaseModel):");
-    expect(types).toContain('widget_id: str = Field(alias="widgetId")');
-    expect(types).toContain('display_name: str | None = Field(alias="displayName")');
+    expect(types).toContain('WidgetsCreateResponse = TypedDict("WidgetsCreateResponse"');
+    expect(types).toContain('"widgetId": str');
+    expect(types).toContain('"displayName": str | None');
     expect(widgets).toContain("description: str | None");
     expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
-    expect(widgets).toContain("WidgetsCreateResponse.model_validate(");
+    expect(widgets).toContain("return cast(WidgetsCreateResponse,");
   });
 
   test("merges composed request schemas without narrowing union fields", async () => {
@@ -124,7 +128,7 @@ describe("Python generator", () => {
     const types = await Bun.file(join(output, "src/example_api/types.py")).text();
     expect(events).toContain("body: list[str]");
     expect(events).toContain("json=body");
-    expect(types).toContain("warnings: list[str] | None");
+    expect(types).toContain('"warnings": list[str] | None');
   });
 
   test("serializes form request bodies", async () => {
@@ -144,13 +148,13 @@ describe("Python generator", () => {
   test("generates typed collection responses", async () => {
     const reports = await Bun.file(join(output, "src/example_api/resources/reports.py")).text();
     const types = await Bun.file(join(output, "src/example_api/types.py")).text();
-    expect(reports).toContain("TypeAdapter(ReportsListResponse).validate_python(");
+    expect(reports).toContain("return cast(ReportsListResponse,");
     expect(reports).toContain('style="pipeDelimited", explode=False');
     expect(types).toContain("ReportsListResponse = list[ReportsListResponseItem]");
-    expect(types).toContain("class ReportsListResponseItem(APIModel):");
-    expect(types).toContain("artifact: bytes");
-    expect(types).toContain('user_id: str = Field(alias="user-id")');
-    expect(types).toContain('user_id_field: str = Field(alias="user_id")');
-    expect(types).not.toContain("password:");
+    expect(types).toContain('ReportsListResponseItem = TypedDict("ReportsListResponseItem"');
+    expect(types).toContain('"artifact": bytes');
+    expect(types).toContain('"user-id": str');
+    expect(types).toContain('"user_id": str');
+    expect(types).not.toContain('"password"');
   });
 });

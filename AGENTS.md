@@ -35,6 +35,7 @@ bun run sync      # fetch the configured OpenAPI contract
 bun run generate  # generate and format all SDK outputs
 bun run typecheck # type-check TypeScript
 bun run lint      # check formatting and lint rules
+bun run knip      # find unused files, exports, and dependencies
 bun run test      # run focused generator tests
 bun run build     # build the static documentation application
 ```
@@ -55,7 +56,7 @@ Run checks through the package scripts. Generated Python additionally supports `
 - Follow the OpenAI client shape: one client, grouped resources, keyword arguments, and environment-based authentication.
 - Generate synchronous and asynchronous clients with the same resource tree.
 - Generate Google-style docstrings. Types are parenthesized in `Args:`, `Returns:`, and `Raises:` sections.
-- Generated SDK packages carry their own permissive license so users do not inherit the generator's AGPL obligations.
+- Generated SDK packages default to AGPL-3.0 and use the license configured in `openapi.config.json`.
 
 ## Conventions
 

@@ -17,6 +17,7 @@ import {
 
 interface PythonConfig {
   apiKey: { environment: string };
+  license?: { file: string; id: string };
   name: string;
   python: { client: string; package: string; project: string; version: string };
 }
@@ -39,7 +40,6 @@ interface PythonOperation extends ApiOperation {
   contentType?: string;
   name: string;
   responseName?: string;
-  responseAdapter?: boolean;
   responseSchema?: JsonSchema;
 }
 
@@ -159,7 +159,6 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   for (const operation of getOperations(document)) {
     const media = successMedia(operation);
     const responseSchema = media?.[1].schema;
-    const responseObject = objectSchema(document, responseSchema);
     const resource = operation.resource;
     const values = resources.get(resource) ?? [];
     const name = operation.sdkMethod;
@@ -168,7 +167,6 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       arguments: argumentsFor(document, operation),
       contentType: requestMedia(operation)?.[0],
       name,
-      responseAdapter: Boolean(responseSchema && !responseObject?.properties),
       responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
       responseSchema,
     });
@@ -278,11 +276,7 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   ].filter(Boolean);
   const pathValue = path.includes("{") ? `f${quote(path)}` : quote(path);
   const call = `${async ? "await " : ""}self._client.request(${quote(operation.method.toUpperCase())}, ${pathValue}${options.length ? `, ${options.join(", ")}` : ""})`;
-  const result = operation.responseName
-    ? operation.responseAdapter
-      ? `TypeAdapter(${operation.responseName}).validate_python(${call})`
-      : `${operation.responseName}.model_validate(${call})`
-    : `cast(${returnType}, ${call})`;
+  const result = `cast(${returnType}, ${call})`;
   return [
     `    ${async ? "async " : ""}def ${operation.name}(${signature}) -> ${returnType}:`,
     docstring(document, operation, returnType),
@@ -302,7 +296,6 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
   const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
   if (body.includes("cast(")) typingImports.push("cast");
   const typingSource = typingImports.length ? `from typing import ${typingImports.sort().join(", ")}\n\n` : "";
-  const pydanticSource = body.includes("TypeAdapter(") ? "from pydantic import TypeAdapter\n\n" : "";
   const clientImports = [
     ...(body.includes("NotGiven") ? ["NOT_GIVEN"] : []),
     "AsyncAPIClient",
@@ -313,7 +306,7 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
   ];
   const clientImport = `from .._client import (\n${clientImports.map((name) => `    ${name},`).join("\n")}\n)\n`;
   const tag = pythonDocstringText(operations[0]?.tag ?? className, "    ");
-  return `from __future__ import annotations\n\n${typingSource}${pydanticSource}${clientImport}${imports}\nclass ${className}:\n    """${tag} API operations."""\n\n    def __init__(self, client: SyncAPIClient) -> None:\n        self._client = client\n\n${methods}\n\n\nclass Async${className}:\n    """Asynchronous ${tag} API operations."""\n\n    def __init__(self, client: AsyncAPIClient) -> None:\n        self._client = client\n\n${asyncMethods}\n`;
+  return `from __future__ import annotations\n\n${typingSource}${clientImport}${imports}\nclass ${className}:\n    """${tag} API operations."""\n\n    def __init__(self, client: SyncAPIClient) -> None:\n        self._client = client\n\n${methods}\n\n\nclass Async${className}:\n    """Asynchronous ${tag} API operations."""\n\n    def __init__(self, client: AsyncAPIClient) -> None:\n        self._client = client\n\n${asyncMethods}\n`;
 }
 
 function modelSource(document: OpenApiDocument, resources: Map<string, PythonOperation[]>): string {
@@ -326,9 +319,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
     const result = (type: string) => (nullable ? `${type} | None` : type);
     if (schema.format === "binary") return result("bytes");
-    if (schema.format === "date-time") {
-      return result("datetime");
-    }
+    if (schema.format === "date-time") return result("str");
     const object = objectSchema(document, schema);
     if (object?.properties) {
       addModel(object, name);
@@ -353,17 +344,9 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     const fields = properties.map(([wireName, value], index) => {
       const fieldName = fieldNames[index] ?? snake(wireName);
       const type = modelType(value, `${name}${pascal(fieldName)}`);
-      const optionalType = required.has(wireName) || type.split(" | ").includes("None") ? type : `${type} | None`;
-      const alias = fieldName === wireName ? "" : `alias=${quote(wireName)}, `;
-      const defaultValue = required.has(wireName)
-        ? alias
-          ? ` = Field(${alias.slice(0, -2)})`
-          : ""
-        : ` = Field(${alias}default=None)`;
-      const description = value.description ? `\n    """${pythonDocstringText(value.description, "    ")}"""` : "";
-      return `    ${fieldName}: ${optionalType}${defaultValue}${description}`;
+      return `${quote(wireName)}: ${required.has(wireName) ? type : `NotRequired[${type}]`}`;
     });
-    classes.push(`class ${name}(APIModel):\n${fields.length ? fields.join("\n\n") : "    pass"}`);
+    classes.push(`${name} = TypedDict(${quote(name)}, {${fields.join(", ")}})`);
   }
 
   for (const operations of resources.values()) {
@@ -378,10 +361,11 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     }
   }
   const body = classes.join("\n\n\n");
-  const datetimeImport = body.includes("datetime") ? "from datetime import datetime\n" : "";
-  const typing = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
+  const typing = ["Any", "Literal", "NotRequired", "TypedDict"].filter((name) =>
+    new RegExp(`\\b${name}\\b`).test(body),
+  );
   const typingImport = typing.length ? `from typing import ${typing.join(", ")}\n` : "";
-  return `from __future__ import annotations\n\n${datetimeImport}${typingImport}\nfrom pydantic import BaseModel, ConfigDict, Field\n\n\nclass APIModel(BaseModel):\n    """Base model for API responses."""\n\n    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True, protected_namespaces=())\n\n\n${body}\n`;
+  return `from __future__ import annotations\n\n${typingImport}\n${body}\n`;
 }
 
 function clientSource(): string {
@@ -572,24 +556,6 @@ class APIConnectionError(Exception):
     """Network error raised while contacting the API."""
 `;
 
-const GENERATED_LICENSE = `MIT License
-
-Copyright (c) 2026 OpenAPI SDK contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the Software without restriction, including without limitation
-the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of
-the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
-WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-`;
-
 function publicClientSource(
   config: PythonConfig,
   resources: Map<string, PythonOperation[]>,
@@ -609,17 +575,19 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
   const resources = prepare(document);
   const root = `${output}/src/${config.python.package}`;
   const baseUrl = resolveServerUrl(document);
+  const license = config.license ?? { file: "LICENSE", id: "AGPL-3.0-only" };
+  const licenseText = await Bun.file(license.file).text();
   await rm(output, { force: true, recursive: true });
   await Promise.all([
     Bun.write(
       `${output}/pyproject.toml`,
-      `[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\ndescription = "Python client for ${config.name}"\nreadme = "README.md"\nlicense = "MIT"\nrequires-python = ">=3.10"\ndependencies = ["httpx>=0.27,<1", "pydantic>=2,<3"]\n\n[tool.hatch.build.targets.wheel]\npackages = ["src/${config.python.package}"]\n`,
+      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\ndescription = "Python client for ${config.name}"\nreadme = "README.md"\nlicense = "${license.id}"\nrequires-python = ">=3.11"\ndependencies = ["httpx>=0.28,<1"]\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
     ),
     Bun.write(
       `${output}/README.md`,
       `# ${config.name} Python SDK\n\nGenerated from the ${config.name} OpenAPI contract.\n\n\`\`\`bash\npip install ${config.python.project}\n\`\`\`\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()  # ${config.apiKey.environment}\n\`\`\`\n`,
     ),
-    Bun.write(`${output}/LICENSE`, GENERATED_LICENSE),
+    Bun.write(`${output}/LICENSE`, licenseText),
     Bun.write(`${root}/_client.py`, clientSource()),
     Bun.write(`${root}/_exceptions.py`, EXCEPTIONS_SOURCE),
     Bun.write(`${root}/client.py`, publicClientSource(config, resources, false, baseUrl)),

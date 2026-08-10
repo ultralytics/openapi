@@ -1,6 +1,6 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-export type HttpMethod = "delete" | "get" | "head" | "options" | "patch" | "post" | "put" | "trace";
+type HttpMethod = "delete" | "get" | "head" | "options" | "patch" | "post" | "put" | "trace";
 
 export interface JsonSchema {
   $ref?: string;
@@ -68,7 +68,7 @@ export interface MediaType {
   schema?: JsonSchema;
 }
 
-export interface OperationObject {
+interface OperationObject {
   description?: string;
   operationId?: string;
   parameters?: ParameterInput[];

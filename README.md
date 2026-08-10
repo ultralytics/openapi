@@ -28,6 +28,7 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
   "source": "path/to/openapi.json",
   "name": "Example API",
   "apiKey": { "environment": "EXAMPLE_API_KEY" },
+  "license": { "id": "AGPL-3.0-only", "file": "LICENSE" },
   "python": {
     "client": "Example",
     "package": "example_api",
@@ -57,7 +58,7 @@ client = AsyncExample()
 widgets = await client.widgets.list()
 ```
 
-The generated package includes typed resources and responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.10 or newer and is MIT licensed.
+The generated package includes typed resources and `TypedDict` responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.11 or newer. Generated packages default to AGPL-3.0; set `license.id` and `license.file` to use another license.
 
 ## 🧩 One Contract, Multiple Outputs
 
@@ -90,6 +91,7 @@ Useful checks:
 ```bash
 bun run typecheck
 bun run lint
+bun run knip
 bun run test
 bun run build
 python3 -m compileall -q generated/python/src
@@ -103,7 +105,7 @@ Bug reports and focused feature proposals are welcome in [GitHub Issues](https:/
 
 ## 📄 License
 
-The generator and documentation application are available under the [AGPL-3.0 License](LICENSE). Generated SDK packages include their own permissive license. For commercial licensing, contact [Ultralytics Licensing](https://www.ultralytics.com/license).
+The generator, documentation application, and generated SDKs default to the [AGPL-3.0 License](LICENSE). Generated SDK licenses are configurable. For commercial licensing, contact [Ultralytics Licensing](https://www.ultralytics.com/license).
 
 <br>
 <div align="center">

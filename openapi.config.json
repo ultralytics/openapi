@@ -4,6 +4,10 @@
   "apiKey": {
     "environment": "EXAMPLE_API_KEY"
   },
+  "license": {
+    "id": "AGPL-3.0-only",
+    "file": "LICENSE"
+  },
   "python": {
     "client": "Example",
     "package": "example_api",
