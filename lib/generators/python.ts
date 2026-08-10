@@ -129,6 +129,7 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
     style: parameter.style,
   }));
   const media = requestMedia(operation);
+  if (media && !media[1].schema) throw new Error(`Unsupported schema-less request body: ${media[0]}`);
   const structured =
     media?.[0] === "application/json" ||
     media?.[0].endsWith("+json") ||
@@ -228,8 +229,9 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const returnType = operation.responseName ?? pythonType(document, operation.responseSchema);
   const serverOverride = operation.server && operation.server !== document.servers?.[0];
   const server = serverOverride && operation.server ? expandServerUrl(operation.server) : undefined;
+  const relativeServer = server && !/^[a-z][a-z\d+.-]*:\/\//i.test(server);
   const operationPath =
-    serverOverride && server && !server.startsWith("/")
+    serverOverride && server && !relativeServer
       ? `${resolveServerUrl(document, "http://localhost:3000", operation)}/${operation.path.replace(/^\//, "")}`
       : operation.path;
   let path = operationPath;
@@ -249,7 +251,7 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const json = operation.contentType === "application/json" || operation.contentType?.endsWith("+json");
   const authentication = getAuthentication(document, operation);
   const options = [
-    server?.startsWith("/") ? `server=${quote(server)}` : "",
+    relativeServer ? `server=${quote(server)}` : "",
     authentication ? `auth=(${quote(authentication.header)}, ${quote(authentication.prefix)})` : "",
     query.length
       ? `params=[${query
@@ -322,6 +324,7 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
 
 function modelSource(document: OpenApiDocument, resources: Map<string, PythonOperation[]>): string {
   const classes: string[] = [];
+  const defined = new Set<string>();
   const generated = new Set<string>();
   const references = new Map<string, string>();
 
@@ -331,7 +334,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
     const result = (type: string) => (nullable ? `${type} | None` : type);
     const reference = input?.$ref ? references.get(input.$ref) : undefined;
-    if (reference) return result(reference);
+    if (reference) return defined.has(reference) ? result(reference) : quote(result(reference));
     if (input?.$ref) references.set(input.$ref, name);
     if (schema.format === "binary") return result("bytes");
     if (schema.format === "date-time") return result("str");
@@ -352,9 +355,9 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (generated.has(name)) return;
     generated.add(name);
     const required = new Set(schema.required ?? []);
-    const properties = Object.entries(schema.properties ?? {})
-      .map(([name, value]) => [name, resolveSchema(document, value) ?? value] as const)
-      .filter(([, value]) => !value.writeOnly);
+    const properties = Object.entries(schema.properties ?? {}).filter(
+      ([, value]) => !resolveSchema(document, value)?.writeOnly,
+    );
     const fieldNames = allocateSdkIdentifiers(properties.map(([wireName]) => ({ location: "field", name: wireName })));
     const fields = properties.map(([wireName, value], index) => {
       const fieldName = fieldNames[index] ?? snake(wireName);
@@ -362,6 +365,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       return `${quote(wireName)}: ${required.has(wireName) ? type : `NotRequired[${type}]`}`;
     });
     classes.push(`${name} = TypedDict(${quote(name)}, {${fields.join(", ")}})`);
+    defined.add(name);
   }
 
   for (const operations of resources.values()) {

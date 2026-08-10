@@ -344,7 +344,11 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
       };
       const used = names.get(resource) ?? new Set<string>();
       let name = sdkMethod(base);
-      if (used.has(name)) name = `${name}_${summarySdkName(base).replace(/^(get|list|create|update|delete)_/, "")}`;
+      if (used.has(name)) {
+        name = `${name}_${summarySdkName(base).replace(/^(get|list|create|update|delete)_/, "")}`;
+        const candidate = name;
+        for (let index = 2; used.has(name); index += 1) name = `${candidate}_${index}`;
+      }
       used.add(name);
       names.set(resource, used);
       operations.push({
