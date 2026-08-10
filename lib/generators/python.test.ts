@@ -108,6 +108,15 @@ describe("Python generator", () => {
     expect(types).toContain('"metadata": NotRequired[WidgetsRetrieveResponseValueMetadata | None]');
     expect(types).toContain("WidgetsRetrieveResponse = WidgetsRetrieveResponseValue | None");
     expect(types).toContain('"widget": NotRequired[WidgetsRetrieveResponseValue]');
+    expect(types).toContain(
+      'UploadsUploadFileResponseVariant1 = TypedDict("UploadsUploadFileResponseVariant1", {"success":',
+    );
+    expect(types).toContain(
+      'UploadsUploadFileResponseVariant2 = TypedDict("UploadsUploadFileResponseVariant2", {"error": str}',
+    );
+    expect(types).toContain(
+      "UploadsUploadFileResponse = UploadsUploadFileResponseVariant1 | UploadsUploadFileResponseVariant2",
+    );
     expect(widgets).toContain("description: str | None");
     expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");

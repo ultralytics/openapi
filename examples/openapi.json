@@ -284,12 +284,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": ["success"],
-                  "properties": {
-                    "success": { "type": "boolean", "const": true },
-                    "widget": { "$ref": "#/components/schemas/WidgetDetail" }
-                  }
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["success"],
+                      "properties": {
+                        "success": { "type": "boolean", "const": true },
+                        "widget": { "$ref": "#/components/schemas/WidgetDetail" }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["error"],
+                      "properties": { "error": { "type": "string" } }
+                    }
+                  ]
                 }
               }
             }

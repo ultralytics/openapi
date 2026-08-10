@@ -366,6 +366,16 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (input?.$ref) references.set(input.$ref, name);
     if (schema.format === "binary") return result("bytes");
     if (schema.format === "date-time") return result("str");
+    const variants = schema.oneOf ?? schema.anyOf;
+    const variantObjects = variants?.map((variant) => objectSchema(document, variant));
+    if (variants?.length && variantObjects?.every((variant) => variant?.properties)) {
+      const names = variantObjects.map((variant, index) => {
+        const variantName = `${name}Variant${index + 1}`;
+        addModel(variant as JsonSchema, variantName);
+        return variantName;
+      });
+      return result(names.join(" | "));
+    }
     const object = objectSchema(document, schema);
     if (object?.properties) {
       addModel(object, name);
@@ -400,6 +410,15 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     for (const operation of operations) {
       if (!operation.responseName) continue;
       const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
+      const variants = response?.oneOf ?? response?.anyOf;
+      if (variants?.length && variants.every((variant) => objectSchema(document, variant)?.properties)) {
+        if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
+          references.set(operation.responseSchema.$ref, operation.responseName);
+        }
+        classes.push(`${operation.responseName} = ${modelType(response, operation.responseName)}`);
+        defined.add(operation.responseName);
+        continue;
+      }
       const schema = objectSchema(document, operation.responseSchema);
       const nullableObject = !!schema?.properties && !!response && isNullable(document, response);
       const modelName = nullableObject ? `${operation.responseName}Value` : operation.responseName;
