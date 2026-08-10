@@ -106,6 +106,17 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
   if (operation.parameters?.some((parameter) => parameter.in === "query" && parameter.allowReserved)) {
     throw new Error("Unsupported query parameter: allowReserved");
   }
+  const structuredParameter = operation.parameters?.find((parameter) => {
+    const schema = resolveSchema(document, parameter.schema);
+    const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+    return (
+      (parameter.in === "header" || parameter.in === "cookie") &&
+      (type === "array" || type === "object" || schema?.properties)
+    );
+  });
+  if (structuredParameter) {
+    throw new Error(`Unsupported ${structuredParameter.in} parameter: ${structuredParameter.name}`);
+  }
   const parameters: Argument[] = (operation.parameters ?? []).map((parameter: Parameter) => ({
     allowReserved: parameter.allowReserved,
     description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
@@ -312,12 +323,16 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
 function modelSource(document: OpenApiDocument, resources: Map<string, PythonOperation[]>): string {
   const classes: string[] = [];
   const generated = new Set<string>();
+  const references = new Map<string, string>();
 
   function modelType(input: JsonSchema | undefined, name: string): string {
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
     const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
     const result = (type: string) => (nullable ? `${type} | None` : type);
+    const reference = input?.$ref ? references.get(input.$ref) : undefined;
+    if (reference) return result(reference);
+    if (input?.$ref) references.set(input.$ref, name);
     if (schema.format === "binary") return result("bytes");
     if (schema.format === "date-time") return result("str");
     const object = objectSchema(document, schema);
@@ -352,6 +367,9 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   for (const operations of resources.values()) {
     for (const operation of operations) {
       if (!operation.responseName) continue;
+      if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
+        references.set(operation.responseSchema.$ref, operation.responseName);
+      }
       const schema = objectSchema(document, operation.responseSchema);
       if (schema?.properties) addModel(schema, operation.responseName);
       else if (operation.responseSchema) {
@@ -481,6 +499,8 @@ class SyncAPIClient:
         media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
         if media_type == "application/json" or media_type.endswith("+json"):
             return response.json()
+        if media_type.startswith("text/"):
+            return response.text
         return response.content
 
     def close(self) -> None:
@@ -532,6 +552,8 @@ class AsyncAPIClient:
         media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
         if media_type == "application/json" or media_type.endswith("+json"):
             return response.json()
+        if media_type.startswith("text/"):
+            return response.text
         return response.content
 
     async def close(self) -> None:

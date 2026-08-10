@@ -107,7 +107,8 @@ function codeExamples(
 ) {
   const server = operation.server ?? document.servers?.[0];
   const expandedServer = server ? expandServerUrl(server) : undefined;
-  const baseUrl = expandedServer?.startsWith("/") ? `${origin}${expandedServer}` : (expandedServer ?? origin);
+  const baseUrl =
+    expandedServer && origin ? new URL(expandedServer, `${origin}/`).toString() : (expandedServer ?? origin);
   const parameterExamples = new Map(
     (operation.parameters ?? [])
       .filter((parameter) => parameter.required)
@@ -182,7 +183,7 @@ function codeExamples(
       ? Object.entries(bodyProperties)
           .map(
             ([name, schema]) =>
-              `  --form ${shellQuote(`${name}=${schema.format === "binary" ? "@path/to/file" : (bodyValues[name] ?? "value")}`)}`,
+              `  --form ${shellQuote(`${name}=${resolveSchema(document, schema)?.format === "binary" ? "@path/to/file" : (bodyValues[name] ?? "value")}`)}`,
           )
           .join(" \\\n")
       : "",

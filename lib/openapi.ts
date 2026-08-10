@@ -513,7 +513,14 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
   if (schema.enum?.length) return schema.enum[0];
 
   const union = schema.oneOf ?? schema.anyOf;
-  if (union?.length) return schemaExample(document, union[0], depth + 1);
+  if (union?.length) {
+    const selected = schemaExample(document, union[0], depth + 1);
+    if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
+      const siblings = schemaExample(document, { ...schema, anyOf: undefined, oneOf: undefined }, depth + 1);
+      if (siblings && typeof siblings === "object" && !Array.isArray(siblings)) return { ...siblings, ...selected };
+    }
+    return selected;
+  }
   if (schema.allOf?.length) {
     const object = objectSchema(document, schema);
     if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1);
