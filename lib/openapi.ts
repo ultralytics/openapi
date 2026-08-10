@@ -18,17 +18,22 @@ export interface JsonSchema {
   oneOf?: JsonSchema[];
   properties?: Record<string, JsonSchema>;
   propertyNames?: JsonSchema;
+  readOnly?: boolean;
   required?: string[];
   title?: string;
   type?: string | string[];
+  writeOnly?: boolean;
 }
 
 export interface Parameter {
+  allowReserved?: boolean;
   description?: string;
+  explode?: boolean;
   in: "cookie" | "header" | "path" | "query";
   name: string;
   required?: boolean;
   schema?: JsonSchema;
+  style?: string;
 }
 
 interface ParameterReference {
@@ -416,6 +421,7 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
   const schema = resolveSchema(document, input) ?? input;
   if (schema.example !== undefined) return schema.example;
   if (schema.default !== undefined) return schema.default;
+  if (schema.const !== undefined) return schema.const;
   if (schema.enum?.length) return schema.enum[0];
 
   const union = schema.oneOf ?? schema.anyOf;
@@ -457,6 +463,9 @@ export function requestMedia(operation: ApiOperation): [string, MediaType] | und
 }
 
 export function successMedia(operation: ApiOperation): [string, MediaType] | undefined {
-  const response = Object.entries(operation.responses ?? {}).find(([status]) => /^2\d\d$/.test(status))?.[1];
+  const responses = Object.entries(operation.responses ?? {});
+  const response =
+    responses.find(([status]) => /^2\d\d$/.test(status))?.[1] ??
+    responses.find(([status]) => /^2xx$/i.test(status))?.[1];
   return response ? Object.entries(response.content ?? {})[0] : undefined;
 }

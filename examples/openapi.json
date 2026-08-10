@@ -128,9 +128,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "required": ["description"],
+                "required": ["description", "id"],
                 "properties": {
-                  "description": { "type": "string", "nullable": true }
+                  "description": { "type": "string", "nullable": true },
+                  "id": { "type": "string", "readOnly": true },
+                  "label": { "type": "string" }
                 },
                 "allOf": [
                   {
@@ -194,6 +196,14 @@
         "tags": ["Widgets"],
         "summary": "Get widget",
         "operationId": "get_widget",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "widgetId",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Widget",
@@ -305,6 +315,34 @@
             "content": {
               "text/plain": {
                 "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "List reports",
+        "operationId": "list_reports",
+        "responses": {
+          "2XX": {
+            "description": "Reports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["id", "password", "artifact"],
+                    "properties": {
+                      "id": { "type": "string" },
+                      "password": { "type": "string", "writeOnly": true },
+                      "artifact": { "type": "string", "format": "binary" }
+                    }
+                  }
+                }
               }
             }
           }

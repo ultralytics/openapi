@@ -20,12 +20,15 @@ interface PythonConfig {
 }
 
 interface Argument {
+  allowReserved?: boolean;
   description: string;
+  explode?: boolean;
   location: "body" | Parameter["in"];
   name: string;
   pythonName: string;
   required: boolean;
   schema: JsonSchema;
+  style?: string;
   wholeBody?: boolean;
 }
 
@@ -34,6 +37,7 @@ interface PythonOperation extends ApiOperation {
   contentType?: string;
   name: string;
   responseName?: string;
+  responseAdapter?: boolean;
   responseSchema?: JsonSchema;
 }
 
@@ -85,13 +89,20 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
 }
 
 function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argument[] {
+  const unsupported = (operation.parameters ?? []).find(
+    (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
+  );
+  if (unsupported) throw new Error(`Unsupported path style: ${unsupported.style}`);
   const parameters: Argument[] = (operation.parameters ?? []).map((parameter: Parameter) => ({
+    allowReserved: parameter.allowReserved,
     description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
+    explode: parameter.explode,
     location: parameter.in,
     name: parameter.name,
     pythonName: snake(parameter.name),
     required: parameter.in === "path" || parameter.required === true,
     schema: parameter.schema ?? {},
+    style: parameter.style,
   }));
   const media = requestMedia(operation);
   const structured = ["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(
@@ -100,6 +111,7 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
   const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
   if (body?.properties) {
     for (const [name, schema] of Object.entries(body.properties)) {
+      if (schema.readOnly) continue;
       parameters.push({
         description: schema.description ?? `${name} request value.`,
         location: "body",
@@ -120,6 +132,15 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
       wholeBody: true,
     });
   }
+  const used = new Set(["self"]);
+  for (const parameter of parameters) {
+    const base = parameter.pythonName;
+    let name = base;
+    if (used.has(name)) name = `${base}_${parameter.location}`;
+    for (let index = 2; used.has(name); index += 1) name = `${base}_${index}`;
+    parameter.pythonName = name;
+    used.add(name);
+  }
   return parameters;
 }
 
@@ -137,7 +158,8 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       arguments: argumentsFor(document, operation),
       contentType: requestMedia(operation)?.[0],
       name,
-      responseName: responseObject?.properties ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
+      responseAdapter: Boolean(responseSchema && !responseObject?.properties),
+      responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
       responseSchema,
     });
     resources.set(resource, values);
@@ -177,6 +199,9 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
     ...(keywordArguments.length ? ["*"] : []),
     ...keywordArguments.map((argument) => {
       const type = pythonType(document, argument.schema);
+      if (!argument.required && argument.location === "body") {
+        return `${argument.pythonName}: ${type} | NotGiven = NOT_GIVEN`;
+      }
       const defaultValue = argument.required ? "" : " = None";
       return `${argument.pythonName}: ${argument.required || type.split(" | ").includes("None") ? type : `${type} | None`}${defaultValue}`;
     }),
@@ -186,7 +211,13 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
     operation.server && operation.server !== document.servers?.[0]
       ? `${resolveServerUrl(document, "http://localhost:3000", operation)}/${operation.path.replace(/^\//, "")}`
       : operation.path;
-  const path = operationPath.replace(/{([^}]+)}/g, (_, name: string) => `{${snake(name)}}`);
+  let path = operationPath;
+  for (const argument of pathArguments) {
+    path = path.replace(
+      `{${argument.name}}`,
+      `{_path_parameter(${argument.pythonName}, explode=${argument.explode === true ? "True" : "False"}, allow_reserved=${argument.allowReserved === true ? "True" : "False"})}`,
+    );
+  }
   const query = operation.arguments.filter((argument) => argument.location === "query");
   const headers = operation.arguments.filter((argument) => argument.location === "header");
   const cookies = operation.arguments.filter((argument) => argument.location === "cookie");
@@ -224,7 +255,9 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const pathValue = path.includes("{") ? `f${quote(path)}` : quote(path);
   const call = `${async ? "await " : ""}self._client.request(${quote(operation.method.toUpperCase())}, ${pathValue}${options.length ? `, ${options.join(", ")}` : ""})`;
   const result = operation.responseName
-    ? `${operation.responseName}.model_validate(${call})`
+    ? operation.responseAdapter
+      ? `TypeAdapter(${operation.responseName}).validate_python(${call})`
+      : `${operation.responseName}.model_validate(${call})`
     : `cast(${returnType}, ${call})`;
   return [
     `    ${async ? "async " : ""}def ${operation.name}(${signature}) -> ${returnType}:`,
@@ -245,7 +278,16 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
   const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
   if (body.includes("cast(")) typingImports.push("cast");
   const typingSource = typingImports.length ? `from typing import ${typingImports.sort().join(", ")}\n\n` : "";
-  return `from __future__ import annotations\n\n${typingSource}from .._client import AsyncAPIClient, SyncAPIClient\n${imports}\n\nclass ${className}:\n    """${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: SyncAPIClient) -> None:\n        self._client = client\n\n${methods}\n\n\nclass Async${className}:\n    """Asynchronous ${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: AsyncAPIClient) -> None:\n        self._client = client\n\n${asyncMethods}\n`;
+  const pydanticSource = body.includes("TypeAdapter(") ? "from pydantic import TypeAdapter\n\n" : "";
+  const clientImports = [
+    ...(body.includes("NotGiven") ? ["NOT_GIVEN"] : []),
+    "AsyncAPIClient",
+    ...(body.includes("NotGiven") ? ["NotGiven"] : []),
+    "SyncAPIClient",
+    ...(body.includes("_path_parameter(") ? ["_path_parameter"] : []),
+  ];
+  const clientImport = `from .._client import (\n${clientImports.map((name) => `    ${name},`).join("\n")}\n)\n`;
+  return `from __future__ import annotations\n\n${typingSource}${pydanticSource}${clientImport}${imports}\nclass ${className}:\n    """${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: SyncAPIClient) -> None:\n        self._client = client\n\n${methods}\n\n\nclass Async${className}:\n    """Asynchronous ${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: AsyncAPIClient) -> None:\n        self._client = client\n\n${asyncMethods}\n`;
 }
 
 function modelSource(document: OpenApiDocument, resources: Map<string, PythonOperation[]>): string {
@@ -277,19 +319,21 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (generated.has(name)) return;
     generated.add(name);
     const required = new Set(schema.required ?? []);
-    const fields = Object.entries(schema.properties ?? {}).map(([wireName, value]) => {
-      const fieldName = snake(wireName);
-      const type = modelType(value, `${name}${pascal(fieldName)}`);
-      const optionalType = required.has(wireName) || type.split(" | ").includes("None") ? type : `${type} | None`;
-      const alias = fieldName === wireName ? "" : `alias=${quote(wireName)}, `;
-      const defaultValue = required.has(wireName)
-        ? alias
-          ? ` = Field(${alias.slice(0, -2)})`
-          : ""
-        : ` = Field(${alias}default=None)`;
-      const description = value.description ? `\n    """${value.description.replaceAll('"""', '\\"\\"\\"')}"""` : "";
-      return `    ${fieldName}: ${optionalType}${defaultValue}${description}`;
-    });
+    const fields = Object.entries(schema.properties ?? {})
+      .filter(([, value]) => !value.writeOnly)
+      .map(([wireName, value]) => {
+        const fieldName = snake(wireName);
+        const type = modelType(value, `${name}${pascal(fieldName)}`);
+        const optionalType = required.has(wireName) || type.split(" | ").includes("None") ? type : `${type} | None`;
+        const alias = fieldName === wireName ? "" : `alias=${quote(wireName)}, `;
+        const defaultValue = required.has(wireName)
+          ? alias
+            ? ` = Field(${alias.slice(0, -2)})`
+            : ""
+          : ` = Field(${alias}default=None)`;
+        const description = value.description ? `\n    """${value.description.replaceAll('"""', '\\"\\"\\"')}"""` : "";
+        return `    ${fieldName}: ${optionalType}${defaultValue}${description}`;
+      });
     classes.push(`class ${name}(APIModel):\n${fields.length ? fields.join("\n\n") : "    pass"}`);
   }
 
@@ -298,13 +342,17 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       if (!operation.responseName) continue;
       const schema = objectSchema(document, operation.responseSchema);
       if (schema?.properties) addModel(schema, operation.responseName);
+      else if (operation.responseSchema) {
+        const type = modelType(operation.responseSchema, operation.responseName);
+        classes.push(`${operation.responseName} = ${type}`);
+      }
     }
   }
   const body = classes.join("\n\n\n");
   const datetimeImport = body.includes("datetime") ? "from datetime import datetime\n" : "";
-  const typing = ["Any", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
+  const typing = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
   const typingImport = typing.length ? `from typing import ${typing.join(", ")}\n` : "";
-  return `from __future__ import annotations\n\n${datetimeImport}${typingImport}\nfrom pydantic import BaseModel, ConfigDict, Field\n\n\nclass APIModel(BaseModel):\n    """Base model for API responses."""\n\n    model_config = ConfigDict(populate_by_name=True, protected_namespaces=())\n\n\n${body}\n`;
+  return `from __future__ import annotations\n\n${datetimeImport}${typingImport}\nfrom pydantic import BaseModel, ConfigDict, Field\n\n\nclass APIModel(BaseModel):\n    """Base model for API responses."""\n\n    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True, protected_namespaces=())\n\n\n${body}\n`;
 }
 
 function clientSource(document: OpenApiDocument): string {
@@ -316,14 +364,41 @@ function clientSource(document: OpenApiDocument): string {
 
 import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ._exceptions import APIConnectionError, APIError
 
 
+class NotGiven:
+    """Sentinel for omitted request values."""
+
+
+NOT_GIVEN = NotGiven()
+
+
+def _path_parameter(value: Any, *, explode: bool, allow_reserved: bool) -> str:
+    safe = ":/?#[]@!$&'()*+,;=" if allow_reserved else ""
+    def encode(item: Any) -> str:
+        return quote(str(item), safe=safe)
+
+    if isinstance(value, dict):
+        parts = [f"{encode(key)}={encode(item)}" for key, item in value.items()] if explode else [encode(item) for pair in value.items() for item in pair]
+        return ",".join(parts)
+    if isinstance(value, (list, tuple)):
+        return ",".join(encode(item) for item in value)
+    return encode(value)
+
+
 def _without_none(values: Any) -> Any:
     return {key: value for key, value in values.items() if value is not None} if isinstance(values, dict) else values
+
+
+def _without_not_given(values: Any) -> Any:
+    if isinstance(values, dict):
+        return {key: value for key, value in values.items() if not isinstance(value, NotGiven)}
+    return None if isinstance(values, NotGiven) else values
 
 
 def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
@@ -354,10 +429,10 @@ class SyncAPIClient:
                     params=_without_none(kwargs.get("params")),
                     headers=_without_none(kwargs.get("headers")),
                     cookies=_without_none(kwargs.get("cookies")),
-                    json=kwargs.get("json"),
-                    data=_without_none(kwargs.get("data")),
-                    files=_without_none(kwargs.get("files")),
-                    content=kwargs.get("content"),
+                    json=_without_not_given(kwargs.get("json")),
+                    data=_without_not_given(kwargs.get("data")),
+                    files=_without_not_given(kwargs.get("files")),
+                    content=_without_not_given(kwargs.get("content")),
                 )
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:
@@ -400,10 +475,10 @@ class AsyncAPIClient:
                     params=_without_none(kwargs.get("params")),
                     headers=_without_none(kwargs.get("headers")),
                     cookies=_without_none(kwargs.get("cookies")),
-                    json=kwargs.get("json"),
-                    data=_without_none(kwargs.get("data")),
-                    files=_without_none(kwargs.get("files")),
-                    content=kwargs.get("content"),
+                    json=_without_not_given(kwargs.get("json")),
+                    data=_without_not_given(kwargs.get("data")),
+                    files=_without_not_given(kwargs.get("files")),
+                    content=_without_not_given(kwargs.get("content")),
                 )
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:

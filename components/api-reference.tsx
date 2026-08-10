@@ -48,7 +48,14 @@ function operationSearchText(operation: ApiOperation) {
 function requestBodyExample(document: OpenApiDocument, operation: ApiOperation) {
   const request = requestMedia(operation);
   if (!request) return "";
-  const example = request[1].example ?? schemaExample(document, request[1].schema);
+  let example = request[1].example ?? schemaExample(document, request[1].schema);
+  const schema = objectSchema(document, request[1].schema);
+  if (example && typeof example === "object" && !Array.isArray(example)) {
+    example = { ...example };
+    for (const [name, property] of Object.entries(schema?.properties ?? {})) {
+      if (property.readOnly) delete (example as Record<string, unknown>)[name];
+    }
+  }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
 
@@ -102,7 +109,9 @@ function codeExamples(
   const authentication = getAuthentication(document, operation);
   const hasJsonBody = request?.[0] === "application/json";
   const bodySchema = objectSchema(document, request?.[1].schema);
-  const bodyProperties = bodySchema?.properties ?? {};
+  const bodyProperties = Object.fromEntries(
+    Object.entries(bodySchema?.properties ?? {}).filter(([, schema]) => !schema.readOnly),
+  );
   let bodyValue: unknown = request ? schemaExample(document, request[1].schema) : undefined;
   let bodyValues: Record<string, unknown> = {};
   try {
@@ -150,10 +159,12 @@ function codeExamples(
       .map(
         (parameter) => `${sdkIdentifier(parameter.name)}=${pythonLiteral(schemaExample(document, parameter.schema))}`,
       ),
-    ...(bodySchema?.required ?? []).map(
-      (name) =>
-        `${sdkIdentifier(name)}=${pythonLiteral(bodyValues[name] ?? schemaExample(document, bodyProperties[name]))}`,
-    ),
+    ...(bodySchema?.required ?? [])
+      .filter((name) => bodyProperties[name])
+      .map(
+        (name) =>
+          `${sdkIdentifier(name)}=${pythonLiteral(bodyValues[name] ?? schemaExample(document, bodyProperties[name]))}`,
+      ),
     ...(!bodySchema?.properties && request?.[1].schema && operation.requestBody?.required
       ? [`body=${pythonLiteral(bodyValue)}`]
       : []),

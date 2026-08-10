@@ -5,7 +5,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import config from "../../openapi.config.json";
-import { getAuthentication, getOperations, type OpenApiDocument, resolveServerUrl } from "../openapi";
+import {
+  getAuthentication,
+  getOperations,
+  type OpenApiDocument,
+  requestMedia,
+  resolveServerUrl,
+  schemaExample,
+} from "../openapi";
 import { generatePython } from "./python";
 
 describe("Python generator", () => {
@@ -25,7 +32,7 @@ describe("Python generator", () => {
   });
 
   test("generates every operation from a clean output", async () => {
-    expect(count).toBe(7);
+    expect(count).toBe(8);
     expect(await Bun.file(join(output, "stale.py")).exists()).toBe(false);
   });
 
@@ -58,8 +65,10 @@ describe("Python generator", () => {
     expect(widgets).toContain("Args:\n");
     expect(widgets).toContain("widget_id (str):");
     expect(widgets).toContain("x_tenant_id: str");
+    expect(widgets).toContain("widget_id_query: str");
     expect(widgets).toContain('headers={"X-Tenant-ID": x_tenant_id}');
     expect(widgets).toContain('cookies={"session_id": session_id}');
+    expect(widgets).toContain("_path_parameter(widget_id");
     expect(widgets).toContain("Returns:\n");
     expect(widgets).toContain("Raises:\n");
   });
@@ -74,8 +83,10 @@ describe("Python generator", () => {
     expect(runtime).toContain('retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}');
     expect(runtime).toContain('headers=_without_none(kwargs.get("headers"))');
     expect(runtime).toContain('cookies=_without_none(kwargs.get("cookies"))');
-    expect(runtime).toContain('content=kwargs.get("content")');
-    expect(runtime).toContain('json=kwargs.get("json")');
+    expect(runtime).toContain('content=_without_not_given(kwargs.get("content"))');
+    expect(runtime).toContain("class NotGiven:");
+    expect(runtime).toContain("if not isinstance(value, NotGiven)");
+    expect(runtime).toContain('json=_without_not_given(kwargs.get("json"))');
     expect(runtime).toContain("raise APIError(");
     expect(uploads).toContain('files={"file": file}');
   });
@@ -87,6 +98,7 @@ describe("Python generator", () => {
     expect(types).toContain('widget_id: str = Field(alias="widgetId")');
     expect(types).toContain('display_name: str | None = Field(alias="displayName")');
     expect(widgets).toContain("description: str | None");
+    expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
     expect(widgets).toContain("WidgetsCreateResponse.model_validate(");
   });
 
@@ -96,6 +108,10 @@ describe("Python generator", () => {
     expect(widgets).toContain("settings: dict[str, Any]");
     expect(widgets).toContain("name: str");
     expect(widgets).toContain("description: str | None");
+    const createWidget = getOperations(document).find((operation) => operation.operationId === "create_widget");
+    expect(createWidget && schemaExample(document, requestMedia(createWidget)?.[1].schema)).toMatchObject({
+      provider: "cloud",
+    });
   });
 
   test("passes non-object JSON request bodies through unchanged", async () => {
@@ -117,5 +133,15 @@ describe("Python generator", () => {
     expect(echo).toContain('headers={"Content-Type": "text/plain"}');
     expect(echo).toContain("content=body");
     expect(echo).toContain('"https://echo.example.com/v2/echo"');
+  });
+
+  test("generates typed collection responses", async () => {
+    const reports = await Bun.file(join(output, "src/example_api/resources/reports.py")).text();
+    const types = await Bun.file(join(output, "src/example_api/types.py")).text();
+    expect(reports).toContain("TypeAdapter(ReportsListResponse).validate_python(");
+    expect(types).toContain("ReportsListResponse = list[ReportsListResponseItem]");
+    expect(types).toContain("class ReportsListResponseItem(APIModel):");
+    expect(types).toContain("from typing import BinaryIO");
+    expect(types).not.toContain("password:");
   });
 });
