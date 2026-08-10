@@ -18,14 +18,18 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   type ApiOperation,
   allocateSdkIdentifiers,
+  expandServerUrl,
   getAuthentication,
   getOperations,
   type OpenApiDocument,
   objectSchema,
+  type Parameter,
   requestMedia,
+  resolveSchema,
   resolveServerUrl,
   schemaExample,
   schemaLabel,
+  serializeQueryParameter,
   serializeSimplePath,
   successMedia,
 } from "@/lib/openapi";
@@ -73,6 +77,21 @@ function pythonLiteral(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function parameterValue(document: OpenApiDocument, parameter: Parameter, value: string) {
+  const schema = resolveSchema(document, parameter.schema);
+  const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+  if (type !== "array" && type !== "object" && !schema?.properties) return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`Enter valid JSON for ${parameter.name}.`);
+  }
+}
+
+function shellQuote(value: unknown): string {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
+}
+
 interface PythonExample {
   client: string;
   package: string;
@@ -83,9 +102,12 @@ function codeExamples(
   operation: ApiOperation,
   body: string,
   environment: string,
+  origin: string,
   pythonConfig: PythonExample,
 ) {
-  const baseUrl = resolveServerUrl(document, "http://localhost:3000", operation);
+  const server = operation.server ?? document.servers?.[0];
+  const expandedServer = server ? expandServerUrl(server) : undefined;
+  const baseUrl = expandedServer?.startsWith("/") ? `${origin}${expandedServer}` : (expandedServer ?? origin);
   const parameterExamples = new Map(
     (operation.parameters ?? [])
       .filter((parameter) => parameter.required)
@@ -100,9 +122,14 @@ function codeExamples(
   }
   const query = (operation.parameters ?? [])
     .filter((parameter) => parameter.in === "query" && parameter.required)
-    .map(
-      (parameter) =>
-        `${encodeURIComponent(parameter.name)}=${encodeURIComponent(String(parameterExamples.get(`query:${parameter.name}`)))}`,
+    .map((parameter) =>
+      serializeQueryParameter(
+        parameter.name,
+        parameterExamples.get(`query:${parameter.name}`),
+        parameter.style,
+        parameter.explode,
+        parameter.allowReserved,
+      ),
     )
     .join("&");
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
@@ -125,29 +152,37 @@ function codeExamples(
   }
   const curl = [
     `curl --request ${operation.method.toUpperCase()}`,
-    `  --url '${url}'`,
-    authentication ? `  --header "${authentication.header}: ${authentication.prefix}\${${environment}}"` : "",
+    `  --url ${shellQuote(url)}`,
+    authentication
+      ? `  --header ${shellQuote(`${authentication.header}: ${authentication.prefix}`)}"$${environment}"`
+      : "",
     ...(operation.parameters ?? [])
       .filter((parameter) => parameter.in === "header" && parameter.required)
-      .map((parameter) => `  --header '${parameter.name}: ${parameterExamples.get(`header:${parameter.name}`)}'`),
+      .map(
+        (parameter) =>
+          `  --header ${shellQuote(`${parameter.name}: ${parameterExamples.get(`header:${parameter.name}`)}`)}`,
+      ),
     ...(operation.parameters ?? [])
       .filter((parameter) => parameter.in === "cookie" && parameter.required)
-      .map((parameter) => `  --cookie '${parameter.name}=${parameterExamples.get(`cookie:${parameter.name}`)}'`),
-    request && request[0] !== "multipart/form-data" ? `  --header 'Content-Type: ${request[0]}'` : "",
-    hasJsonBody ? `  --data '${body}'` : "",
+      .map(
+        (parameter) =>
+          `  --cookie ${shellQuote(`${parameter.name}=${parameterExamples.get(`cookie:${parameter.name}`)}`)}`,
+      ),
+    request && request[0] !== "multipart/form-data" ? `  --header ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
+    hasJsonBody ? `  --data ${shellQuote(body)}` : "",
     request?.[0] === "application/x-www-form-urlencoded"
       ? Object.entries(bodyProperties)
-          .map(([name]) => `  --data-urlencode '${name}=${bodyValues[name] ?? "value"}'`)
+          .map(([name]) => `  --data-urlencode ${shellQuote(`${name}=${bodyValues[name] ?? "value"}`)}`)
           .join(" \\\n")
       : "",
     request && !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
-      ? `  --data '${body}'`
+      ? `  --data ${shellQuote(body)}`
       : "",
     request?.[0] === "multipart/form-data"
       ? Object.entries(bodyProperties)
           .map(
             ([name, schema]) =>
-              `  --form '${name}=${schema.format === "binary" ? "@path/to/file" : (bodyValues[name] ?? "value")}'`,
+              `  --form ${shellQuote(`${name}=${schema.format === "binary" ? "@path/to/file" : (bodyValues[name] ?? "value")}`)}`,
           )
           .join(" \\\n")
       : "",
@@ -294,6 +329,7 @@ function OperationPanel({
   const [result, setResult] = useState("");
   const [status, setStatus] = useState<number>();
   const [sending, setSending] = useState(false);
+  const [origin, setOrigin] = useState("");
   const parameters = operation.parameters ?? [];
   const hasCookieParameters = parameters.some((parameter) => parameter.in === "cookie");
   const request = requestMedia(operation);
@@ -304,9 +340,11 @@ function OperationPanel({
   const success = successMedia(operation);
   const authentication = getAuthentication(document, operation);
   const examples = useMemo(
-    () => codeExamples(document, operation, body, environment, python),
-    [body, document, environment, operation, python],
+    () => codeExamples(document, operation, body, environment, origin, python),
+    [body, document, environment, operation, origin, python],
   );
+
+  useEffect(() => setOrigin(window.location.origin), []);
 
   useEffect(() => {
     setValues({});
@@ -327,17 +365,40 @@ function OperationPanel({
       return;
     }
     let path = operation.path;
-    for (const parameter of parameters.filter((item) => item.in === "path")) {
-      const value = values[`path:${parameter.name}`];
-      path = path.replace(`{${parameter.name}}`, encodeURIComponent(value ?? ""));
+    try {
+      for (const parameter of parameters.filter((item) => item.in === "path")) {
+        const value = parameterValue(document, parameter, values[`path:${parameter.name}`] ?? "");
+        path = path.replace(
+          `{${parameter.name}}`,
+          serializeSimplePath(value, parameter.explode, parameter.allowReserved),
+        );
+      }
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : "Invalid path parameter");
+      return;
     }
 
     const baseUrl = resolveServerUrl(document, window.location.origin, operation);
-    const url = new URL(`${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`, window.location.origin);
-    for (const parameter of parameters.filter((item) => item.in === "query")) {
-      const value = values[`query:${parameter.name}`];
-      if (value) url.searchParams.set(parameter.name, value);
+    let requestUrl = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+    try {
+      const query = parameters
+        .filter((item) => item.in === "query" && values[`query:${item.name}`])
+        .map((parameter) =>
+          serializeQueryParameter(
+            parameter.name,
+            parameterValue(document, parameter, values[`query:${parameter.name}`] ?? ""),
+            parameter.style,
+            parameter.explode,
+            parameter.allowReserved,
+          ),
+        )
+        .join("&");
+      if (query) requestUrl += `?${query}`;
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : "Invalid query parameter");
+      return;
     }
+    const url = new URL(requestUrl, window.location.origin);
 
     const headers: Record<string, string> = success ? { Accept: success[0] } : {};
     if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;

@@ -27,6 +27,7 @@ export interface JsonSchema {
 
 export interface Parameter {
   allowReserved?: boolean;
+  content?: Record<string, MediaType>;
   description?: string;
   explode?: boolean;
   in: "cookie" | "header" | "path" | "query";
@@ -203,6 +204,36 @@ export function serializeSimplePath(value: unknown, explode = false, allowReserv
   return encode(value);
 }
 
+export function serializeQueryParameter(
+  name: string,
+  value: unknown,
+  style = "form",
+  explode = true,
+  allowReserved = false,
+): string {
+  const encode = (item: unknown, reserved = false) => {
+    const encoded = encodeURIComponent(String(item));
+    return reserved
+      ? encoded.replace(/%(3A|2F|3F|23|5B|5D|40|21|24|26|27|28|29|2A|2B|2C|3B|3D)/gi, (match) =>
+          decodeURIComponent(match),
+        )
+      : encoded;
+  };
+  const pair = (key: unknown, item: unknown) => `${encode(key)}=${encode(item, allowReserved)}`;
+  if (Array.isArray(value)) {
+    if (style === "form" && explode) return value.map((item) => pair(name, item)).join("&");
+    const separator = style === "spaceDelimited" ? " " : style === "pipeDelimited" ? "|" : ",";
+    return pair(name, value.join(separator));
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (style === "deepObject") return entries.map(([key, item]) => pair(`${name}[${key}]`, item)).join("&");
+    if (explode) return entries.map(([key, item]) => pair(key, item)).join("&");
+    return pair(name, entries.flat().join(","));
+  }
+  return pair(name, value);
+}
+
 function singular(value: string): string {
   return value.endsWith("ies") ? `${value.slice(0, -3)}y` : value.endsWith("s") ? value.slice(0, -1) : value;
 }
@@ -356,10 +387,15 @@ function resolveResponse(document: OpenApiDocument, input: ReferenceObject | Res
 }
 
 function resolveParameter(document: OpenApiDocument, input: ParameterInput): Parameter {
-  if (!("$ref" in input) || !input.$ref.startsWith("#/components/parameters/")) return input as Parameter;
-  const name = decodeURIComponent(input.$ref.slice("#/components/parameters/".length));
-  const parameter = document.components?.parameters?.[name];
-  if (!parameter) throw new Error(`Unknown parameter reference: ${input.$ref}`);
+  let parameter: Parameter;
+  if (!("$ref" in input) || !input.$ref.startsWith("#/components/parameters/")) parameter = input as Parameter;
+  else {
+    const name = decodeURIComponent(input.$ref.slice("#/components/parameters/".length));
+    const resolved = document.components?.parameters?.[name];
+    if (!resolved) throw new Error(`Unknown parameter reference: ${input.$ref}`);
+    parameter = resolved;
+  }
+  if (parameter.content) throw new Error(`Unsupported content parameter: ${parameter.in} ${parameter.name}`);
   return parameter;
 }
 

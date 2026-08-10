@@ -57,6 +57,14 @@ function quote(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function pythonDocstringText(value: string, indentation = ""): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"""', '\\"\\"\\"')
+    .replaceAll("\r", "")
+    .replaceAll("\n", `\n${indentation}`);
+}
+
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
@@ -165,13 +173,13 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
 }
 
 function docstring(document: OpenApiDocument, operation: PythonOperation, returnType: string): string {
-  const lines = [`        """${operation.summary ?? operation.name}.`];
-  if (operation.description) lines.push("", ...operation.description.split("\n").map((line) => `        ${line}`));
+  const lines = [`        """${pythonDocstringText(operation.summary ?? operation.name, "        ")}.`];
+  if (operation.description) lines.push("", `        ${pythonDocstringText(operation.description, "        ")}`);
   if (operation.arguments.length) {
     lines.push("", "        Args:");
     for (const argument of operation.arguments) {
       lines.push(
-        `            ${argument.pythonName} (${pythonType(document, argument.schema)}${argument.required ? "" : ", optional"}): ${argument.description}`,
+        `            ${argument.pythonName} (${pythonType(document, argument.schema)}${argument.required ? "" : ", optional"}): ${pythonDocstringText(argument.description, "                ")}`,
       );
     }
   }
@@ -297,7 +305,8 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
     ...(body.includes("_query_parameter(") ? ["_query_parameter"] : []),
   ];
   const clientImport = `from .._client import (\n${clientImports.map((name) => `    ${name},`).join("\n")}\n)\n`;
-  return `from __future__ import annotations\n\n${typingSource}${pydanticSource}${clientImport}${imports}\nclass ${className}:\n    """${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: SyncAPIClient) -> None:\n        self._client = client\n\n${methods}\n\n\nclass Async${className}:\n    """Asynchronous ${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: AsyncAPIClient) -> None:\n        self._client = client\n\n${asyncMethods}\n`;
+  const tag = pythonDocstringText(operations[0]?.tag ?? className, "    ");
+  return `from __future__ import annotations\n\n${typingSource}${pydanticSource}${clientImport}${imports}\nclass ${className}:\n    """${tag} API operations."""\n\n    def __init__(self, client: SyncAPIClient) -> None:\n        self._client = client\n\n${methods}\n\n\nclass Async${className}:\n    """Asynchronous ${tag} API operations."""\n\n    def __init__(self, client: AsyncAPIClient) -> None:\n        self._client = client\n\n${asyncMethods}\n`;
 }
 
 function modelSource(document: OpenApiDocument, resources: Map<string, PythonOperation[]>): string {
@@ -342,7 +351,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
           ? ` = Field(${alias.slice(0, -2)})`
           : ""
         : ` = Field(${alias}default=None)`;
-      const description = value.description ? `\n    """${value.description.replaceAll('"""', '\\"\\"\\"')}"""` : "";
+      const description = value.description ? `\n    """${pythonDocstringText(value.description, "    ")}"""` : "";
       return `    ${fieldName}: ${optionalType}${defaultValue}${description}`;
     });
     classes.push(`class ${name}(APIModel):\n${fields.length ? fields.join("\n\n") : "    pass"}`);
@@ -584,7 +593,7 @@ function publicClientSource(
   const properties = [...resources.keys()]
     .map((resource) => `        self.${resource} = ${async ? "Async" : ""}${pascal(resource)}(self._client)`)
     .join("\n");
-  return `from __future__ import annotations\n\nimport os\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${config.name}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float = 60.0,\n        max_retries: int = 2,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${config.apiKey.environment}.\n            base_url (str): API base URL.\n            timeout (float): Request timeout in seconds.\n            max_retries (int): Retries for connection errors and retryable responses.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n`;
+  return `from __future__ import annotations\n\nimport os\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float = 60.0,\n        max_retries: int = 2,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}.\n            base_url (str): API base URL.\n            timeout (float): Request timeout in seconds.\n            max_retries (int): Retries for connection errors and retryable responses.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n`;
 }
 
 export async function generatePython(document: OpenApiDocument, config: PythonConfig, output: string): Promise<number> {
