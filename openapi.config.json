@@ -1,0 +1,13 @@
+{
+  "source": "https://platform.ultralytics.com/openapi.json",
+  "name": "Ultralytics Platform",
+  "apiKey": {
+    "environment": "ULTRALYTICS_API_KEY"
+  },
+  "python": {
+    "client": "Platform",
+    "package": "ultralytics_platform",
+    "project": "ultralytics-platform",
+    "version": "0.1.0"
+  }
+}

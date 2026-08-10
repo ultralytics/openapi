@@ -29,24 +29,46 @@ After opening a PR:
 ## Commands
 
 ```bash
-uv pip install -e ".[dev]" # install for development
-
-pytest tests -v                                               # run tests (pytest)
-pytest tests/test_with_pytest.py::test_add_numbers -v         # run one test
-python -m unittest discover tests -v                          # run tests (unittest)
-pytest tests -v --cov=./ --cov-report=xml:pytest-coverage.xml # coverage (CI command)
-example-cli-command                                           # run the example CLI entry point
-
-ruff format . && ruff check --fix . # format/lint (uv pip install ruff; config in pyproject.toml)
+bun install            # install application and generator dependencies
+bun run dev            # run the documentation application
+bun run sync           # fetch the configured OpenAPI contract
+bun run generate       # generate and format all SDK outputs
+bun run typecheck      # type-check TypeScript
+bun run lint           # check formatting and lint rules
+bun run test           # run focused generator tests
+bun run build          # build the static documentation application
 ```
 
-CI matrix: Python 3.9/3.13/3.14 × ubuntu/macos/windows. CI runs the tests four ways — pytest and unittest, each with and without coverage — plus the CLI entry point, so tests must pass under both runners.
+Run checks through the package scripts. Generated Python additionally supports `python3 -m compileall -q generated/python/src` and `uvx ruff@0.16.2 check generated/python`.
 
 ## Architecture
 
-This is the Ultralytics template for new Python packages — a minimal, fully wired example meant to be copied and adapted. `template/` is the package: `__init__.py` holds `__version__` (read by setuptools dynamic versioning in `pyproject.toml`), and `module1.py` holds the example `add_numbers()`/`main()` backing the `example-cli-command` entry point in `[project.scripts]`. `tests/` demonstrates the same tests in both pytest style (`test_with_pytest.py`) and unittest style (`test_with_unittest.py`). `format.yml` runs Ultralytics Actions on PRs (Ruff, Prettier, codespell, link checks, AI labels/summaries) and commits fixes back to the PR branch. `publish.yml` tags, releases, and (optionally) publishes to PyPI when `__version__` is bumped on `main`; its `check` job intentionally omits the `github.actor` maintainer gate that product repos keep for security, because a fork supplies its own.
+- `public/openapi.json` is the sole API contract. Never duplicate or patch endpoint definitions in a generator.
+- `lib/openapi.ts` owns parsing, schema normalization, examples, and operation names shared by documentation and every SDK.
+- `lib/generators/` contains language-specific renderers. Add another language only when its implementation is ready; do not add placeholder abstractions.
+- `generated/` contains deterministic SDK output and is never edited manually. Change the contract, shared representation, or renderer, then regenerate.
+- `components/api-reference.tsx` renders the interactive reference from the same shared operation model. API keys remain in browser memory and never appear in copied examples.
+- The documentation uses shadcn's `base-nova` style with Base UI primitives and Ultralytics design tokens.
+
+## Python Output
+
+- Follow the OpenAI client shape: one client, grouped resources, keyword arguments, and environment-based authentication.
+- Generate synchronous and asynchronous clients with the same resource tree.
+- Generate Google-style docstrings. Types are parenthesized in `Args:`, `Returns:`, and `Raises:` sections.
+- Generated SDK packages carry their own permissive license so users do not inherit the generator's AGPL obligations.
 
 ## Conventions
 
 - License headers (`# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license`) are added automatically by Ultralytics Actions — don't add or revert them manually.
-- Google-style docstrings, `from __future__ import annotations` for modern type hints, line length 120; formatting is auto-applied by `format.yml`.
+- Generated output must be deterministic; CI fails on drift.
+- Google-style docstrings, modern type hints, and a 120-character Python line length are formatted by Ruff.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
