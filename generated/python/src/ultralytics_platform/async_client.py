@@ -38,13 +38,8 @@ class AsyncPlatform:
             base_url (str): API base URL.
             timeout (float): Request timeout in seconds.
             max_retries (int): Retries for connection errors and retryable responses.
-
-        Raises:
-            (ValueError): If no API key is provided.
         """
         resolved_api_key = api_key or os.environ.get("ULTRALYTICS_API_KEY")
-        if not resolved_api_key:
-            raise ValueError("Set ULTRALYTICS_API_KEY or pass api_key")
         self._client = AsyncAPIClient(
             api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries
         )

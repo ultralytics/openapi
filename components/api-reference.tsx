@@ -63,7 +63,26 @@ function pythonLiteral(value: unknown): string {
 
 function codeExamples(document: OpenApiDocument, operation: ApiOperation, body: string, environment: string) {
   const baseUrl = document.servers?.[0]?.url ?? "";
-  const url = `${baseUrl}${operation.path}`;
+  const parameterExamples = new Map(
+    (operation.parameters ?? [])
+      .filter((parameter) => parameter.required)
+      .map((parameter) => [`${parameter.in}:${parameter.name}`, schemaExample(document, parameter.schema)]),
+  );
+  let path = operation.path;
+  for (const parameter of (operation.parameters ?? []).filter((parameter) => parameter.in === "path")) {
+    path = path.replace(
+      `{${parameter.name}}`,
+      encodeURIComponent(String(parameterExamples.get(`path:${parameter.name}`))),
+    );
+  }
+  const query = (operation.parameters ?? [])
+    .filter((parameter) => parameter.in === "query" && parameter.required)
+    .map(
+      (parameter) =>
+        `${encodeURIComponent(parameter.name)}=${encodeURIComponent(String(parameterExamples.get(`query:${parameter.name}`)))}`,
+    )
+    .join("&");
+  const url = `${baseUrl}${path}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
   const hasJsonBody = request?.[0] === "application/json";
   const bodySchema = objectSchema(document, request?.[1].schema);
@@ -78,6 +97,9 @@ function codeExamples(document: OpenApiDocument, operation: ApiOperation, body: 
     `curl --request ${operation.method.toUpperCase()}`,
     `  --url '${url}'`,
     `  --header "Authorization: Bearer \${${environment}}"`,
+    ...(operation.parameters ?? [])
+      .filter((parameter) => parameter.in === "header" && parameter.required)
+      .map((parameter) => `  --header '${parameter.name}: ${parameterExamples.get(`header:${parameter.name}`)}'`),
     hasJsonBody ? "  --header 'Content-Type: application/json'" : "",
     hasJsonBody ? `  --data '${body}'` : "",
     request?.[0] === "multipart/form-data"
@@ -479,7 +501,11 @@ export function ApiReference({ specUrl }: { specUrl: string }) {
       ? operations.filter((operation) => operationSearchText(operation).includes(normalized))
       : operations;
   }, [deferredQuery, operations]);
-  const selected = operations.find((operation) => operation.id === selectedId) ?? filtered[0] ?? operations[0];
+  const selected =
+    filtered.find((operation) => operation.id === selectedId) ??
+    filtered[0] ??
+    operations.find((operation) => operation.id === selectedId) ??
+    operations[0];
   const tags = useMemo(() => {
     const grouped = new Map<string, ApiOperation[]>();
     for (const operation of filtered) grouped.set(operation.tag, [...(grouped.get(operation.tag) ?? []), operation]);

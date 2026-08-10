@@ -22,13 +22,16 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
 
 
 class SyncAPIClient:
-    def __init__(self, *, api_key: str, base_url: str, timeout: float, max_retries: int) -> None:
+    def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.Client(
-            base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout
+            base_url=base_url.rstrip("/"),
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            timeout=timeout,
         )
         self._max_retries = max_retries
 
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
+        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
         for attempt in range(self._max_retries + 1):
             try:
                 response = self._client.request(
@@ -40,11 +43,11 @@ class SyncAPIClient:
                     files=_without_none(kwargs.get("files")),
                 )
             except httpx.HTTPError as error:
-                if attempt == self._max_retries:
+                if not retryable or attempt == self._max_retries:
                     raise APIConnectionError(str(error)) from error
                 time.sleep(_retry_delay(None, attempt))
                 continue
-            if response.status_code not in {408, 409, 429} and response.status_code < 500:
+            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
                 break
             if attempt == self._max_retries:
                 break
@@ -62,13 +65,16 @@ class SyncAPIClient:
 
 
 class AsyncAPIClient:
-    def __init__(self, *, api_key: str, base_url: str, timeout: float, max_retries: int) -> None:
+    def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout
+            base_url=base_url.rstrip("/"),
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            timeout=timeout,
         )
         self._max_retries = max_retries
 
     async def request(self, method: str, path: str, **kwargs: Any) -> Any:
+        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.request(
@@ -80,11 +86,11 @@ class AsyncAPIClient:
                     files=_without_none(kwargs.get("files")),
                 )
             except httpx.HTTPError as error:
-                if attempt == self._max_retries:
+                if not retryable or attempt == self._max_retries:
                     raise APIConnectionError(str(error)) from error
                 await __import__("asyncio").sleep(_retry_delay(None, attempt))
                 continue
-            if response.status_code not in {408, 409, 429} and response.status_code < 500:
+            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
                 break
             if attempt == self._max_retries:
                 break

@@ -275,13 +275,16 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
 
 
 class SyncAPIClient:
-    def __init__(self, *, api_key: str, base_url: str, timeout: float, max_retries: int) -> None:
+    def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.Client(
-            base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout
+            base_url=base_url.rstrip("/"),
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            timeout=timeout,
         )
         self._max_retries = max_retries
 
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
+        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
         for attempt in range(self._max_retries + 1):
             try:
                 response = self._client.request(
@@ -293,11 +296,11 @@ class SyncAPIClient:
                     files=_without_none(kwargs.get("files")),
                 )
             except httpx.HTTPError as error:
-                if attempt == self._max_retries:
+                if not retryable or attempt == self._max_retries:
                     raise APIConnectionError(str(error)) from error
                 time.sleep(_retry_delay(None, attempt))
                 continue
-            if response.status_code not in {408, 409, 429} and response.status_code < 500:
+            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
                 break
             if attempt == self._max_retries:
                 break
@@ -315,13 +318,16 @@ class SyncAPIClient:
 
 
 class AsyncAPIClient:
-    def __init__(self, *, api_key: str, base_url: str, timeout: float, max_retries: int) -> None:
+    def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout
+            base_url=base_url.rstrip("/"),
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            timeout=timeout,
         )
         self._max_retries = max_retries
 
     async def request(self, method: str, path: str, **kwargs: Any) -> Any:
+        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.request(
@@ -333,11 +339,11 @@ class AsyncAPIClient:
                     files=_without_none(kwargs.get("files")),
                 )
             except httpx.HTTPError as error:
-                if attempt == self._max_retries:
+                if not retryable or attempt == self._max_retries:
                     raise APIConnectionError(str(error)) from error
                 await __import__("asyncio").sleep(_retry_delay(None, attempt))
                 continue
-            if response.status_code not in {408, 409, 429} and response.status_code < 500:
+            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
                 break
             if attempt == self._max_retries:
                 break
@@ -396,7 +402,7 @@ function publicClientSource(config: PythonConfig, resources: Map<string, PythonO
   const properties = [...resources.keys()]
     .map((resource) => `        self.${resource} = ${async ? "Async" : ""}${pascal(resource)}(self._client)`)
     .join("\n");
-  return `from __future__ import annotations\n\nimport os\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${config.name} API."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "https://platform.ultralytics.com",\n        timeout: float = 60.0,\n        max_retries: int = 2,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${config.apiKey.environment}.\n            base_url (str): API base URL.\n            timeout (float): Request timeout in seconds.\n            max_retries (int): Retries for connection errors and retryable responses.\n\n        Raises:\n            (ValueError): If no API key is provided.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        if not resolved_api_key:\n            raise ValueError("Set ${config.apiKey.environment} or pass api_key")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n`;
+  return `from __future__ import annotations\n\nimport os\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${config.name} API."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "https://platform.ultralytics.com",\n        timeout: float = 60.0,\n        max_retries: int = 2,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${config.apiKey.environment}.\n            base_url (str): API base URL.\n            timeout (float): Request timeout in seconds.\n            max_retries (int): Retries for connection errors and retryable responses.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n`;
 }
 
 export async function generatePython(document: OpenApiDocument, config: PythonConfig, output: string): Promise<number> {
