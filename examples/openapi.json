@@ -316,6 +316,18 @@
                             { "type": "string" }
                           ]
                         },
+                        "constrained": {
+                          "allOf": [
+                            { "type": "object" },
+                            {
+                              "properties": {
+                                "code": { "type": "string" },
+                                "message": { "type": "string" }
+                              },
+                              "anyOf": [{ "required": ["code"] }, { "required": ["message"] }, { "type": "string" }]
+                            }
+                          ]
+                        },
                         "primaryFailure": { "$ref": "#/components/schemas/UploadFailure" },
                         "secondaryFailure": { "$ref": "#/components/schemas/UploadFailure" }
                       }
