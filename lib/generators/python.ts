@@ -68,15 +68,17 @@ function pythonDocstringText(value: string, indentation = ""): string {
     .replaceAll("\n", `\n${indentation}`);
 }
 
-function isNullable(document: OpenApiDocument, schema: JsonSchema): boolean {
+function isNullable(document: OpenApiDocument, schema: JsonSchema, depth = 0): boolean {
   if (schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"))) return true;
+  if (depth > 10) return false;
   return (schema.oneOf ?? schema.anyOf ?? []).some((variant) => {
     const resolved = resolveSchema(document, variant) ?? variant;
     return (
       resolved.const === null ||
       resolved.nullable === true ||
       resolved.type === "null" ||
-      (Array.isArray(resolved.type) && resolved.type.includes("null"))
+      (Array.isArray(resolved.type) && resolved.type.includes("null")) ||
+      isNullable(document, resolved, depth + 1)
     );
   });
 }
@@ -378,7 +380,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       const nested = objectUnion(resolved, depth + 1);
       const variants = nested?.variants ?? [objectSchema(document, resolved)];
       if (variants.some((item) => !item?.properties)) return undefined;
-      nullable ||= nested?.nullable ?? false;
+      nullable ||= isNullable(document, resolved) || (nested?.nullable ?? false);
       for (const item of variants) {
         const merged = objectSchema(document, { ...shared, allOf: [...sharedAllOf, item as JsonSchema] });
         if (!merged?.properties) return undefined;
@@ -405,7 +407,13 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
         addModel(variant, variantName);
         return variantName;
       });
-      return result(`${names.join(" | ")}${union.nullable ? " | None" : ""}`);
+      const type = names.join(" | ");
+      if (input?.$ref) {
+        classes.push(`${name} = ${type}`);
+        defined.add(name);
+        return result(name);
+      }
+      return result(type);
     }
     const object = objectSchema(document, schema);
     if (object?.properties) {
@@ -443,15 +451,20 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
       const union = objectUnion(response);
       if (union && union.variants.length > 1) {
+        const valueName = union.nullable ? `${operation.responseName}Value` : operation.responseName;
         if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
-          references.set(operation.responseSchema.$ref, operation.responseName);
+          references.set(operation.responseSchema.$ref, valueName);
         }
         const names = union.variants.map((variant, index) => {
           const name = `${operation.responseName}Variant${index + 1}`;
           addModel(variant, name);
           return name;
         });
-        classes.push(`${operation.responseName} = ${names.join(" | ")}${union.nullable ? " | None" : ""}`);
+        if (union.nullable) {
+          classes.push(`${valueName} = ${names.join(" | ")}`);
+          defined.add(valueName);
+        }
+        classes.push(`${operation.responseName} = ${union.nullable ? `${valueName} | None` : names.join(" | ")}`);
         defined.add(operation.responseName);
         continue;
       }

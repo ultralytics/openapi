@@ -118,7 +118,14 @@ describe("Python generator", () => {
       'UploadsUploadFileResponseVariant3 = TypedDict("UploadsUploadFileResponseVariant3", {"requestId": str, "retryAfter": int}',
     );
     expect(types).toContain(
-      "UploadsUploadFileResponse = UploadsUploadFileResponseVariant1 | UploadsUploadFileResponseVariant2 | UploadsUploadFileResponseVariant3",
+      "UploadsUploadFileResponseValue = UploadsUploadFileResponseVariant1 | UploadsUploadFileResponseVariant2 | UploadsUploadFileResponseVariant3",
+    );
+    expect(types).toContain("UploadsUploadFileResponse = UploadsUploadFileResponseValue | None");
+    expect(types).toContain(
+      "UploadsUploadFileResponseVariant1PrimaryFailure = UploadsUploadFileResponseVariant1PrimaryFailureVariant1 | UploadsUploadFileResponseVariant1PrimaryFailureVariant2",
+    );
+    expect(types).toContain(
+      '"primaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure | None], "secondaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure | None]',
     );
     expect(widgets).toContain("description: str | None");
     expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");

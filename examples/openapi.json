@@ -53,7 +53,7 @@
             "properties": { "error": { "type": "string" } }
           },
           {
-            "type": "object",
+            "type": ["object", "null"],
             "required": ["retryAfter"],
             "properties": { "retryAfter": { "type": "integer" } }
           }
@@ -306,7 +306,9 @@
                       "required": ["success"],
                       "properties": {
                         "success": { "type": "boolean", "const": true },
-                        "widget": { "$ref": "#/components/schemas/WidgetDetail" }
+                        "widget": { "$ref": "#/components/schemas/WidgetDetail" },
+                        "primaryFailure": { "$ref": "#/components/schemas/UploadFailure" },
+                        "secondaryFailure": { "$ref": "#/components/schemas/UploadFailure" }
                       }
                     },
                     { "$ref": "#/components/schemas/UploadFailure" }
