@@ -12,6 +12,7 @@ import {
   requestMedia,
   resolveServerUrl,
   schemaExample,
+  serializeSimplePath,
 } from "../openapi";
 import { generatePython } from "./python";
 
@@ -43,6 +44,7 @@ describe("Python generator", () => {
     expect(source).toContain("from .async_client import AsyncExample");
     expect(client).toContain('base_url: str = "https://api.example.com/v1"');
     expect(resolveServerUrl({ ...document, servers: [{ url: "/v2" }] })).toBe("http://localhost:3000/v2");
+    expect(serializeSimplePath({ role: "admin/user" }, true)).toBe("role=admin%2Fuser");
     const operation = getOperations(document)[0];
     expect(operation && getAuthentication(document, operation)).toEqual({ header: "Authorization", prefix: "Bearer " });
     const multiple = structuredClone(document);
@@ -135,7 +137,7 @@ describe("Python generator", () => {
     const echo = await Bun.file(join(output, "src/example_api/resources/echo.py")).text();
     expect(echo).toContain('headers={"Content-Type": "text/plain"}');
     expect(echo).toContain("content=body");
-    expect(echo).toContain('"https://echo.example.com/v2/echo"');
+    expect(echo).toContain('server="/v2"');
     expect(echo).not.toContain("auth=(");
   });
 
@@ -143,6 +145,7 @@ describe("Python generator", () => {
     const reports = await Bun.file(join(output, "src/example_api/resources/reports.py")).text();
     const types = await Bun.file(join(output, "src/example_api/types.py")).text();
     expect(reports).toContain("TypeAdapter(ReportsListResponse).validate_python(");
+    expect(reports).toContain('style="pipeDelimited", explode=False');
     expect(types).toContain("ReportsListResponse = list[ReportsListResponseItem]");
     expect(types).toContain("class ReportsListResponseItem(APIModel):");
     expect(types).toContain("artifact: bytes");

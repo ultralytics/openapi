@@ -1,5 +1,14 @@
 .next/
+.env*
+!.env.example
+.coverage*
+.DS_Store
+.idea/
+.venv/
+.vscode/
 __pycache__/
+build/
+dist/
 generated/
 node_modules/
 out/

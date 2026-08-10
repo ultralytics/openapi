@@ -16,6 +16,25 @@
   ],
   "security": [{ "bearerAuth": [] }],
   "components": {
+    "schemas": {
+      "ReportBase": {
+        "type": "object",
+        "required": ["id", "password", "artifact", "user-id"],
+        "properties": {
+          "id": { "type": "string" },
+          "password": { "type": "string", "writeOnly": true },
+          "artifact": { "type": "string", "format": "binary" },
+          "user-id": { "type": "string" }
+        }
+      },
+      "Report": {
+        "$ref": "#/components/schemas/ReportBase",
+        "required": ["user_id"],
+        "properties": {
+          "user_id": { "type": "string" }
+        }
+      }
+    },
     "parameters": {
       "WidgetId": {
         "in": "path",
@@ -47,6 +66,9 @@
       "EventBatch": {
         "required": true,
         "content": {
+          "text/plain": {
+            "schema": { "type": "string" }
+          },
           "application/json": {
             "schema": {
               "type": "array",
@@ -61,6 +83,9 @@
       "AcceptedEvents": {
         "description": "Accepted events",
         "content": {
+          "text/plain": {
+            "schema": { "type": "string" }
+          },
           "application/json": {
             "schema": {
               "type": "object",
@@ -305,7 +330,7 @@
         "summary": "Echo text",
         "operationId": "echo_text",
         "security": [],
-        "servers": [{ "url": "https://echo.example.com/v2" }],
+        "servers": [{ "url": "/v2" }],
         "requestBody": {
           "required": true,
           "content": {
@@ -331,6 +356,15 @@
         "tags": ["Reports"],
         "summary": "List reports",
         "operationId": "list_reports",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "fields",
+            "schema": { "type": "array", "items": { "type": "string" } },
+            "style": "pipeDelimited",
+            "explode": false
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Reports",
@@ -338,17 +372,7 @@
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": ["id", "password", "artifact", "user-id", "user_id"],
-                    "properties": {
-                      "id": { "type": "string" },
-                      "password": { "type": "string", "writeOnly": true },
-                      "artifact": { "type": "string", "format": "binary" },
-                      "user-id": { "type": "string" },
-                      "user_id": { "type": "string" }
-                    }
-                  }
+                  "items": { "$ref": "#/components/schemas/Report" }
                 }
               }
             }

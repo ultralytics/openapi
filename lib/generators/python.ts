@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import type { ApiOperation, JsonSchema, OpenApiDocument, Parameter } from "../openapi";
 import {
   allocateSdkIdentifiers,
+  expandServerUrl,
   getAuthentication,
   getOperations,
   objectSchema,
@@ -203,8 +204,10 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
     }),
   ].join(", ");
   const returnType = operation.responseName ?? pythonType(document, operation.responseSchema);
+  const serverOverride = operation.server && operation.server !== document.servers?.[0];
+  const server = serverOverride && operation.server ? expandServerUrl(operation.server) : undefined;
   const operationPath =
-    operation.server && operation.server !== document.servers?.[0]
+    serverOverride && server && !server.startsWith("/")
       ? `${resolveServerUrl(document, "http://localhost:3000", operation)}/${operation.path.replace(/^\//, "")}`
       : operation.path;
   let path = operationPath;
@@ -223,8 +226,16 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const wholeBody = body.find((argument) => argument.wholeBody);
   const authentication = getAuthentication(document, operation);
   const options = [
+    server?.startsWith("/") ? `server=${quote(server)}` : "",
     authentication ? `auth=(${quote(authentication.header)}, ${quote(authentication.prefix)})` : "",
-    query.length ? `params={${query.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
+    query.length
+      ? `params=[${query
+          .map(
+            (item) =>
+              `*_query_parameter(${quote(item.name)}, ${item.pythonName}, style=${quote(item.style ?? "form")}, explode=${item.explode === false ? "False" : "True"})`,
+          )
+          .join(", ")}]`
+      : "",
     headers.length ||
     (operation.contentType && !["application/json", "multipart/form-data"].includes(operation.contentType))
       ? `headers={${[
@@ -283,6 +294,7 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
     ...(body.includes("NotGiven") ? ["NotGiven"] : []),
     "SyncAPIClient",
     ...(body.includes("_path_parameter(") ? ["_path_parameter"] : []),
+    ...(body.includes("_query_parameter(") ? ["_query_parameter"] : []),
   ];
   const clientImport = `from .._client import (\n${clientImports.map((name) => `    ${name},`).join("\n")}\n)\n`;
   return `from __future__ import annotations\n\n${typingSource}${pydanticSource}${clientImport}${imports}\nclass ${className}:\n    """${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: SyncAPIClient) -> None:\n        self._client = client\n\n${methods}\n\n\nclass Async${className}:\n    """Asynchronous ${operations[0]?.tag ?? className} API operations."""\n\n    def __init__(self, client: AsyncAPIClient) -> None:\n        self._client = client\n\n${asyncMethods}\n`;
@@ -386,6 +398,23 @@ def _path_parameter(value: Any, *, explode: bool, allow_reserved: bool) -> str:
     return encode(value)
 
 
+def _query_parameter(name: str, value: Any, *, style: str, explode: bool) -> list[tuple[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        if style == "deepObject":
+            return [(f"{name}[{key}]", item) for key, item in value.items()]
+        if explode:
+            return list(value.items())
+        return [(name, ",".join(str(item) for pair in value.items() for item in pair))]
+    if isinstance(value, (list, tuple)):
+        if style == "form" and explode:
+            return [(name, item) for item in value]
+        separator = " " if style == "spaceDelimited" else "|" if style == "pipeDelimited" else ","
+        return [(name, separator.join(str(item) for item in value))]
+    return [(name, value)]
+
+
 def _without_none(values: Any) -> Any:
     return {key: value for key, value in values.items() if value is not None} if isinstance(values, dict) else values
 
@@ -419,11 +448,12 @@ class SyncAPIClient:
         headers = _without_none(kwargs.get("headers")) or {}
         if self._api_key and (auth := kwargs.get("auth")):
             headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
+        request_path = self._client.base_url.join(f"{kwargs['server'].rstrip('/')}/{path.lstrip('/')}") if kwargs.get("server") else path.lstrip("/")
         for attempt in range(self._max_retries + 1):
             try:
                 response = self._client.request(
                     method,
-                    path.lstrip("/"),
+                    request_path,
                     params=_without_none(kwargs.get("params")),
                     headers=headers,
                     cookies=_without_none(kwargs.get("cookies")),
@@ -469,11 +499,12 @@ class AsyncAPIClient:
         headers = _without_none(kwargs.get("headers")) or {}
         if self._api_key and (auth := kwargs.get("auth")):
             headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
+        request_path = self._client.base_url.join(f"{kwargs['server'].rstrip('/')}/{path.lstrip('/')}") if kwargs.get("server") else path.lstrip("/")
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.request(
                     method,
-                    path.lstrip("/"),
+                    request_path,
                     params=_without_none(kwargs.get("params")),
                     headers=headers,
                     cookies=_without_none(kwargs.get("cookies")),

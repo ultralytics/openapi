@@ -185,6 +185,24 @@ export function allocateSdkIdentifiers(values: Array<{ location: string; name: s
   });
 }
 
+export function serializeSimplePath(value: unknown, explode = false, allowReserved = false): string {
+  const encode = (item: unknown) => {
+    const encoded = encodeURIComponent(String(item));
+    return allowReserved
+      ? encoded.replace(/%(3A|2F|3F|23|5B|5D|40|21|24|26|27|28|29|2A|2B|2C|3B|3D)/gi, (match) =>
+          decodeURIComponent(match),
+        )
+      : encoded;
+  };
+  if (Array.isArray(value)) return value.map(encode).join(",");
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .flatMap(([key, item]) => (explode ? `${encode(key)}=${encode(item)}` : [encode(key), encode(item)]))
+      .join(",");
+  }
+  return encode(value);
+}
+
 function singular(value: string): string {
   return value.endsWith("ies") ? `${value.slice(0, -3)}y` : value.endsWith("s") ? value.slice(0, -1) : value;
 }
@@ -351,10 +369,12 @@ export function resolveServerUrl(
   operation?: ApiOperation,
 ): string {
   const server = operation?.server ?? document.servers?.[0];
-  const expanded = server
-    ? server.url.replace(/{([^}]+)}/g, (_, name: string) => server.variables?.[name]?.default ?? `{${name}}`)
-    : origin;
+  const expanded = server ? expandServerUrl(server) : origin;
   return new URL(expanded, origin).toString().replace(/\/$/, "");
+}
+
+export function expandServerUrl(server: OpenApiServer): string {
+  return server.url.replace(/{([^}]+)}/g, (_, name: string) => server.variables?.[name]?.default ?? `{${name}}`);
 }
 
 export function getAuthentication(document: OpenApiDocument, operation?: ApiOperation): ApiAuthentication | undefined {
@@ -378,10 +398,29 @@ export function getAuthentication(document: OpenApiDocument, operation?: ApiOper
   return unique[0];
 }
 
-export function resolveSchema(document: OpenApiDocument, schema: JsonSchema | undefined): JsonSchema | undefined {
+export function resolveSchema(
+  document: OpenApiDocument,
+  schema: JsonSchema | undefined,
+  seen = new Set<string>(),
+): JsonSchema | undefined {
   if (!schema?.$ref?.startsWith("#/components/schemas/")) return schema;
   const name = decodeURIComponent(schema.$ref.slice("#/components/schemas/".length));
-  return document.components?.schemas?.[name];
+  if (seen.has(name)) return schema;
+  const target = document.components?.schemas?.[name];
+  if (!target) return schema;
+  const resolved = resolveSchema(document, target, new Set([...seen, name]));
+  const siblings = { ...schema };
+  delete siblings.$ref;
+  return {
+    ...resolved,
+    ...siblings,
+    properties:
+      resolved?.properties || siblings.properties ? { ...resolved?.properties, ...siblings.properties } : undefined,
+    required:
+      resolved?.required || siblings.required
+        ? [...new Set([...(resolved?.required ?? []), ...(siblings.required ?? [])])]
+        : undefined,
+  };
 }
 
 export function objectSchema(document: OpenApiDocument, input: JsonSchema | undefined): JsonSchema | undefined {
@@ -472,7 +511,7 @@ export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undef
 }
 
 export function requestMedia(operation: ApiOperation): [string, MediaType] | undefined {
-  return Object.entries(operation.requestBody?.content ?? {})[0];
+  return preferredMedia(operation.requestBody?.content);
 }
 
 export function successMedia(operation: ApiOperation): [string, MediaType] | undefined {
@@ -480,5 +519,16 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
   const response =
     responses.find(([status]) => /^2\d\d$/.test(status))?.[1] ??
     responses.find(([status]) => /^2xx$/i.test(status))?.[1];
-  return response ? Object.entries(response.content ?? {})[0] : undefined;
+  return response ? preferredMedia(response.content) : undefined;
+}
+
+function preferredMedia(content: Record<string, MediaType> | undefined): [string, MediaType] | undefined {
+  const media = Object.entries(content ?? {});
+  return (
+    media.find(([type]) => type === "application/json") ??
+    media.find(([type]) => type.endsWith("+json")) ??
+    media.find(([type]) => ["multipart/form-data", "application/x-www-form-urlencoded"].includes(type)) ??
+    media.find(([type]) => type.startsWith("text/")) ??
+    media[0]
+  );
 }

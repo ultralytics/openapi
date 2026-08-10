@@ -26,6 +26,7 @@ import {
   resolveServerUrl,
   schemaExample,
   schemaLabel,
+  serializeSimplePath,
   successMedia,
 } from "@/lib/openapi";
 import { cn } from "@/lib/utils";
@@ -94,7 +95,7 @@ function codeExamples(
   for (const parameter of (operation.parameters ?? []).filter((parameter) => parameter.in === "path")) {
     path = path.replace(
       `{${parameter.name}}`,
-      encodeURIComponent(String(parameterExamples.get(`path:${parameter.name}`))),
+      serializeSimplePath(parameterExamples.get(`path:${parameter.name}`), parameter.explode, parameter.allowReserved),
     );
   }
   const query = (operation.parameters ?? [])
