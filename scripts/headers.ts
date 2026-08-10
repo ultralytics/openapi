@@ -18,7 +18,7 @@ async function addHeader(path: string): Promise<void> {
         const content = await Bun.file(child).text();
         const doctype = "<!DOCTYPE html>";
         const hasDoctype = content.startsWith(doctype);
-        const prefix = `${hasDoctype ? `${doctype}\n` : ""}<!-- ${header} -->\n`;
+        const prefix = `${hasDoctype ? `${doctype}\n` : ""}<!-- ${header} -->\n\n`;
         if (!content.startsWith(prefix))
           await Bun.write(child, `${prefix}${hasDoctype ? content.slice(doctype.length) : content}`);
         return;
