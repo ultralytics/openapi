@@ -105,6 +105,9 @@ describe("Python generator", () => {
     expect(types).toContain('WidgetsCreateResponse = TypedDict("WidgetsCreateResponse"');
     expect(types).toContain('"widgetId": str');
     expect(types).toContain('"displayName": str | None');
+    expect(types).toContain('"metadata": NotRequired[WidgetsRetrieveResponseValueMetadata | None]');
+    expect(types).toContain("WidgetsRetrieveResponse = WidgetsRetrieveResponseValue | None");
+    expect(types).toContain('"widget": NotRequired[WidgetsRetrieveResponseValue]');
     expect(widgets).toContain("description: str | None");
     expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");

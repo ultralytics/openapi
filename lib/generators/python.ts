@@ -68,10 +68,23 @@ function pythonDocstringText(value: string, indentation = ""): string {
     .replaceAll("\n", `\n${indentation}`);
 }
 
+function isNullable(document: OpenApiDocument, schema: JsonSchema): boolean {
+  if (schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"))) return true;
+  return (schema.oneOf ?? schema.anyOf ?? []).some((variant) => {
+    const resolved = resolveSchema(document, variant) ?? variant;
+    return (
+      resolved.const === null ||
+      resolved.nullable === true ||
+      resolved.type === "null" ||
+      (Array.isArray(resolved.type) && resolved.type.includes("null"))
+    );
+  });
+}
+
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
-  const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
+  const nullable = isNullable(document, schema);
   const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
   if (schema.const === null) return "None";
   if (schema.const !== undefined) return result(`Literal[${quote(schema.const)}]`);
@@ -346,8 +359,8 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   function modelType(input: JsonSchema | undefined, name: string): string {
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
-    const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
-    const result = (type: string) => (nullable ? `${type} | None` : type);
+    const nullable = isNullable(document, schema);
+    const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
     const reference = input?.$ref ? references.get(input.$ref) : undefined;
     if (reference) return defined.has(reference) ? result(reference) : quote(result(reference));
     if (input?.$ref) references.set(input.$ref, name);
@@ -386,12 +399,17 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   for (const operations of resources.values()) {
     for (const operation of operations) {
       if (!operation.responseName) continue;
-      if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
-        references.set(operation.responseSchema.$ref, operation.responseName);
-      }
+      const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
       const schema = objectSchema(document, operation.responseSchema);
-      if (schema?.properties) addModel(schema, operation.responseName);
-      else if (operation.responseSchema) {
+      const nullableObject = !!schema?.properties && !!response && isNullable(document, response);
+      const modelName = nullableObject ? `${operation.responseName}Value` : operation.responseName;
+      if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
+        references.set(operation.responseSchema.$ref, modelName);
+      }
+      if (schema?.properties) {
+        addModel(schema, modelName);
+        if (nullableObject) classes.push(`${operation.responseName} = ${modelName} | None`);
+      } else if (operation.responseSchema) {
         const type = modelType(operation.responseSchema, operation.responseName);
         classes.push(`${operation.responseName} = ${type}`);
       }
