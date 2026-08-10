@@ -103,6 +103,9 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
     (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
   );
   if (unsupported) throw new Error(`Unsupported path style: ${unsupported.style}`);
+  if (operation.parameters?.some((parameter) => parameter.in === "query" && parameter.allowReserved)) {
+    throw new Error("Unsupported query parameter: allowReserved");
+  }
   const parameters: Argument[] = (operation.parameters ?? []).map((parameter: Parameter) => ({
     allowReserved: parameter.allowReserved,
     description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
@@ -115,20 +118,22 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
     style: parameter.style,
   }));
   const media = requestMedia(operation);
-  const structured = ["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(
-    media?.[0] ?? "",
-  );
+  const structured =
+    media?.[0] === "application/json" ||
+    media?.[0].endsWith("+json") ||
+    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
   const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
   if (body?.properties) {
     for (const [name, schema] of Object.entries(body.properties)) {
-      if (schema.readOnly) continue;
+      const property = resolveSchema(document, schema) ?? schema;
+      if (property.readOnly) continue;
       parameters.push({
-        description: schema.description ?? `${name} request value.`,
+        description: property.description ?? `${name} request value.`,
         location: "body",
         name,
         pythonName: snake(name),
         required: body.required?.includes(name) ?? false,
-        schema,
+        schema: property,
       });
     }
   } else if (media?.[1].schema) {
@@ -229,9 +234,10 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const headers = operation.arguments.filter((argument) => argument.location === "header");
   const cookies = operation.arguments.filter((argument) => argument.location === "cookie");
   const body = operation.arguments.filter((argument) => argument.location === "body");
-  const binary = body.filter((argument) => argument.schema.format === "binary");
-  const data = body.filter((argument) => argument.schema.format !== "binary");
+  const binary = body.filter((argument) => resolveSchema(document, argument.schema)?.format === "binary");
+  const data = body.filter((argument) => resolveSchema(document, argument.schema)?.format !== "binary");
   const wholeBody = body.find((argument) => argument.wholeBody);
+  const json = operation.contentType === "application/json" || operation.contentType?.endsWith("+json");
   const authentication = getAuthentication(document, operation);
   const options = [
     server?.startsWith("/") ? `server=${quote(server)}` : "",
@@ -258,13 +264,14 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
       ? `data={${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
       : "",
     binary.length ? `files={${binary.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
-    operation.contentType === "application/json" && body.length
+    json && body.length
       ? wholeBody
         ? `json=${wholeBody.pythonName}`
         : `json={${body.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
       : "",
     operation.contentType &&
-    !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType) &&
+    !json &&
+    !["application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType) &&
     wholeBody
       ? `content=${wholeBody.pythonName}`
       : "",
@@ -339,7 +346,9 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (generated.has(name)) return;
     generated.add(name);
     const required = new Set(schema.required ?? []);
-    const properties = Object.entries(schema.properties ?? {}).filter(([, value]) => !value.writeOnly);
+    const properties = Object.entries(schema.properties ?? {})
+      .map(([name, value]) => [name, resolveSchema(document, value) ?? value] as const)
+      .filter(([, value]) => !value.writeOnly);
     const fieldNames = allocateSdkIdentifiers(properties.map(([wireName]) => ({ location: "field", name: wireName })));
     const fields = properties.map(([wireName, value], index) => {
       const fieldName = fieldNames[index] ?? snake(wireName);

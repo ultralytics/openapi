@@ -58,7 +58,7 @@ function requestBodyExample(document: OpenApiDocument, operation: ApiOperation) 
   if (example && typeof example === "object" && !Array.isArray(example)) {
     example = { ...example };
     for (const [name, property] of Object.entries(schema?.properties ?? {})) {
-      if (property.readOnly) delete (example as Record<string, unknown>)[name];
+      if (resolveSchema(document, property)?.readOnly) delete (example as Record<string, unknown>)[name];
     }
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
@@ -135,10 +135,10 @@ function codeExamples(
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
   const authentication = getAuthentication(document, operation);
-  const hasJsonBody = request?.[0] === "application/json";
+  const hasJsonBody = request?.[0] === "application/json" || request?.[0].endsWith("+json");
   const bodySchema = objectSchema(document, request?.[1].schema);
   const bodyProperties = Object.fromEntries(
-    Object.entries(bodySchema?.properties ?? {}).filter(([, schema]) => !schema.readOnly),
+    Object.entries(bodySchema?.properties ?? {}).filter(([, schema]) => !resolveSchema(document, schema)?.readOnly),
   );
   let bodyValue: unknown = request ? schemaExample(document, request[1].schema) : undefined;
   let bodyValues: Record<string, unknown> = {};
@@ -175,7 +175,7 @@ function codeExamples(
           .map(([name]) => `  --data-urlencode ${shellQuote(`${name}=${bodyValues[name] ?? "value"}`)}`)
           .join(" \\\n")
       : "",
-    request && !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
+    request && !hasJsonBody && !["application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
       ? `  --data ${shellQuote(body)}`
       : "",
     request?.[0] === "multipart/form-data"
@@ -335,7 +335,7 @@ function OperationPanel({
   const request = requestMedia(operation);
   const requestSchema = objectSchema(document, request?.[1].schema);
   const binaryFields = Object.entries(requestSchema?.properties ?? {}).filter(
-    ([, schema]) => schema.format === "binary",
+    ([, schema]) => resolveSchema(document, schema)?.format === "binary",
   );
   const success = successMedia(operation);
   const authentication = getAuthentication(document, operation);
@@ -409,7 +409,7 @@ function OperationPanel({
     }
 
     let requestBody: BodyInit | undefined;
-    if (request?.[0] === "application/json") requestBody = body;
+    if (request?.[0] === "application/json" || request?.[0].endsWith("+json")) requestBody = body;
     if (request?.[0] === "application/x-www-form-urlencoded") {
       try {
         requestBody = new URLSearchParams(JSON.parse(body));
@@ -428,7 +428,12 @@ function OperationPanel({
         return;
       }
       for (const [name, value] of Object.entries(values)) {
-        if (requestSchema?.properties?.[name]?.format === "binary" || value === null || value === undefined) continue;
+        if (
+          resolveSchema(document, requestSchema?.properties?.[name])?.format === "binary" ||
+          value === null ||
+          value === undefined
+        )
+          continue;
         form.append(name, typeof value === "string" ? value : JSON.stringify(value));
       }
       for (const [name, file] of Object.entries(files)) form.append(name, file);
