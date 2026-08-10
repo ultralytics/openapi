@@ -69,7 +69,12 @@ function pythonDocstringText(value: string, indentation = ""): string {
 }
 
 function isNullable(document: OpenApiDocument, schema: JsonSchema, depth = 0): boolean {
-  if (schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"))) return true;
+  if (
+    schema.nullable === true ||
+    (Array.isArray(schema.type) && schema.type.includes("null")) ||
+    schema.enum?.includes(null)
+  )
+    return true;
   if (depth > 10) return false;
   return (schema.oneOf ?? schema.anyOf ?? []).some((variant) => {
     const resolved = resolveSchema(document, variant) ?? variant;
@@ -402,6 +407,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       const resolved = resolveSchema(document, variant) ?? variant;
       if (
         resolved.const === null ||
+        (resolved.enum?.length === 1 && resolved.enum[0] === null) ||
         resolved.type === "null" ||
         (Array.isArray(resolved.type) && resolved.type.length === 1 && resolved.type[0] === "null")
       ) {
