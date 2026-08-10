@@ -31,6 +31,12 @@ export interface Parameter {
   schema?: JsonSchema;
 }
 
+interface ParameterReference {
+  $ref: string;
+}
+
+type ParameterInput = Parameter | ParameterReference;
+
 export interface MediaType {
   example?: unknown;
   schema?: JsonSchema;
@@ -39,7 +45,7 @@ export interface MediaType {
 export interface OperationObject {
   description?: string;
   operationId?: string;
-  parameters?: Parameter[];
+  parameters?: ParameterInput[];
   requestBody?: {
     content?: Record<string, MediaType>;
     required?: boolean;
@@ -59,6 +65,7 @@ export interface OperationObject {
 export interface OpenApiDocument {
   components?: {
     schemas?: Record<string, JsonSchema>;
+    parameters?: Record<string, Parameter>;
     securitySchemes?: Record<
       string,
       { in?: "cookie" | "header" | "query"; name?: string; scheme?: string; type?: string }
@@ -70,9 +77,13 @@ export interface OpenApiDocument {
     version: string;
   };
   openapi: string;
-  paths: Record<string, Partial<Record<HttpMethod, OperationObject>>>;
+  paths: Record<string, Partial<Record<HttpMethod, OperationObject>> & { parameters?: ParameterInput[] }>;
   security?: Array<Record<string, string[]>>;
-  servers?: Array<{ description?: string; url: string }>;
+  servers?: Array<{
+    description?: string;
+    url: string;
+    variables?: Record<string, { default: string; description?: string; enum?: string[] }>;
+  }>;
   tags?: Array<{ description?: string; name: string }>;
 }
 
@@ -88,6 +99,7 @@ export interface ApiOperation extends OperationObject {
   resource: string;
   sdkMethod: string;
   tag: string;
+  parameters?: Parameter[];
 }
 
 const HTTP_METHODS = new Set<HttpMethod>(["delete", "get", "head", "options", "patch", "post", "put", "trace"]);
@@ -219,16 +231,25 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   const names = new Map<string, Set<string>>();
 
   for (const [path, pathItem] of Object.entries(document.paths)) {
-    for (const [method, operation] of Object.entries(pathItem)) {
-      if (!HTTP_METHODS.has(method as HttpMethod) || !operation) continue;
+    const inherited = (pathItem.parameters ?? []).map((parameter) => resolveParameter(document, parameter));
+    for (const [method, value] of Object.entries(pathItem)) {
+      if (!HTTP_METHODS.has(method as HttpMethod) || !value) continue;
+      const operation = value as OperationObject;
       const typedMethod = method as HttpMethod;
       const tag = operation.tags?.[0] ?? "Other";
       const resource = sdkIdentifier(tag);
+      const parameters = [...inherited];
+      for (const parameter of (operation.parameters ?? []).map((item) => resolveParameter(document, item))) {
+        const index = parameters.findIndex((item) => item.in === parameter.in && item.name === parameter.name);
+        if (index === -1) parameters.push(parameter);
+        else parameters[index] = parameter;
+      }
       const base = {
         ...operation,
         id: operation.operationId ?? `${typedMethod}-${path}`,
         method: typedMethod,
         path,
+        parameters,
         tag,
       };
       const used = names.get(resource) ?? new Set<string>();
@@ -241,6 +262,7 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
         id: base.id,
         method: typedMethod,
         path,
+        parameters,
         resource,
         sdkMethod: name,
         tag,
@@ -249,6 +271,22 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   }
 
   return operations;
+}
+
+function resolveParameter(document: OpenApiDocument, input: ParameterInput): Parameter {
+  if (!("$ref" in input) || !input.$ref.startsWith("#/components/parameters/")) return input as Parameter;
+  const name = decodeURIComponent(input.$ref.slice("#/components/parameters/".length));
+  const parameter = document.components?.parameters?.[name];
+  if (!parameter) throw new Error(`Unknown parameter reference: ${input.$ref}`);
+  return parameter;
+}
+
+export function resolveServerUrl(document: OpenApiDocument, origin = "http://localhost:3000"): string {
+  const server = document.servers?.[0];
+  const expanded = server
+    ? server.url.replace(/{([^}]+)}/g, (_, name: string) => server.variables?.[name]?.default ?? `{${name}}`)
+    : origin;
+  return new URL(expanded, origin).toString().replace(/\/$/, "");
 }
 
 export function getAuthentication(document: OpenApiDocument): ApiAuthentication | undefined {
@@ -279,8 +317,8 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
     if (objects.length) {
       return {
         ...schema,
-        properties: Object.assign({}, ...objects.map((item) => item?.properties)),
-        required: [...new Set(objects.flatMap((item) => item?.required ?? []))],
+        properties: Object.assign({}, schema.properties, ...objects.map((item) => item?.properties)),
+        required: [...new Set([...(schema.required ?? []), ...objects.flatMap((item) => item?.required ?? [])])],
         type: "object",
       };
     }
@@ -325,7 +363,8 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
   const union = schema.oneOf ?? schema.anyOf;
   if (union?.length) return schemaExample(document, union[0], depth + 1);
   if (schema.allOf?.length) {
-    return Object.assign({}, ...schema.allOf.map((item) => schemaExample(document, item, depth + 1)));
+    const object = objectSchema(document, schema);
+    if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1);
   }
 
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;

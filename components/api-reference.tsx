@@ -22,6 +22,7 @@ import {
   type OpenApiDocument,
   objectSchema,
   requestMedia,
+  resolveServerUrl,
   schemaExample,
   schemaLabel,
   sdkIdentifier,
@@ -45,8 +46,10 @@ function operationSearchText(operation: ApiOperation) {
 }
 
 function requestBodyExample(document: OpenApiDocument, operation: ApiOperation) {
-  const media = requestMedia(operation)?.[1];
-  return media ? JSON.stringify(media.example ?? schemaExample(document, media.schema), null, 2) : "";
+  const request = requestMedia(operation);
+  if (!request) return "";
+  const example = request[1].example ?? schemaExample(document, request[1].schema);
+  return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
 
 function pythonLiteral(value: unknown): string {
@@ -74,7 +77,7 @@ function codeExamples(
   environment: string,
   pythonConfig: PythonExample,
 ) {
-  const baseUrl = document.servers?.[0]?.url ?? "http://localhost:3000";
+  const baseUrl = resolveServerUrl(document);
   const parameterExamples = new Map(
     (operation.parameters ?? [])
       .filter((parameter) => parameter.required)
@@ -113,8 +116,19 @@ function codeExamples(
     ...(operation.parameters ?? [])
       .filter((parameter) => parameter.in === "header" && parameter.required)
       .map((parameter) => `  --header '${parameter.name}: ${parameterExamples.get(`header:${parameter.name}`)}'`),
-    hasJsonBody ? "  --header 'Content-Type: application/json'" : "",
+    ...(operation.parameters ?? [])
+      .filter((parameter) => parameter.in === "cookie" && parameter.required)
+      .map((parameter) => `  --cookie '${parameter.name}=${parameterExamples.get(`cookie:${parameter.name}`)}'`),
+    request && request[0] !== "multipart/form-data" ? `  --header 'Content-Type: ${request[0]}'` : "",
     hasJsonBody ? `  --data '${body}'` : "",
+    request?.[0] === "application/x-www-form-urlencoded"
+      ? Object.entries(bodyProperties)
+          .map(([name]) => `  --data-urlencode '${name}=${bodyValues[name] ?? "value"}'`)
+          .join(" \\\n")
+      : "",
+    request && !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
+      ? `  --data '${body}'`
+      : "",
     request?.[0] === "multipart/form-data"
       ? Object.entries(bodyProperties)
           .map(
@@ -280,18 +294,19 @@ function OperationPanel({
   }
 
   async function sendRequest() {
+    const missing = parameters.find((parameter) => parameter.required && !values[`${parameter.in}:${parameter.name}`]);
+    if (missing) {
+      setResult(`Enter ${missing.name} before sending the request.`);
+      return;
+    }
     let path = operation.path;
     for (const parameter of parameters.filter((item) => item.in === "path")) {
       const value = values[`path:${parameter.name}`];
-      if (!value && parameter.required) {
-        setResult(`Enter ${parameter.name} before sending the request.`);
-        return;
-      }
       path = path.replace(`{${parameter.name}}`, encodeURIComponent(value ?? ""));
     }
 
-    const baseUrl = document.servers?.[0]?.url ?? window.location.origin;
-    const url = new URL(`${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`);
+    const baseUrl = resolveServerUrl(document, window.location.origin);
+    const url = new URL(`${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`, window.location.origin);
     for (const parameter of parameters.filter((item) => item.in === "query")) {
       const value = values[`query:${parameter.name}`];
       if (value) url.searchParams.set(parameter.name, value);
@@ -299,7 +314,7 @@ function OperationPanel({
 
     const headers: Record<string, string> = { Accept: "application/json" };
     if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;
-    if (request?.[0] === "application/json") headers["Content-Type"] = "application/json";
+    if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
     for (const parameter of parameters.filter((item) => item.in === "header")) {
       const value = values[`header:${parameter.name}`];
       if (value) headers[parameter.name] = value;
@@ -307,6 +322,14 @@ function OperationPanel({
 
     let requestBody: BodyInit | undefined;
     if (request?.[0] === "application/json") requestBody = body;
+    if (request?.[0] === "application/x-www-form-urlencoded") {
+      try {
+        requestBody = new URLSearchParams(JSON.parse(body));
+      } catch {
+        setResult("Enter valid JSON request values before sending the request.");
+        return;
+      }
+    }
     if (request?.[0] === "multipart/form-data") {
       const form = new FormData();
       let values: Record<string, unknown> = {};
@@ -327,6 +350,12 @@ function OperationPanel({
         return;
       }
       requestBody = form;
+    }
+    if (
+      request &&
+      !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
+    ) {
+      requestBody = body;
     }
 
     setSending(true);

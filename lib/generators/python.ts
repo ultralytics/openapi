@@ -8,6 +8,7 @@ import {
   objectSchema,
   requestMedia,
   resolveSchema,
+  resolveServerUrl,
   sdkIdentifier as snake,
   successMedia,
 } from "../openapi";
@@ -20,7 +21,7 @@ interface PythonConfig {
 
 interface Argument {
   description: string;
-  location: "body" | "path" | "query";
+  location: "body" | Parameter["in"];
   name: string;
   pythonName: string;
   required: boolean;
@@ -53,43 +54,50 @@ function quote(value: unknown): string {
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
+  const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
+  const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
   if (schema.const === null) return "None";
-  if (schema.const !== undefined) return `Literal[${quote(schema.const)}]`;
-  if (schema.enum?.length) return `Literal[${schema.enum.map(quote).join(", ")}]`;
+  if (schema.const !== undefined) return result(`Literal[${quote(schema.const)}]`);
+  if (schema.enum?.length) return result(`Literal[${schema.enum.map(quote).join(", ")}]`);
   const variants = schema.oneOf ?? schema.anyOf;
   if (variants?.length) {
-    if (variants.every((item) => objectSchema(document, item)?.properties)) return "dict[str, Any]";
+    if (variants.every((item) => objectSchema(document, item)?.properties)) return result("dict[str, Any]");
     if (variants.every((item) => item.const !== undefined)) {
       const values = variants.map((item) => item.const);
       const nonNull = values.filter((value) => value !== null);
-      return `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`;
+      return result(
+        `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
+      );
     }
     const types = [...new Set(variants.flatMap((item) => pythonType(document, item, true).split(" | ")))];
-    return [...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | ");
+    return result([...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | "));
   }
   const type = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
   if (type === "null") return "None";
-  if (schema.format === "binary") return "BinaryIO";
-  if (type === "string") return "str";
-  if (type === "integer") return "int";
-  if (type === "number") return "float";
-  if (type === "boolean") return "bool";
-  if (type === "array") return `list[${pythonType(document, schema.items, true)}]`;
-  if (type === "object" || schema.properties) return nested ? "dict[str, Any]" : "dict[str, Any]";
-  return "Any";
+  if (schema.format === "binary") return result("BinaryIO");
+  if (type === "string") return result("str");
+  if (type === "integer") return result("int");
+  if (type === "number") return result("float");
+  if (type === "boolean") return result("bool");
+  if (type === "array") return result(`list[${pythonType(document, schema.items, true)}]`);
+  if (type === "object" || schema.properties) return result(nested ? "dict[str, Any]" : "dict[str, Any]");
+  return result("Any");
 }
 
 function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argument[] {
   const parameters: Argument[] = (operation.parameters ?? []).map((parameter: Parameter) => ({
     description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
-    location: parameter.in as "path" | "query",
+    location: parameter.in,
     name: parameter.name,
     pythonName: snake(parameter.name),
     required: parameter.in === "path" || parameter.required === true,
     schema: parameter.schema ?? {},
   }));
   const media = requestMedia(operation);
-  const body = objectSchema(document, media?.[1].schema);
+  const structured = ["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(
+    media?.[0] ?? "",
+  );
+  const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
   if (body?.properties) {
     for (const [name, schema] of Object.entries(body.properties)) {
       parameters.push({
@@ -176,13 +184,25 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const returnType = operation.responseName ?? pythonType(document, operation.responseSchema);
   const path = operation.path.replace(/{([^}]+)}/g, (_, name: string) => `{${snake(name)}}`);
   const query = operation.arguments.filter((argument) => argument.location === "query");
+  const headers = operation.arguments.filter((argument) => argument.location === "header");
+  const cookies = operation.arguments.filter((argument) => argument.location === "cookie");
   const body = operation.arguments.filter((argument) => argument.location === "body");
   const binary = body.filter((argument) => argument.schema.format === "binary");
   const data = body.filter((argument) => argument.schema.format !== "binary");
   const wholeBody = body.find((argument) => argument.wholeBody);
   const options = [
     query.length ? `params={${query.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
-    operation.contentType === "multipart/form-data" && data.length
+    headers.length ||
+    (operation.contentType && !["application/json", "multipart/form-data"].includes(operation.contentType))
+      ? `headers={${[
+          ...headers.map((item) => `${quote(item.name)}: ${item.pythonName}`),
+          ...(operation.contentType && !["application/json", "multipart/form-data"].includes(operation.contentType)
+            ? [`"Content-Type": ${quote(operation.contentType)}`]
+            : []),
+        ].join(", ")}}`
+      : "",
+    cookies.length ? `cookies={${cookies.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
+    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType ?? "") && data.length
       ? `data={${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
       : "",
     binary.length ? `files={${binary.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
@@ -190,6 +210,11 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
       ? wholeBody
         ? `json=${wholeBody.pythonName}`
         : `json={${body.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+      : "",
+    operation.contentType &&
+    !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType) &&
+    wholeBody
+      ? `content=${wholeBody.pythonName}`
       : "",
   ].filter(Boolean);
   const pathValue = path.includes("{") ? `f${quote(path)}` : quote(path);
@@ -226,7 +251,11 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   function modelType(input: JsonSchema | undefined, name: string): string {
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
-    if (schema.format === "date-time") return "datetime";
+    if (schema.format === "date-time") {
+      return schema.nullable || (Array.isArray(schema.type) && schema.type.includes("null"))
+        ? "datetime | None"
+        : "datetime";
+    }
     const object = objectSchema(document, schema);
     if (object?.properties) {
       addModel(object, name);
@@ -319,9 +348,12 @@ class SyncAPIClient:
                     method,
                     path.lstrip("/"),
                     params=_without_none(kwargs.get("params")),
+                    headers=_without_none(kwargs.get("headers")),
+                    cookies=_without_none(kwargs.get("cookies")),
                     json=_without_none(kwargs.get("json")),
                     data=_without_none(kwargs.get("data")),
                     files=_without_none(kwargs.get("files")),
+                    content=kwargs.get("content"),
                 )
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:
@@ -362,9 +394,12 @@ class AsyncAPIClient:
                     method,
                     path.lstrip("/"),
                     params=_without_none(kwargs.get("params")),
+                    headers=_without_none(kwargs.get("headers")),
+                    cookies=_without_none(kwargs.get("cookies")),
                     json=_without_none(kwargs.get("json")),
                     data=_without_none(kwargs.get("data")),
                     files=_without_none(kwargs.get("files")),
+                    content=kwargs.get("content"),
                 )
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:
@@ -442,7 +477,7 @@ function publicClientSource(
 export async function generatePython(document: OpenApiDocument, config: PythonConfig, output: string): Promise<number> {
   const resources = prepare(document);
   const root = `${output}/src/${config.python.package}`;
-  const baseUrl = document.servers?.[0]?.url ?? "http://localhost:3000";
+  const baseUrl = resolveServerUrl(document);
   await rm(output, { force: true, recursive: true });
   await Promise.all([
     Bun.write(
