@@ -53,18 +53,8 @@
             "properties": { "failureId": { "type": "string" } }
           },
           {
-            "oneOf": [
-              {
-                "type": "object",
-                "required": ["error"],
-                "properties": { "error": { "type": "string" } }
-              },
-              {
-                "type": ["object", "null"],
-                "required": ["retryAfter"],
-                "properties": { "retryAfter": { "type": "integer" } }
-              }
-            ]
+            "properties": { "error": { "type": "string" }, "retryAfter": { "type": "integer" } },
+            "oneOf": [{ "required": ["error"] }, { "required": ["retryAfter"] }, { "type": "null" }]
           }
         ]
       }

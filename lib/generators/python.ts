@@ -373,7 +373,11 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
         const variants: JsonSchema[] = [];
         let nullable = nested.nullable || isNullable(document, schema);
         for (const variant of nested.variants) {
-          const composed = { ...shared, allOf: [...(shared.allOf ?? []), variant] };
+          const composed = {
+            ...shared,
+            allOf: [...(shared.allOf ?? []), variant],
+            required: [...new Set([...(shared.required ?? []), ...(variant.required ?? [])])],
+          };
           const expanded = objectUnion(composed, depth + 1);
           if (expanded) {
             nullable ||= expanded.nullable;
@@ -401,11 +405,14 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
         continue;
       }
       const nested = objectUnion(resolved, depth + 1);
-      const variants = nested?.variants ?? [objectSchema(document, resolved)];
-      if (variants.some((item) => !item?.properties)) return undefined;
+      const variants = nested?.variants ?? [resolved];
       nullable ||= isNullable(document, resolved) || (nested?.nullable ?? false);
       for (const item of variants) {
-        const composed = { ...shared, allOf: [...sharedAllOf, item as JsonSchema] };
+        const composed = {
+          ...shared,
+          allOf: [...sharedAllOf, item as JsonSchema],
+          required: [...new Set([...(shared.required ?? []), ...(item.required ?? [])])],
+        };
         const expanded = objectUnion(composed, depth + 1);
         if (expanded) {
           nullable ||= expanded.nullable;
