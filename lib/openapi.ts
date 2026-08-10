@@ -59,7 +59,10 @@ export interface OperationObject {
 export interface OpenApiDocument {
   components?: {
     schemas?: Record<string, JsonSchema>;
-    securitySchemes?: Record<string, unknown>;
+    securitySchemes?: Record<
+      string,
+      { in?: "cookie" | "header" | "query"; name?: string; scheme?: string; type?: string }
+    >;
   };
   info: {
     description?: string;
@@ -71,6 +74,11 @@ export interface OpenApiDocument {
   security?: Array<Record<string, string[]>>;
   servers?: Array<{ description?: string; url: string }>;
   tags?: Array<{ description?: string; name: string }>;
+}
+
+export interface ApiAuthentication {
+  header: string;
+  prefix: string;
 }
 
 export interface ApiOperation extends OperationObject {
@@ -241,6 +249,20 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   }
 
   return operations;
+}
+
+export function getAuthentication(document: OpenApiDocument): ApiAuthentication | undefined {
+  const schemes = Object.values(document.components?.securitySchemes ?? {});
+  const scheme = schemes.find(
+    (value) =>
+      (value.type === "apiKey" && value.in === "header" && value.name) ||
+      (value.type === "http" && value.scheme?.toLowerCase() === "bearer"),
+  );
+  if (scheme?.type === "apiKey" && scheme.in === "header" && scheme.name) return { header: scheme.name, prefix: "" };
+  if (scheme?.type === "http" && scheme.scheme?.toLowerCase() === "bearer") {
+    return { header: "Authorization", prefix: "Bearer " };
+  }
+  return undefined;
 }
 
 export function resolveSchema(document: OpenApiDocument, schema: JsonSchema | undefined): JsonSchema | undefined {

@@ -1,7 +1,9 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+import { rm } from "node:fs/promises";
 import type { ApiOperation, JsonSchema, OpenApiDocument, Parameter } from "../openapi";
 import {
+  getAuthentication,
   getOperations,
   objectSchema,
   requestMedia,
@@ -23,6 +25,7 @@ interface Argument {
   pythonName: string;
   required: boolean;
   schema: JsonSchema;
+  wholeBody?: boolean;
 }
 
 interface PythonOperation extends ApiOperation {
@@ -87,14 +90,26 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
   }));
   const media = requestMedia(operation);
   const body = objectSchema(document, media?.[1].schema);
-  for (const [name, schema] of Object.entries(body?.properties ?? {})) {
+  if (body?.properties) {
+    for (const [name, schema] of Object.entries(body.properties)) {
+      parameters.push({
+        description: schema.description ?? `${name} request value.`,
+        location: "body",
+        name,
+        pythonName: snake(name),
+        required: body.required?.includes(name) ?? false,
+        schema,
+      });
+    }
+  } else if (media?.[1].schema) {
     parameters.push({
-      description: schema.description ?? `${name} request value.`,
+      description: media[1].schema.description ?? "Request body.",
       location: "body",
-      name,
-      pythonName: snake(name),
-      required: body?.required?.includes(name) ?? false,
-      schema,
+      name: "body",
+      pythonName: "body",
+      required: operation.requestBody?.required ?? false,
+      schema: media[1].schema,
+      wholeBody: true,
     });
   }
   return parameters;
@@ -164,6 +179,7 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const body = operation.arguments.filter((argument) => argument.location === "body");
   const binary = body.filter((argument) => argument.schema.format === "binary");
   const data = body.filter((argument) => argument.schema.format !== "binary");
+  const wholeBody = body.find((argument) => argument.wholeBody);
   const options = [
     query.length ? `params={${query.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
     operation.contentType === "multipart/form-data" && data.length
@@ -171,7 +187,9 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
       : "",
     binary.length ? `files={${binary.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
     operation.contentType === "application/json" && body.length
-      ? `json={${body.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+      ? wholeBody
+        ? `json=${wholeBody.pythonName}`
+        : `json={${body.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
       : "",
   ].filter(Boolean);
   const pathValue = path.includes("{") ? `f${quote(path)}` : quote(path);
@@ -249,10 +267,19 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       if (schema?.properties) addModel(schema, operation.responseName);
     }
   }
-  return `from __future__ import annotations\n\nfrom datetime import datetime\nfrom typing import Any, Literal\n\nfrom pydantic import BaseModel, ConfigDict, Field\n\n\nclass APIModel(BaseModel):\n    """Base model for API responses."""\n\n    model_config = ConfigDict(populate_by_name=True, protected_namespaces=())\n\n\n${classes.join("\n\n\n")}\n`;
+  const body = classes.join("\n\n\n");
+  const datetimeImport = body.includes("datetime") ? "from datetime import datetime\n" : "";
+  const typing = ["Any", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
+  const typingImport = typing.length ? `from typing import ${typing.join(", ")}\n` : "";
+  return `from __future__ import annotations\n\n${datetimeImport}${typingImport}\nfrom pydantic import BaseModel, ConfigDict, Field\n\n\nclass APIModel(BaseModel):\n    """Base model for API responses."""\n\n    model_config = ConfigDict(populate_by_name=True, protected_namespaces=())\n\n\n${body}\n`;
 }
 
-const CLIENT_SOURCE = `from __future__ import annotations
+function clientSource(document: OpenApiDocument): string {
+  const authentication = getAuthentication(document);
+  const headers = authentication
+    ? `{${quote(authentication.header)}: f"${authentication.prefix}{api_key}"} if api_key else {}`
+    : "{}";
+  return `from __future__ import annotations
 
 import time
 from typing import Any
@@ -262,8 +289,8 @@ import httpx
 from ._exceptions import APIConnectionError, APIError
 
 
-def _without_none(values: dict[str, Any] | None) -> dict[str, Any] | None:
-    return {key: value for key, value in values.items() if value is not None} if values else None
+def _without_none(values: Any) -> Any:
+    return {key: value for key, value in values.items() if value is not None} if isinstance(values, dict) else values
 
 
 def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
@@ -278,8 +305,8 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
 class SyncAPIClient:
     def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.Client(
-            base_url=base_url.rstrip("/"),
-            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            base_url=f"{base_url.rstrip('/')}/",
+            headers=${headers},
             timeout=timeout,
         )
         self._max_retries = max_retries
@@ -290,7 +317,7 @@ class SyncAPIClient:
             try:
                 response = self._client.request(
                     method,
-                    path,
+                    path.lstrip("/"),
                     params=_without_none(kwargs.get("params")),
                     json=_without_none(kwargs.get("json")),
                     data=_without_none(kwargs.get("data")),
@@ -321,8 +348,8 @@ class SyncAPIClient:
 class AsyncAPIClient:
     def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"),
-            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            base_url=f"{base_url.rstrip('/')}/",
+            headers=${headers},
             timeout=timeout,
         )
         self._max_retries = max_retries
@@ -333,7 +360,7 @@ class AsyncAPIClient:
             try:
                 response = await self._client.request(
                     method,
-                    path,
+                    path.lstrip("/"),
                     params=_without_none(kwargs.get("params")),
                     json=_without_none(kwargs.get("json")),
                     data=_without_none(kwargs.get("data")),
@@ -360,12 +387,13 @@ class AsyncAPIClient:
     async def close(self) -> None:
         await self._client.aclose()
 `;
+}
 
 const EXCEPTIONS_SOURCE = `from __future__ import annotations
 
 
 class APIError(Exception):
-    """Error returned by the Platform API."""
+    """Error returned by the API."""
 
     def __init__(self, status_code: int, body: str, request_id: str | None = None) -> None:
         self.status_code = status_code
@@ -375,12 +403,12 @@ class APIError(Exception):
 
 
 class APIConnectionError(Exception):
-    """Network error raised while contacting the Platform API."""
+    """Network error raised while contacting the API."""
 `;
 
 const GENERATED_LICENSE = `MIT License
 
-Copyright (c) 2026 Ultralytics
+Copyright (c) 2026 OpenAPI SDK contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -396,19 +424,26 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER I
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 `;
 
-function publicClientSource(config: PythonConfig, resources: Map<string, PythonOperation[]>, async: boolean): string {
+function publicClientSource(
+  config: PythonConfig,
+  resources: Map<string, PythonOperation[]>,
+  async: boolean,
+  baseUrl: string,
+): string {
   const className = `${async ? "Async" : ""}${config.python.client}`;
   const apiClient = `${async ? "Async" : "Sync"}APIClient`;
   const imports = [...resources.keys()].map((resource) => `${async ? "Async" : ""}${pascal(resource)}`).sort();
   const properties = [...resources.keys()]
     .map((resource) => `        self.${resource} = ${async ? "Async" : ""}${pascal(resource)}(self._client)`)
     .join("\n");
-  return `from __future__ import annotations\n\nimport os\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${config.name} API."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "https://platform.ultralytics.com",\n        timeout: float = 60.0,\n        max_retries: int = 2,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${config.apiKey.environment}.\n            base_url (str): API base URL.\n            timeout (float): Request timeout in seconds.\n            max_retries (int): Retries for connection errors and retryable responses.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n`;
+  return `from __future__ import annotations\n\nimport os\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${config.name}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float = 60.0,\n        max_retries: int = 2,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${config.apiKey.environment}.\n            base_url (str): API base URL.\n            timeout (float): Request timeout in seconds.\n            max_retries (int): Retries for connection errors and retryable responses.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n`;
 }
 
 export async function generatePython(document: OpenApiDocument, config: PythonConfig, output: string): Promise<number> {
   const resources = prepare(document);
   const root = `${output}/src/${config.python.package}`;
+  const baseUrl = document.servers?.[0]?.url ?? "http://localhost:3000";
+  await rm(output, { force: true, recursive: true });
   await Promise.all([
     Bun.write(
       `${output}/pyproject.toml`,
@@ -416,13 +451,13 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
     ),
     Bun.write(
       `${output}/README.md`,
-      `# ${config.name} Python SDK\n\nGenerated from the ${config.name} OpenAPI contract.\n\n\`\`\`bash\npip install ${config.python.project}\n\`\`\`\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()  # ${config.apiKey.environment}\ndatasets = client.datasets.list()\n\`\`\`\n`,
+      `# ${config.name} Python SDK\n\nGenerated from the ${config.name} OpenAPI contract.\n\n\`\`\`bash\npip install ${config.python.project}\n\`\`\`\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()  # ${config.apiKey.environment}\n\`\`\`\n`,
     ),
     Bun.write(`${output}/LICENSE`, GENERATED_LICENSE),
-    Bun.write(`${root}/_client.py`, CLIENT_SOURCE),
+    Bun.write(`${root}/_client.py`, clientSource(document)),
     Bun.write(`${root}/_exceptions.py`, EXCEPTIONS_SOURCE),
-    Bun.write(`${root}/client.py`, publicClientSource(config, resources, false)),
-    Bun.write(`${root}/async_client.py`, publicClientSource(config, resources, true)),
+    Bun.write(`${root}/client.py`, publicClientSource(config, resources, false, baseUrl)),
+    Bun.write(`${root}/async_client.py`, publicClientSource(config, resources, true, baseUrl)),
     Bun.write(`${root}/types.py`, modelSource(document, resources)),
     Bun.write(`${root}/py.typed`, ""),
   ]);

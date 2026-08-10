@@ -35,9 +35,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generate SDKs
-        run: |
-          bun run generate
-          git diff --exit-code -- generated
+        run: bun run generate
 
       - name: Check application
         run: |
@@ -50,5 +48,5 @@ jobs:
         run: |
           python -m compileall -q generated/python/src
           uv pip install --system ./generated/python
-          python -c "from ultralytics_platform import AsyncPlatform, Platform"
+          python -c 'import importlib, json; c = json.load(open("openapi.config.json"))["python"]; m = importlib.import_module(c["package"]); getattr(m, c["client"]); getattr(m, "Async" + c["client"])'
           uvx ruff@0.16.2 check generated/python

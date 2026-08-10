@@ -43,10 +43,10 @@ Run checks through the package scripts. Generated Python additionally supports `
 
 ## Architecture
 
-- `public/openapi.json` is the sole API contract. Never duplicate or patch endpoint definitions in a generator.
+- `openapi.config.json` points to the sole local or remote API contract. Never duplicate or patch endpoint definitions in a generator.
 - `lib/openapi.ts` owns parsing, schema normalization, examples, and operation names shared by documentation and every SDK.
 - `lib/generators/` contains language-specific renderers. Add another language only when its implementation is ready; do not add placeholder abstractions.
-- `generated/` contains deterministic SDK output and is never edited manually. Change the contract, shared representation, or renderer, then regenerate.
+- `generated/` contains ignored local SDK output and is never committed or edited manually. Change the contract, shared representation, or renderer, then regenerate.
 - `components/api-reference.tsx` renders the interactive reference from the same shared operation model. API keys remain in browser memory and never appear in copied examples.
 - The documentation uses shadcn's `base-nova` style with Base UI primitives and Ultralytics design tokens.
 
@@ -60,7 +60,7 @@ Run checks through the package scripts. Generated Python additionally supports `
 ## Conventions
 
 - License headers (`# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license`) are added automatically by Ultralytics Actions — don't add or revert them manually.
-- Generated output must be deterministic; CI fails on drift.
+- Generated output must be deterministic and is validated in CI.
 - Google-style docstrings, modern type hints, and a 120-character Python line length are formatted by Ruff.
 
 <!-- BEGIN:nextjs-agent-rules -->

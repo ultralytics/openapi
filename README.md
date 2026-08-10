@@ -9,7 +9,7 @@
 [![Ultralytics Forums](https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue)](https://community.ultralytics.com)
 [![Ultralytics Reddit](https://img.shields.io/reddit/subreddit-subscribers/ultralytics?style=flat&logo=reddit&logoColor=white&label=Reddit&color=blue)](https://reddit.com/r/ultralytics)
 
-Ultralytics OpenAPI generates runnable API documentation and typed SDKs from one OpenAPI contract. The documentation shares the shadcn Nova and Base UI foundation used by [Ultralytics Platform](https://platform.ultralytics.com), and API keys stay in browser memory without appearing in copied examples.
+Ultralytics OpenAPI turns any OpenAPI specification into runnable API documentation and typed SDKs. Point `openapi.config.json` at a local file or URL, configure the generated package name, and produce both outputs from the same contract. API keys stay in browser memory and never appear in copied examples.
 
 | Output                        | Status      |
 | ----------------------------- | ----------- |
@@ -19,32 +19,52 @@ Ultralytics OpenAPI generates runnable API documentation and typed SDKs from one
 | Go SDK                        | Coming soon |
 | Java SDK                      | Coming soon |
 
+## ⚙️ Configure
+
+Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and choose the generated Python names:
+
+```json
+{
+  "source": "path/to/openapi.json",
+  "name": "Example API",
+  "apiKey": { "environment": "EXAMPLE_API_KEY" },
+  "python": {
+    "client": "Example",
+    "package": "example_api",
+    "project": "example-api-sdk",
+    "version": "0.1.0"
+  }
+}
+```
+
+The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
+
 ## 🐍 Python
 
-Set `ULTRALYTICS_API_KEY`, then use the synchronous or asynchronous client:
+Set the API-key environment variable from `openapi.config.json` (`EXAMPLE_API_KEY` in the included example), then use the synchronous or asynchronous client:
 
 ```python
-from ultralytics_platform import Platform
+from example_api import Example
 
-client = Platform()
-datasets = client.datasets.list()
+client = Example()
+widgets = client.widgets.list()
 ```
 
 ```python
-from ultralytics_platform import AsyncPlatform
+from example_api import AsyncExample
 
-client = AsyncPlatform()
-datasets = await client.datasets.list()
+client = AsyncExample()
+widgets = await client.widgets.list()
 ```
 
 The generated package includes typed resources and responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.10 or newer and is MIT licensed.
 
 ## 🧩 One Contract, Multiple Outputs
 
-`public/openapi.json` is the only API contract. `lib/openapi.ts` owns parsing and operation names shared by the documentation and every generator. Language implementations live under `lib/generators/`; generated packages live under `generated/`.
+The source configured in `openapi.config.json` is the only API contract. `lib/openapi.ts` owns parsing and operation names shared by the documentation and every generator. Language implementations live under `lib/generators/`. SDKs are written to the ignored `generated/` directory and belong in package registries or separate repositories, not this repository.
 
 ```text
-openapi.json
+your-openapi.json
     └── shared operations
         ├── interactive docs
         ├── Python SDK
@@ -55,15 +75,14 @@ openapi.json
 
 ## 🛠️ Development
 
-Install [Bun](https://bun.sh/) and [uv](https://docs.astral.sh/uv/), then run:
+Install [Bun](https://bun.sh/) and [uv](https://docs.astral.sh/uv/), then clone the repository and update `openapi.config.json` with your specification and Python package names:
 
 ```bash
 git clone https://github.com/ultralytics/openapi
 cd openapi
 bun install
-bun run sync
-bun run generate
-bun run dev
+bun run dev      # interactive documentation
+bun run generate # Python SDK in generated/python
 ```
 
 Useful checks:

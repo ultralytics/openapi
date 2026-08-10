@@ -1,13 +1,13 @@
 {
-  "source": "https://platform.ultralytics.com/openapi.json",
-  "name": "Ultralytics Platform",
+  "source": "examples/openapi.json",
+  "name": "Example API",
   "apiKey": {
-    "environment": "ULTRALYTICS_API_KEY"
+    "environment": "EXAMPLE_API_KEY"
   },
   "python": {
-    "client": "Platform",
-    "package": "ultralytics_platform",
-    "project": "ultralytics-platform",
+    "client": "Example",
+    "package": "example_api",
+    "project": "example-api-sdk",
     "version": "0.1.0"
   }
 }

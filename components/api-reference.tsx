@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type ApiOperation,
+  getAuthentication,
   getOperations,
   type OpenApiDocument,
   objectSchema,
@@ -61,8 +62,19 @@ function pythonLiteral(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function codeExamples(document: OpenApiDocument, operation: ApiOperation, body: string, environment: string) {
-  const baseUrl = document.servers?.[0]?.url ?? "";
+interface PythonExample {
+  client: string;
+  package: string;
+}
+
+function codeExamples(
+  document: OpenApiDocument,
+  operation: ApiOperation,
+  body: string,
+  environment: string,
+  pythonConfig: PythonExample,
+) {
+  const baseUrl = document.servers?.[0]?.url ?? "http://localhost:3000";
   const parameterExamples = new Map(
     (operation.parameters ?? [])
       .filter((parameter) => parameter.required)
@@ -82,8 +94,9 @@ function codeExamples(document: OpenApiDocument, operation: ApiOperation, body: 
         `${encodeURIComponent(parameter.name)}=${encodeURIComponent(String(parameterExamples.get(`query:${parameter.name}`)))}`,
     )
     .join("&");
-  const url = `${baseUrl}${path}${query ? `?${query}` : ""}`;
+  const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
+  const authentication = getAuthentication(document);
   const hasJsonBody = request?.[0] === "application/json";
   const bodySchema = objectSchema(document, request?.[1].schema);
   const bodyProperties = bodySchema?.properties ?? {};
@@ -96,7 +109,7 @@ function codeExamples(document: OpenApiDocument, operation: ApiOperation, body: 
   const curl = [
     `curl --request ${operation.method.toUpperCase()}`,
     `  --url '${url}'`,
-    `  --header "Authorization: Bearer \${${environment}}"`,
+    authentication ? `  --header "${authentication.header}: ${authentication.prefix}\${${environment}}"` : "",
     ...(operation.parameters ?? [])
       .filter((parameter) => parameter.in === "header" && parameter.required)
       .map((parameter) => `  --header '${parameter.name}: ${parameterExamples.get(`header:${parameter.name}`)}'`),
@@ -125,9 +138,9 @@ function codeExamples(document: OpenApiDocument, operation: ApiOperation, body: 
     ),
   ];
   const python = [
-    "from ultralytics_platform import Platform",
+    `from ${pythonConfig.package} import ${pythonConfig.client}`,
     "",
-    `client = Platform()  # ${environment}`,
+    `client = ${pythonConfig.client}()  # ${environment}`,
     arguments_.length
       ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${arguments_.map((argument) => `    ${argument},`).join("\n")}\n)`
       : `response = client.${operation.resource}.${operation.sdkMethod}()`,
@@ -227,11 +240,13 @@ function OperationPanel({
   document,
   environment,
   operation,
+  python,
 }: {
   apiKey: string;
   document: OpenApiDocument;
   environment: string;
   operation: ApiOperation;
+  python: PythonExample;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [body, setBody] = useState(() => requestBodyExample(document, operation));
@@ -246,9 +261,10 @@ function OperationPanel({
     ([, schema]) => schema.format === "binary",
   );
   const success = successMedia(operation);
+  const authentication = getAuthentication(document);
   const examples = useMemo(
-    () => codeExamples(document, operation, body, environment),
-    [body, document, environment, operation],
+    () => codeExamples(document, operation, body, environment, python),
+    [body, document, environment, operation, python],
   );
 
   useEffect(() => {
@@ -275,14 +291,14 @@ function OperationPanel({
     }
 
     const baseUrl = document.servers?.[0]?.url ?? window.location.origin;
-    const url = new URL(path, baseUrl);
+    const url = new URL(`${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`);
     for (const parameter of parameters.filter((item) => item.in === "query")) {
       const value = values[`query:${parameter.name}`];
       if (value) url.searchParams.set(parameter.name, value);
     }
 
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;
     if (request?.[0] === "application/json") headers["Content-Type"] = "application/json";
     for (const parameter of parameters.filter((item) => item.in === "header")) {
       const value = values[`header:${parameter.name}`];
@@ -486,7 +502,15 @@ function OperationPanel({
   );
 }
 
-export function ApiReference({ specUrl }: { specUrl: string }) {
+export function ApiReference({
+  apiKeyEnvironment,
+  python,
+  specUrl,
+}: {
+  apiKeyEnvironment: string;
+  python: PythonExample;
+  specUrl: string;
+}) {
   const [apiKey, setApiKey] = useState("");
   const [document, setDocument] = useState<OpenApiDocument>();
   const [error, setError] = useState("");
@@ -532,6 +556,7 @@ export function ApiReference({ specUrl }: { specUrl: string }) {
       </div>
     );
   }
+  const authentication = getAuthentication(document);
 
   return (
     <div className="min-h-screen bg-background">
@@ -567,17 +592,19 @@ export function ApiReference({ specUrl }: { specUrl: string }) {
               <p className="text-xs text-muted-foreground">API {document.info.version}</p>
             </div>
           </div>
-          <div className="ml-auto flex w-full max-w-sm items-center gap-2">
-            <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
-            <Input
-              aria-label="API key"
-              autoComplete="off"
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder="ul_..."
-              type="password"
-              value={apiKey}
-            />
-          </div>
+          {authentication ? (
+            <div className="ml-auto flex w-full max-w-sm items-center gap-2">
+              <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
+              <Input
+                aria-label="API key"
+                autoComplete="off"
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={apiKeyEnvironment}
+                type="password"
+                value={apiKey}
+              />
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -591,7 +618,13 @@ export function ApiReference({ specUrl }: { specUrl: string }) {
             tags={tags}
           />
         </aside>
-        <OperationPanel apiKey={apiKey} document={document} environment="ULTRALYTICS_API_KEY" operation={selected} />
+        <OperationPanel
+          apiKey={apiKey}
+          document={document}
+          environment={apiKeyEnvironment}
+          operation={selected}
+          python={python}
+        />
       </div>
     </div>
   );

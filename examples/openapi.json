@@ -1,0 +1,228 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Example API",
+    "version": "1.0.0",
+    "description": "A small example specification. Replace this file or update openapi.config.json to use your API."
+  },
+  "servers": [{ "url": "https://api.example.com/v1" }],
+  "security": [{ "bearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "paths": {
+    "/widgets": {
+      "get": {
+        "tags": ["Widgets"],
+        "summary": "List widgets",
+        "operationId": "list_widgets",
+        "security": [{}, { "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum number of widgets to return",
+            "schema": { "type": "integer", "default": 20 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Widgets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["widgets", "total"],
+                  "properties": {
+                    "widgets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "displayName"],
+                        "properties": {
+                          "id": { "type": "string", "description": "Widget ID" },
+                          "displayName": { "type": "string", "description": "Widget display name" }
+                        }
+                      }
+                    },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Widgets"],
+        "summary": "Create widget",
+        "operationId": "create_widget",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": ["provider", "settings"],
+                        "properties": {
+                          "provider": { "type": "string", "const": "cloud" },
+                          "settings": { "type": "object", "additionalProperties": true }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": ["provider", "settings"],
+                        "properties": {
+                          "provider": { "type": "string", "const": "local" },
+                          "settings": { "type": "object", "additionalProperties": true }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                      "name": { "type": "string", "description": "Widget name" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created widget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["widgetId", "createdAt"],
+                  "properties": {
+                    "widgetId": { "type": "string" },
+                    "createdAt": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/widgets/{widgetId}": {
+      "get": {
+        "tags": ["Widgets"],
+        "summary": "Get widget",
+        "operationId": "get_widget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widgetId",
+            "required": true,
+            "description": "Widget ID",
+            "schema": { "type": "string", "example": "widget_123" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Widget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "displayName"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "displayName": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/uploads": {
+      "post": {
+        "tags": ["Uploads"],
+        "summary": "Upload file",
+        "operationId": "upload_file",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success"],
+                  "properties": {
+                    "success": { "type": "boolean", "const": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/batch": {
+      "post": {
+        "tags": ["Events"],
+        "summary": "Create events",
+        "operationId": "create_events",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "Event names",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["accepted"],
+                  "properties": {
+                    "accepted": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -10,8 +10,8 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Ultralytics Platform API",
-  description: "Build, train, and deploy YOLO models with the Ultralytics Platform API.",
+  title: "OpenAPI Reference",
+  description: "Interactive API documentation generated from OpenAPI.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

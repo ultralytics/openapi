@@ -1,6 +1,8 @@
 .next/
 __pycache__/
+generated/
 node_modules/
 out/
+public/openapi.json
 *.pyc
 *.tsbuildinfo
