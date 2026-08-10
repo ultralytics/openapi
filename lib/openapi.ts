@@ -37,6 +37,26 @@ interface ParameterReference {
 
 type ParameterInput = Parameter | ParameterReference;
 
+interface ReferenceObject {
+  $ref: string;
+}
+
+interface RequestBodyObject {
+  content?: Record<string, MediaType>;
+  required?: boolean;
+}
+
+interface ResponseObject {
+  content?: Record<string, MediaType>;
+  description?: string;
+}
+
+export interface OpenApiServer {
+  description?: string;
+  url: string;
+  variables?: Record<string, { default: string; description?: string; enum?: string[] }>;
+}
+
 export interface MediaType {
   example?: unknown;
   schema?: JsonSchema;
@@ -46,18 +66,10 @@ export interface OperationObject {
   description?: string;
   operationId?: string;
   parameters?: ParameterInput[];
-  requestBody?: {
-    content?: Record<string, MediaType>;
-    required?: boolean;
-  };
-  responses?: Record<
-    string,
-    {
-      content?: Record<string, MediaType>;
-      description?: string;
-    }
-  >;
+  requestBody?: ReferenceObject | RequestBodyObject;
+  responses?: Record<string, ReferenceObject | ResponseObject>;
   security?: Array<Record<string, string[]>>;
+  servers?: OpenApiServer[];
   summary?: string;
   tags?: string[];
 }
@@ -66,6 +78,8 @@ export interface OpenApiDocument {
   components?: {
     schemas?: Record<string, JsonSchema>;
     parameters?: Record<string, Parameter>;
+    requestBodies?: Record<string, RequestBodyObject>;
+    responses?: Record<string, ResponseObject>;
     securitySchemes?: Record<
       string,
       { in?: "cookie" | "header" | "query"; name?: string; scheme?: string; type?: string }
@@ -77,13 +91,12 @@ export interface OpenApiDocument {
     version: string;
   };
   openapi: string;
-  paths: Record<string, Partial<Record<HttpMethod, OperationObject>> & { parameters?: ParameterInput[] }>;
+  paths: Record<
+    string,
+    Partial<Record<HttpMethod, OperationObject>> & { parameters?: ParameterInput[]; servers?: OpenApiServer[] }
+  >;
   security?: Array<Record<string, string[]>>;
-  servers?: Array<{
-    description?: string;
-    url: string;
-    variables?: Record<string, { default: string; description?: string; enum?: string[] }>;
-  }>;
+  servers?: OpenApiServer[];
   tags?: Array<{ description?: string; name: string }>;
 }
 
@@ -100,6 +113,9 @@ export interface ApiOperation extends OperationObject {
   sdkMethod: string;
   tag: string;
   parameters?: Parameter[];
+  requestBody?: RequestBodyObject;
+  responses?: Record<string, ResponseObject>;
+  server?: OpenApiServer;
 }
 
 const HTTP_METHODS = new Set<HttpMethod>(["delete", "get", "head", "options", "patch", "post", "put", "trace"]);
@@ -250,6 +266,14 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
         method: typedMethod,
         path,
         parameters,
+        requestBody: resolveRequestBody(document, operation.requestBody),
+        responses: Object.fromEntries(
+          Object.entries(operation.responses ?? {}).map(([status, response]) => [
+            status,
+            resolveResponse(document, response),
+          ]),
+        ),
+        server: operation.servers?.[0] ?? pathItem.servers?.[0] ?? document.servers?.[0],
         tag,
       };
       const used = names.get(resource) ?? new Set<string>();
@@ -258,7 +282,7 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
       used.add(name);
       names.set(resource, used);
       operations.push({
-        ...operation,
+        ...base,
         id: base.id,
         method: typedMethod,
         path,
@@ -273,6 +297,29 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   return operations;
 }
 
+function componentName(reference: string, section: string): string {
+  const prefix = `#/components/${section}/`;
+  if (!reference.startsWith(prefix)) throw new Error(`Unsupported reference: ${reference}`);
+  return decodeURIComponent(reference.slice(prefix.length));
+}
+
+function resolveRequestBody(
+  document: OpenApiDocument,
+  input: OperationObject["requestBody"],
+): RequestBodyObject | undefined {
+  if (!input || !("$ref" in input)) return input;
+  const body = document.components?.requestBodies?.[componentName(input.$ref, "requestBodies")];
+  if (!body) throw new Error(`Unknown request body reference: ${input.$ref}`);
+  return body;
+}
+
+function resolveResponse(document: OpenApiDocument, input: ReferenceObject | ResponseObject): ResponseObject {
+  if (!("$ref" in input)) return input;
+  const response = document.components?.responses?.[componentName(input.$ref, "responses")];
+  if (!response) throw new Error(`Unknown response reference: ${input.$ref}`);
+  return response;
+}
+
 function resolveParameter(document: OpenApiDocument, input: ParameterInput): Parameter {
   if (!("$ref" in input) || !input.$ref.startsWith("#/components/parameters/")) return input as Parameter;
   const name = decodeURIComponent(input.$ref.slice("#/components/parameters/".length));
@@ -281,26 +328,37 @@ function resolveParameter(document: OpenApiDocument, input: ParameterInput): Par
   return parameter;
 }
 
-export function resolveServerUrl(document: OpenApiDocument, origin = "http://localhost:3000"): string {
-  const server = document.servers?.[0];
+export function resolveServerUrl(
+  document: OpenApiDocument,
+  origin = "http://localhost:3000",
+  operation?: ApiOperation,
+): string {
+  const server = operation?.server ?? document.servers?.[0];
   const expanded = server
     ? server.url.replace(/{([^}]+)}/g, (_, name: string) => server.variables?.[name]?.default ?? `{${name}}`)
     : origin;
   return new URL(expanded, origin).toString().replace(/\/$/, "");
 }
 
-export function getAuthentication(document: OpenApiDocument): ApiAuthentication | undefined {
-  const schemes = Object.values(document.components?.securitySchemes ?? {});
-  const scheme = schemes.find(
-    (value) =>
-      (value.type === "apiKey" && value.in === "header" && value.name) ||
-      (value.type === "http" && value.scheme?.toLowerCase() === "bearer"),
-  );
-  if (scheme?.type === "apiKey" && scheme.in === "header" && scheme.name) return { header: scheme.name, prefix: "" };
-  if (scheme?.type === "http" && scheme.scheme?.toLowerCase() === "bearer") {
-    return { header: "Authorization", prefix: "Bearer " };
-  }
-  return undefined;
+export function getAuthentication(document: OpenApiDocument, operation?: ApiOperation): ApiAuthentication | undefined {
+  const requirements = operation
+    ? (operation.security ?? document.security ?? [])
+    : getOperations(document).flatMap((item) => item.security ?? document.security ?? []);
+  const names = new Set(requirements.flatMap((requirement) => Object.keys(requirement)));
+  const authentications = [...names].flatMap((name) => {
+    const scheme = document.components?.securitySchemes?.[name];
+    if (scheme?.type === "apiKey" && scheme.in === "header" && scheme.name) {
+      return [{ header: scheme.name, prefix: "" }];
+    }
+    if (scheme?.type === "http" && scheme.scheme?.toLowerCase() === "bearer") {
+      return [{ header: "Authorization", prefix: "Bearer " }];
+    }
+    return [];
+  });
+  if (authentications.length !== names.size) throw new Error("Unsupported authentication scheme");
+  const unique = [...new Map(authentications.map((item) => [`${item.header}:${item.prefix}`, item])).values()];
+  if (unique.length > 1) throw new Error("Multiple authentication schemes require separate generated clients");
+  return unique[0];
 }
 
 export function resolveSchema(document: OpenApiDocument, schema: JsonSchema | undefined): JsonSchema | undefined {

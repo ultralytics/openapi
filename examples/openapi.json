@@ -42,6 +42,37 @@
         "type": "http",
         "scheme": "bearer"
       }
+    },
+    "requestBodies": {
+      "EventBatch": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "description": "Event names",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "AcceptedEvents": {
+        "description": "Accepted events",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["accepted", "warnings"],
+              "properties": {
+                "accepted": { "type": "integer" },
+                "warnings": { "type": "array", "items": { "type": "string" }, "nullable": true }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "paths": {
@@ -224,33 +255,9 @@
         "tags": ["Events"],
         "summary": "Create events",
         "operationId": "create_events",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "array",
-                "description": "Event names",
-                "items": { "type": "string" }
-              }
-            }
-          }
-        },
+        "requestBody": { "$ref": "#/components/requestBodies/EventBatch" },
         "responses": {
-          "200": {
-            "description": "Accepted events",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["accepted"],
-                  "properties": {
-                    "accepted": { "type": "integer" }
-                  }
-                }
-              }
-            }
-          }
+          "200": { "$ref": "#/components/responses/AcceptedEvents" }
         }
       }
     },
@@ -283,6 +290,7 @@
         "tags": ["Echo"],
         "summary": "Echo text",
         "operationId": "echo_text",
+        "servers": [{ "url": "https://echo.example.com/v2" }],
         "requestBody": {
           "required": true,
           "content": {

@@ -77,7 +77,7 @@ function codeExamples(
   environment: string,
   pythonConfig: PythonExample,
 ) {
-  const baseUrl = resolveServerUrl(document);
+  const baseUrl = resolveServerUrl(document, "http://localhost:3000", operation);
   const parameterExamples = new Map(
     (operation.parameters ?? [])
       .filter((parameter) => parameter.required)
@@ -99,15 +99,19 @@ function codeExamples(
     .join("&");
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
-  const authentication = getAuthentication(document);
+  const authentication = getAuthentication(document, operation);
   const hasJsonBody = request?.[0] === "application/json";
   const bodySchema = objectSchema(document, request?.[1].schema);
   const bodyProperties = bodySchema?.properties ?? {};
+  let bodyValue: unknown = request ? schemaExample(document, request[1].schema) : undefined;
   let bodyValues: Record<string, unknown> = {};
   try {
-    bodyValues = JSON.parse(body);
+    bodyValue = JSON.parse(body);
+    if (bodyValue && typeof bodyValue === "object" && !Array.isArray(bodyValue)) {
+      bodyValues = bodyValue as Record<string, unknown>;
+    }
   } catch {
-    // Keep the generated example usable while the request editor contains invalid JSON.
+    if (request?.[0].startsWith("text/")) bodyValue = body;
   }
   const curl = [
     `curl --request ${operation.method.toUpperCase()}`,
@@ -150,6 +154,9 @@ function codeExamples(
       (name) =>
         `${sdkIdentifier(name)}=${pythonLiteral(bodyValues[name] ?? schemaExample(document, bodyProperties[name]))}`,
     ),
+    ...(!bodySchema?.properties && request?.[1].schema && operation.requestBody?.required
+      ? [`body=${pythonLiteral(bodyValue)}`]
+      : []),
   ];
   const python = [
     `from ${pythonConfig.package} import ${pythonConfig.client}`,
@@ -269,13 +276,14 @@ function OperationPanel({
   const [status, setStatus] = useState<number>();
   const [sending, setSending] = useState(false);
   const parameters = operation.parameters ?? [];
+  const hasCookieParameters = parameters.some((parameter) => parameter.in === "cookie");
   const request = requestMedia(operation);
   const requestSchema = objectSchema(document, request?.[1].schema);
   const binaryFields = Object.entries(requestSchema?.properties ?? {}).filter(
     ([, schema]) => schema.format === "binary",
   );
   const success = successMedia(operation);
-  const authentication = getAuthentication(document);
+  const authentication = getAuthentication(document, operation);
   const examples = useMemo(
     () => codeExamples(document, operation, body, environment, python),
     [body, document, environment, operation, python],
@@ -305,7 +313,7 @@ function OperationPanel({
       path = path.replace(`{${parameter.name}}`, encodeURIComponent(value ?? ""));
     }
 
-    const baseUrl = resolveServerUrl(document, window.location.origin);
+    const baseUrl = resolveServerUrl(document, window.location.origin, operation);
     const url = new URL(`${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`, window.location.origin);
     for (const parameter of parameters.filter((item) => item.in === "query")) {
       const value = values[`query:${parameter.name}`];
@@ -492,11 +500,13 @@ function OperationPanel({
             <CardHeader>
               <CardTitle>Try it</CardTitle>
               <CardDescription>
-                Your API key is kept only in this page and is never added to code examples.
+                {hasCookieParameters
+                  ? "Browser requests cannot set cookie parameters. Use the Python or cURL example."
+                  : "Your API key is kept only in this page and is never added to code examples."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <Button className="w-full" disabled={sending} onClick={sendRequest}>
+              <Button className="w-full" disabled={sending || hasCookieParameters} onClick={sendRequest}>
                 {sending ? <LoaderCircleIcon className="animate-spin" /> : <PlayIcon />}
                 Send request
               </Button>
@@ -585,7 +595,7 @@ export function ApiReference({
       </div>
     );
   }
-  const authentication = getAuthentication(document);
+  const hasAuthentication = operations.some((operation) => getAuthentication(document, operation));
 
   return (
     <div className="min-h-screen bg-background">
@@ -621,7 +631,7 @@ export function ApiReference({
               <p className="text-xs text-muted-foreground">API {document.info.version}</p>
             </div>
           </div>
-          {authentication ? (
+          {hasAuthentication ? (
             <div className="ml-auto flex w-full max-w-sm items-center gap-2">
               <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
               <Input

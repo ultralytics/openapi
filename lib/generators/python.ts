@@ -182,7 +182,11 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
     }),
   ].join(", ");
   const returnType = operation.responseName ?? pythonType(document, operation.responseSchema);
-  const path = operation.path.replace(/{([^}]+)}/g, (_, name: string) => `{${snake(name)}}`);
+  const operationPath =
+    operation.server && operation.server !== document.servers?.[0]
+      ? `${resolveServerUrl(document, "http://localhost:3000", operation)}/${operation.path.replace(/^\//, "")}`
+      : operation.path;
+  const path = operationPath.replace(/{([^}]+)}/g, (_, name: string) => `{${snake(name)}}`);
   const query = operation.arguments.filter((argument) => argument.location === "query");
   const headers = operation.arguments.filter((argument) => argument.location === "header");
   const cookies = operation.arguments.filter((argument) => argument.location === "cookie");
@@ -251,20 +255,20 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   function modelType(input: JsonSchema | undefined, name: string): string {
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
+    const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
+    const result = (type: string) => (nullable ? `${type} | None` : type);
     if (schema.format === "date-time") {
-      return schema.nullable || (Array.isArray(schema.type) && schema.type.includes("null"))
-        ? "datetime | None"
-        : "datetime";
+      return result("datetime");
     }
     const object = objectSchema(document, schema);
     if (object?.properties) {
       addModel(object, name);
-      return name;
+      return result(name);
     }
     const type = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
-    if (type === "array") return `list[${modelType(schema.items, `${name}Item`)}]`;
+    if (type === "array") return result(`list[${modelType(schema.items, `${name}Item`)}]`);
     if (type === "object" && typeof schema.additionalProperties === "object") {
-      return `dict[str, ${modelType(schema.additionalProperties, `${name}Value`)}]`;
+      return result(`dict[str, ${modelType(schema.additionalProperties, `${name}Value`)}]`);
     }
     return pythonType(document, schema, true);
   }
@@ -350,7 +354,7 @@ class SyncAPIClient:
                     params=_without_none(kwargs.get("params")),
                     headers=_without_none(kwargs.get("headers")),
                     cookies=_without_none(kwargs.get("cookies")),
-                    json=_without_none(kwargs.get("json")),
+                    json=kwargs.get("json"),
                     data=_without_none(kwargs.get("data")),
                     files=_without_none(kwargs.get("files")),
                     content=kwargs.get("content"),
@@ -396,7 +400,7 @@ class AsyncAPIClient:
                     params=_without_none(kwargs.get("params")),
                     headers=_without_none(kwargs.get("headers")),
                     cookies=_without_none(kwargs.get("cookies")),
-                    json=_without_none(kwargs.get("json")),
+                    json=kwargs.get("json"),
                     data=_without_none(kwargs.get("data")),
                     files=_without_none(kwargs.get("files")),
                     content=kwargs.get("content"),

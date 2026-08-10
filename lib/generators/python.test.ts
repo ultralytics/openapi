@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import config from "../../openapi.config.json";
-import { type OpenApiDocument, resolveServerUrl } from "../openapi";
+import { getAuthentication, getOperations, type OpenApiDocument, resolveServerUrl } from "../openapi";
 import { generatePython } from "./python";
 
 describe("Python generator", () => {
@@ -36,6 +36,19 @@ describe("Python generator", () => {
     expect(source).toContain("from .async_client import AsyncExample");
     expect(client).toContain('base_url: str = "https://api.example.com/v1"');
     expect(resolveServerUrl({ ...document, servers: [{ url: "/v2" }] })).toBe("http://localhost:3000/v2");
+    const operation = getOperations(document)[0];
+    expect(operation && getAuthentication(document, operation)).toEqual({ header: "Authorization", prefix: "Bearer " });
+    const multiple = structuredClone(document);
+    if (multiple.components?.securitySchemes && multiple.paths["/widgets"]?.get) {
+      multiple.components.securitySchemes.apiKey = { in: "header", name: "X-API-Key", type: "apiKey" };
+      multiple.paths["/widgets"].get.security = [{ apiKey: [] }];
+    }
+    const apiKeyOperation = getOperations(multiple).find((item) => item.method === "get" && item.path === "/widgets");
+    expect(apiKeyOperation && getAuthentication(multiple, apiKeyOperation)).toEqual({
+      header: "X-API-Key",
+      prefix: "",
+    });
+    expect(() => getAuthentication(multiple)).toThrow("Multiple authentication schemes");
   });
 
   test("generates resource methods and Google-style docstrings", async () => {
@@ -62,6 +75,7 @@ describe("Python generator", () => {
     expect(runtime).toContain('headers=_without_none(kwargs.get("headers"))');
     expect(runtime).toContain('cookies=_without_none(kwargs.get("cookies"))');
     expect(runtime).toContain('content=kwargs.get("content")');
+    expect(runtime).toContain('json=kwargs.get("json")');
     expect(runtime).toContain("raise APIError(");
     expect(uploads).toContain('files={"file": file}');
   });
@@ -86,8 +100,10 @@ describe("Python generator", () => {
 
   test("passes non-object JSON request bodies through unchanged", async () => {
     const events = await Bun.file(join(output, "src/example_api/resources/events.py")).text();
+    const types = await Bun.file(join(output, "src/example_api/types.py")).text();
     expect(events).toContain("body: list[str]");
     expect(events).toContain("json=body");
+    expect(types).toContain("warnings: list[str] | None");
   });
 
   test("serializes form request bodies", async () => {
@@ -100,5 +116,6 @@ describe("Python generator", () => {
     const echo = await Bun.file(join(output, "src/example_api/resources/echo.py")).text();
     expect(echo).toContain('headers={"Content-Type": "text/plain"}');
     expect(echo).toContain("content=body");
+    expect(echo).toContain('"https://echo.example.com/v2/echo"');
   });
 });
