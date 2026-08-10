@@ -21,6 +21,7 @@ import {
   expandServerUrl,
   getAuthentication,
   getOperations,
+  type JsonSchema,
   type OpenApiDocument,
   objectSchema,
   type Parameter,
@@ -251,7 +252,7 @@ function CodeBlock({ code }: { code: string }) {
         size="icon-sm"
         variant="ghost"
       >
-        {copied ? <CheckIcon /> : <CopyIcon />}
+        {copied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
       </Button>
       <pre className="overflow-x-auto p-4 pr-12 font-mono text-xs leading-relaxed">
         <code>{code}</code>
@@ -262,25 +263,28 @@ function CodeBlock({ code }: { code: string }) {
 
 function OperationNavigation({
   onQueryChange,
-  onSelect,
   query,
   selectedId,
   tags,
 }: {
   onQueryChange: (value: string) => void;
-  onSelect: (id: string) => void;
   query: string;
-  selectedId: string;
+  selectedId?: string;
   tags: Map<string, ApiOperation[]>;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="p-4">
         <div className="relative">
-          <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon
+            aria-hidden="true"
+            className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
             aria-label="Search operations"
+            autoComplete="off"
             className="pl-8"
+            name="api-search"
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search API"
             value={query}
@@ -290,25 +294,33 @@ function OperationNavigation({
       <Separator />
       <ScrollArea className="min-h-0 flex-1">
         <nav className="space-y-5 p-3" aria-label="API operations">
+          <a
+            className={cn(
+              "block rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
+              !selectedId && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+            href="#overview"
+          >
+            Overview
+          </a>
           {[...tags].map(([tag, taggedOperations]) => (
             <div key={tag}>
               <p className="mb-1 px-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{tag}</p>
               <div className="space-y-0.5">
                 {taggedOperations.map((operation) => (
-                  <button
+                  <a
                     className={cn(
                       "operation-list-item flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
                       selectedId === operation.id && "bg-sidebar-accent text-sidebar-accent-foreground",
                     )}
                     key={operation.id}
-                    onClick={() => onSelect(operation.id)}
-                    type="button"
+                    href={`#operation=${encodeURIComponent(operation.id)}`}
                   >
                     <span className="w-10 shrink-0 font-mono text-[10px] font-semibold uppercase text-muted-foreground">
                       {operation.method}
                     </span>
                     <span className="truncate">{operation.summary ?? operation.path}</span>
-                  </button>
+                  </a>
                 ))}
               </div>
             </div>
@@ -316,6 +328,156 @@ function OperationNavigation({
         </nav>
       </ScrollArea>
     </div>
+  );
+}
+
+interface SchemaField {
+  depth: number;
+  description?: string;
+  name: string;
+  required: boolean;
+  schema: JsonSchema;
+}
+
+function schemaFields(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  direction: "request" | "response",
+  depth = 0,
+  prefix = "",
+  references = new Set<string>(),
+): SchemaField[] {
+  if (!input || depth > 4 || (input.$ref && references.has(input.$ref))) return [];
+  const seen = input.$ref ? new Set([...references, input.$ref]) : references;
+  const schema = resolveSchema(document, input);
+  const item = Array.isArray(schema?.type)
+    ? schema.type.includes("array")
+      ? schema.items
+      : schema
+    : schema?.type === "array"
+      ? schema.items
+      : schema;
+  const object = objectSchema(document, item);
+  const required = new Set(object?.required ?? []);
+  return Object.entries(object?.properties ?? {}).flatMap(([name, field]) => {
+    const resolved = resolveSchema(document, field);
+    if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly)) return [];
+    const fieldName = `${prefix}${name}${resolved?.type === "array" ? "[]" : ""}`;
+    return [
+      { depth, description: resolved?.description, name: fieldName, required: required.has(name), schema: field },
+      ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
+    ];
+  });
+}
+
+function SchemaFields({
+  direction,
+  document,
+  schema,
+}: {
+  direction: "request" | "response";
+  document: OpenApiDocument;
+  schema: JsonSchema | undefined;
+}) {
+  const fields = schemaFields(document, schema, direction);
+  if (!fields.length) return null;
+  return (
+    <div className="divide-y rounded-xl border">
+      {fields.map((field) => (
+        <div className="grid gap-2 p-4 sm:grid-cols-[minmax(200px,0.4fr)_1fr]" key={field.name}>
+          <div className="min-w-0" style={{ paddingLeft: `${field.depth * 16}px` }}>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="break-all font-mono text-sm font-medium">{field.name}</code>
+              {field.required ? <Badge variant="outline">required</Badge> : null}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{schemaLabel(document, field.schema)}</p>
+          </div>
+          <p className="text-sm leading-6 text-muted-foreground">{field.description ?? "No description provided."}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specUrl: string }) {
+  const operations = getOperations(document);
+  const tagDescriptions = new Map(document.tags?.map((tag) => [tag.name, tag.description]));
+  const tags = new Map<string, number>();
+  for (const operation of operations) tags.set(operation.tag, (tags.get(operation.tag) ?? 0) + 1);
+  const authentications = Object.values(document.components?.securitySchemes ?? {});
+
+  return (
+    <main className="min-w-0 flex-1 px-5 py-10 lg:px-10" id="main-content">
+      <div className="mx-auto max-w-5xl space-y-10">
+        <section>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <Badge variant="secondary">OpenAPI {document.openapi}</Badge>
+            <Badge variant="outline">API {document.info.version}</Badge>
+            <Badge variant="outline">{operations.length} operations</Badge>
+          </div>
+          <h1 className="text-pretty font-heading text-4xl font-semibold tracking-tight" id="overview">
+            {document.info.title}
+          </h1>
+          {document.info.description ? (
+            <div className="mt-5 max-w-3xl text-sm leading-7 text-muted-foreground">
+              <ReactMarkdown>{document.info.description}</ReactMarkdown>
+            </div>
+          ) : null}
+          <Button className="mt-6" render={<a download href={specUrl} />} variant="outline">
+            Download OpenAPI contract
+          </Button>
+        </section>
+
+        {document.servers?.length ? (
+          <section className="space-y-4">
+            <h2 className="font-heading text-2xl font-semibold">Servers</h2>
+            <div className="divide-y rounded-xl border">
+              {document.servers.map((server) => (
+                <div className="grid gap-2 p-4 sm:grid-cols-[minmax(260px,0.6fr)_1fr]" key={server.url}>
+                  <code className="break-all font-mono text-sm">{expandServerUrl(server)}</code>
+                  <p className="text-sm text-muted-foreground">{server.description ?? "API server"}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {authentications.length ? (
+          <section className="space-y-4">
+            <h2 className="font-heading text-2xl font-semibold">Authentication</h2>
+            {authentications.map((authentication, index) => (
+              <Card key={`${authentication.type}:${authentication.name ?? authentication.scheme ?? index}`}>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {authentication.type === "http" ? authentication.scheme : authentication.name}
+                  </CardTitle>
+                  <CardDescription className="[&_a]:text-link [&_a]:underline">
+                    <ReactMarkdown>{authentication.description ?? "Authentication required."}</ReactMarkdown>
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            ))}
+          </section>
+        ) : null}
+
+        <section className="space-y-4">
+          <h2 className="font-heading text-2xl font-semibold">Resources</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[...tags].map(([tag, count]) => (
+              <Card key={tag}>
+                <CardHeader>
+                  <CardTitle className="text-base">{tag}</CardTitle>
+                  <CardDescription className="[&_a]:text-link [&_a]:underline">
+                    <ReactMarkdown>{tagDescriptions.get(tag) ?? `${count} API operations`}</ReactMarkdown>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="text-xs text-muted-foreground">{count} operations</CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }
 
@@ -493,7 +655,7 @@ function OperationPanel({
   }
 
   return (
-    <main className="min-w-0 flex-1 px-5 py-8 lg:px-10">
+    <main className="min-w-0 flex-1 px-5 py-8 lg:px-10" id="main-content">
       <div className="mx-auto grid max-w-6xl gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)]">
         <div className="min-w-0 space-y-8">
           <section>
@@ -503,7 +665,7 @@ function OperationPanel({
             </div>
             <h1 className="font-heading text-3xl font-semibold tracking-tight">{operation.summary ?? operation.id}</h1>
             {operation.description ? (
-              <div className="mt-4 text-sm leading-7 text-muted-foreground">
+              <div className="mt-4 text-sm leading-7 text-muted-foreground [&_a]:text-link [&_a]:underline">
                 <ReactMarkdown>{operation.description}</ReactMarkdown>
               </div>
             ) : null}
@@ -533,6 +695,8 @@ function OperationPanel({
                     <div>
                       <Input
                         aria-label={parameter.name}
+                        autoComplete="off"
+                        name={`${parameter.in}-${parameter.name}`}
                         onChange={(event) => setParameter(parameter.in, parameter.name, event.target.value)}
                         placeholder={parameter.description ?? parameter.name}
                         required={parameter.required}
@@ -558,15 +722,19 @@ function OperationPanel({
               </div>
               <Textarea
                 aria-label="Request body"
+                autoComplete="off"
                 className="min-h-64 font-mono text-xs leading-relaxed"
+                name="request-body"
                 onChange={(event) => setBody(event.target.value)}
                 spellCheck={false}
                 value={body}
               />
+              <SchemaFields direction="request" document={document} schema={request[1].schema} />
               {binaryFields.map(([name]) => (
                 <Input
                   aria-label={name}
                   key={name}
+                  name={name}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) setFiles((current) => ({ ...current, [name]: file }));
@@ -595,6 +763,14 @@ function OperationPanel({
                 </div>
               ))}
             </div>
+            {success?.[1].schema ? (
+              <SchemaFields direction="response" document={document} schema={success[1].schema} />
+            ) : null}
+            {success ? (
+              <CodeBlock
+                code={JSON.stringify(success[1].example ?? schemaExample(document, success[1].schema), null, 2)}
+              />
+            ) : null}
           </section>
         </div>
 
@@ -610,7 +786,11 @@ function OperationPanel({
             </CardHeader>
             <CardContent className="space-y-5">
               <Button className="w-full" disabled={sending || hasCookieParameters} onClick={sendRequest}>
-                {sending ? <LoaderCircleIcon className="animate-spin" /> : <PlayIcon />}
+                {sending ? (
+                  <LoaderCircleIcon aria-hidden="true" className="animate-spin" />
+                ) : (
+                  <PlayIcon aria-hidden="true" />
+                )}
                 Send request
               </Button>
 
@@ -628,7 +808,7 @@ function OperationPanel({
               </Tabs>
 
               {result ? (
-                <div className="space-y-2">
+                <div aria-live="polite" className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-medium">
                     <span>Response</span>
                     {status ? <Badge variant={status < 400 ? "secondary" : "destructive"}>{status}</Badge> : null}
@@ -658,7 +838,7 @@ export function ApiReference({
   const [error, setError] = useState("");
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState<string>();
   const deferredQuery = useDeferredValue(query);
   const operations = useMemo(() => (document ? getOperations(document) : []), [document]);
   const filtered = useMemo(() => {
@@ -667,11 +847,7 @@ export function ApiReference({
       ? operations.filter((operation) => operationSearchText(operation).includes(normalized))
       : operations;
   }, [deferredQuery, operations]);
-  const selected =
-    filtered.find((operation) => operation.id === selectedId) ??
-    filtered[0] ??
-    operations.find((operation) => operation.id === selectedId) ??
-    operations[0];
+  const selected = operations.find((operation) => operation.id === selectedId);
   const tags = useMemo(() => {
     const grouped = new Map<string, ApiOperation[]>();
     for (const operation of filtered) grouped.set(operation.tag, [...(grouped.get(operation.tag) ?? []), operation]);
@@ -690,11 +866,23 @@ export function ApiReference({
       );
   }, [specUrl]);
 
+  useEffect(() => {
+    function selectFromHash() {
+      const hash = window.location.hash.slice(1);
+      setSelectedId(hash.startsWith("operation=") ? decodeURIComponent(hash.slice("operation=".length)) : undefined);
+      setNavigationOpen(false);
+      window.scrollTo(0, 0);
+    }
+    selectFromHash();
+    window.addEventListener("hashchange", selectFromHash);
+    return () => window.removeEventListener("hashchange", selectFromHash);
+  }, []);
+
   if (error) return <div className="p-8 text-sm text-destructive">{error}</div>;
-  if (!document || !selected) {
+  if (!document) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        <LoaderCircleIcon className="mr-2 size-4 animate-spin" /> Loading API reference
+      <div aria-live="polite" className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        <LoaderCircleIcon aria-hidden="true" className="mr-2 size-4 animate-spin" /> Loading API reference…
       </div>
     );
   }
@@ -708,38 +896,33 @@ export function ApiReference({
             <SheetTrigger
               render={<Button aria-label="Open API navigation" className="lg:hidden" size="icon-sm" variant="ghost" />}
             >
-              <MenuIcon />
+              <MenuIcon aria-hidden="true" />
             </SheetTrigger>
             <SheetContent className="gap-0 p-0" side="left">
               <SheetHeader>
                 <SheetTitle>API reference</SheetTitle>
               </SheetHeader>
               <Separator />
-              <OperationNavigation
-                onQueryChange={setQuery}
-                onSelect={(id) => {
-                  setSelectedId(id);
-                  setNavigationOpen(false);
-                }}
-                query={query}
-                selectedId={selected.id}
-                tags={tags}
-              />
+              <OperationNavigation onQueryChange={setQuery} query={query} selectedId={selectedId} tags={tags} />
             </SheetContent>
           </Sheet>
-          <div className="flex min-w-0 items-center gap-3">
+          <a
+            className="flex min-w-0 items-center gap-3 rounded-md focus-visible:ring-2 focus-visible:ring-ring"
+            href="#overview"
+          >
             <div className="size-7 rounded-lg bg-linear-to-br from-(--ultralytics-logo-gradient-start) to-(--ultralytics-logo-gradient-end)" />
             <div className="min-w-0">
               <p className="truncate font-heading text-sm font-semibold">{document.info.title}</p>
               <p className="text-xs text-muted-foreground">API {document.info.version}</p>
             </div>
-          </div>
+          </a>
           {hasAuthentication ? (
             <div className="ml-auto flex w-full max-w-sm items-center gap-2">
-              <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
+              <KeyRoundIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
               <Input
                 aria-label="API key"
                 autoComplete="off"
+                name="api-key"
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={apiKeyEnvironment}
                 type="password"
@@ -752,21 +935,19 @@ export function ApiReference({
 
       <div className="flex min-h-[calc(100vh-4rem)]">
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-80 shrink-0 border-r bg-sidebar lg:block">
-          <OperationNavigation
-            onQueryChange={setQuery}
-            onSelect={setSelectedId}
-            query={query}
-            selectedId={selected.id}
-            tags={tags}
-          />
+          <OperationNavigation onQueryChange={setQuery} query={query} selectedId={selectedId} tags={tags} />
         </aside>
-        <OperationPanel
-          apiKey={apiKey}
-          document={document}
-          environment={apiKeyEnvironment}
-          operation={selected}
-          python={python}
-        />
+        {selected ? (
+          <OperationPanel
+            apiKey={apiKey}
+            document={document}
+            environment={apiKeyEnvironment}
+            operation={selected}
+            python={python}
+          />
+        ) : (
+          <OverviewPanel document={document} specUrl={specUrl} />
+        )}
       </div>
     </div>
   );

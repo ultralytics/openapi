@@ -28,6 +28,7 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
   "source": "path/to/openapi.json",
   "name": "Example API",
   "apiKey": { "environment": "EXAMPLE_API_KEY" },
+  "docs": { "basePath": "/reference" },
   "license": { "id": "AGPL-3.0-only", "file": "LICENSE" },
   "python": {
     "client": "Example",
@@ -39,6 +40,14 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
 ```
 
 The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
+Set `OPENAPI_CONFIG` to use a configuration outside this repository, such as a product-specific consumer:
+
+```bash
+OPENAPI_CONFIG=../product/openapi.config.json bun run generate
+OPENAPI_CONFIG=../product/openapi.config.json bun run build
+```
+
+Static documentation builds are deterministic for the same configuration and contract.
 
 ## 🐍 Python
 

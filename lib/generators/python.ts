@@ -19,7 +19,7 @@ interface PythonConfig {
   apiKey: { environment: string };
   license?: { file: string; id: string };
   name: string;
-  python: { client: string; package: string; project: string; version: string };
+  python: { client: string; install?: string; package: string; project: string; version: string };
 }
 
 interface Argument {
@@ -474,11 +474,20 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
 
 
 class SyncAPIClient:
-    def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
-        self._client = httpx.Client(
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        base_url: str,
+        timeout: float | httpx.Timeout,
+        max_retries: int,
+        http_client: httpx.Client | None,
+    ) -> None:
+        self._client = http_client or httpx.Client(
             base_url=f"{base_url.rstrip('/')}/",
             timeout=timeout,
         )
+        self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
         self._api_key = api_key
         self._max_retries = max_retries
 
@@ -527,11 +536,20 @@ class SyncAPIClient:
 
 
 class AsyncAPIClient:
-    def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
-        self._client = httpx.AsyncClient(
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        base_url: str,
+        timeout: float | httpx.Timeout,
+        max_retries: int,
+        http_client: httpx.AsyncClient | None,
+    ) -> None:
+        self._client = http_client or httpx.AsyncClient(
             base_url=f"{base_url.rstrip('/')}/",
             timeout=timeout,
         )
+        self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
         self._api_key = api_key
         self._max_retries = max_retries
 
@@ -609,7 +627,11 @@ function publicClientSource(
   const properties = [...resources.keys()]
     .map((resource) => `        self.${resource} = ${async ? "Async" : ""}${pascal(resource)}(self._client)`)
     .join("\n");
-  return `from __future__ import annotations\n\nimport os\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float = 60.0,\n        max_retries: int = 2,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}.\n            base_url (str): API base URL.\n            timeout (float): Request timeout in seconds.\n            max_retries (int): Retries for connection errors and retryable responses.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key, base_url=base_url, timeout=timeout, max_retries=max_retries\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n`;
+  const httpClient = `httpx.${async ? "Async" : ""}Client`;
+  const enter = async
+    ? `    async def __aenter__(self) -> ${className}:  # noqa: PYI034\n        return self\n\n    async def __aexit__(\n        self,\n        exc_type: type[BaseException] | None,\n        exc: BaseException | None,\n        traceback: object,\n    ) -> None:\n        await self.close()`
+    : `    def __enter__(self) -> ${className}:  # noqa: PYI034\n        return self\n\n    def __exit__(\n        self,\n        exc_type: type[BaseException] | None,\n        exc: BaseException | None,\n        traceback: object,\n    ) -> None:\n        self.close()`;
+  return `from __future__ import annotations\n\nimport os\n\nimport httpx\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float | httpx.Timeout = 60.0,\n        max_retries: int = 2,\n        http_client: ${httpClient} | None = None,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}.\n            base_url (str): API base URL.\n            timeout (float | httpx.Timeout): Request timeout.\n            max_retries (int): Retries for connection errors and retryable responses.\n            http_client (${httpClient}, optional): Custom HTTP client.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key,\n            base_url=base_url,\n            timeout=timeout,\n            max_retries=max_retries,\n            http_client=http_client,\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n\n${enter}\n`;
 }
 
 export async function generatePython(document: OpenApiDocument, config: PythonConfig, output: string): Promise<number> {
@@ -618,6 +640,7 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
   const baseUrl = resolveServerUrl(document);
   const license = config.license ?? { file: "LICENSE", id: "AGPL-3.0-only" };
   const licenseText = await Bun.file(license.file).text();
+  const install = config.python.install ?? `pip install ${config.python.project}`;
   await rm(output, { force: true, recursive: true });
   await Promise.all([
     Bun.write(
@@ -626,7 +649,7 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
     ),
     Bun.write(
       `${output}/README.md`,
-      `# ${config.name} Python SDK\n\nGenerated from the ${config.name} OpenAPI contract.\n\n\`\`\`bash\npip install ${config.python.project}\n\`\`\`\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()  # ${config.apiKey.environment}\n\`\`\`\n`,
+      `# ${config.name} Python SDK\n\nTyped synchronous and asynchronous Python clients generated from the ${config.name} OpenAPI contract.\n\n## Installation\n\n\`\`\`bash\n${install}\n\`\`\`\n\n## Usage\n\nSet \`${config.apiKey.environment}\`, then create one client with grouped API resources:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()\n\`\`\`\n\nEvery resource is also available through the asynchronous client:\n\n\`\`\`python\nfrom ${config.python.package} import Async${config.python.client}\n\nclient = Async${config.python.client}()\n\`\`\`\n\nThe clients include typed responses, multipart uploads, retries for temporary failures, and structured API errors.\n`,
     ),
     Bun.write(`${output}/LICENSE`, licenseText),
     Bun.write(`${root}/_client.py`, clientSource()),
