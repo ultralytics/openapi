@@ -404,7 +404,7 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
   const tagDescriptions = new Map(document.tags?.map((tag) => [tag.name, tag.description]));
   const tags = new Map<string, number>();
   for (const operation of operations) tags.set(operation.tag, (tags.get(operation.tag) ?? 0) + 1);
-  const authentications = Object.values(document.components?.securitySchemes ?? {});
+  const authentications = Object.entries(document.components?.securitySchemes ?? {});
 
   return (
     <main className="min-w-0 flex-1 px-5 py-10 lg:px-10" id="main-content">
@@ -445,11 +445,11 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
         {authentications.length ? (
           <section className="space-y-4">
             <h2 className="font-heading text-2xl font-semibold">Authentication</h2>
-            {authentications.map((authentication, index) => (
-              <Card key={`${authentication.type}:${authentication.name ?? authentication.scheme ?? index}`}>
+            {authentications.map(([name, authentication]) => (
+              <Card key={name}>
                 <CardHeader>
                   <CardTitle className="text-base">
-                    {authentication.type === "http" ? authentication.scheme : authentication.name}
+                    {authentication.type === "http" ? (authentication.scheme ?? name) : (authentication.name ?? name)}
                   </CardTitle>
                   <CardDescription className="[&_a]:text-link [&_a]:underline">
                     <ReactMarkdown>{authentication.description ?? "Authentication required."}</ReactMarkdown>
