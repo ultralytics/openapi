@@ -46,16 +46,25 @@
         }
       },
       "UploadFailure": {
-        "oneOf": [
+        "allOf": [
           {
             "type": "object",
-            "required": ["error"],
-            "properties": { "error": { "type": "string" } }
+            "required": ["failureId"],
+            "properties": { "failureId": { "type": "string" } }
           },
           {
-            "type": ["object", "null"],
-            "required": ["retryAfter"],
-            "properties": { "retryAfter": { "type": "integer" } }
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["error"],
+                "properties": { "error": { "type": "string" } }
+              },
+              {
+                "type": ["object", "null"],
+                "required": ["retryAfter"],
+                "properties": { "retryAfter": { "type": "integer" } }
+              }
+            ]
           }
         ]
       }

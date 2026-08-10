@@ -363,8 +363,31 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     depth = 0,
   ): { nullable: boolean; variants: JsonSchema[] } | undefined {
     const schema = resolveSchema(document, input);
-    const union = schema?.oneOf ?? schema?.anyOf;
-    if (!schema || !union?.length || depth > 10) return undefined;
+    if (!schema || depth > 10) return undefined;
+    const union = schema.oneOf ?? schema.anyOf;
+    if (!union?.length) {
+      for (const [index, item] of (schema.allOf ?? []).entries()) {
+        const nested = objectUnion(item, depth + 1);
+        if (!nested) continue;
+        const shared = { ...schema, allOf: schema.allOf?.filter((_, itemIndex) => itemIndex !== index) };
+        const variants: JsonSchema[] = [];
+        let nullable = nested.nullable || isNullable(document, schema);
+        for (const variant of nested.variants) {
+          const composed = { ...shared, allOf: [...(shared.allOf ?? []), variant] };
+          const expanded = objectUnion(composed, depth + 1);
+          if (expanded) {
+            nullable ||= expanded.nullable;
+            variants.push(...expanded.variants);
+          } else {
+            const object = objectSchema(document, composed);
+            if (!object?.properties) return undefined;
+            variants.push(object);
+          }
+        }
+        return variants.length ? { nullable, variants } : undefined;
+      }
+      return undefined;
+    }
     const shared = { ...schema };
     delete shared.oneOf;
     delete shared.anyOf;
@@ -382,9 +405,16 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       if (variants.some((item) => !item?.properties)) return undefined;
       nullable ||= isNullable(document, resolved) || (nested?.nullable ?? false);
       for (const item of variants) {
-        const merged = objectSchema(document, { ...shared, allOf: [...sharedAllOf, item as JsonSchema] });
-        if (!merged?.properties) return undefined;
-        objects.push(merged);
+        const composed = { ...shared, allOf: [...sharedAllOf, item as JsonSchema] };
+        const expanded = objectUnion(composed, depth + 1);
+        if (expanded) {
+          nullable ||= expanded.nullable;
+          objects.push(...expanded.variants);
+        } else {
+          const merged = objectSchema(document, composed);
+          if (!merged?.properties) return undefined;
+          objects.push(merged);
+        }
       }
     }
     return objects.length ? { nullable, variants: objects } : undefined;
@@ -394,13 +424,15 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
     const nullable = isNullable(document, schema);
-    const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
+    const union = objectUnion(schema);
+    const effectiveNullable = nullable || (union?.nullable ?? false);
+    const result = (type: string) =>
+      effectiveNullable && !type.split(" | ").includes("None") ? `${type} | None` : type;
     const reference = input?.$ref ? references.get(input.$ref) : undefined;
     if (reference) return defined.has(reference) ? result(reference) : quote(result(reference));
     if (input?.$ref) references.set(input.$ref, name);
     if (schema.format === "binary") return result("bytes");
     if (schema.format === "date-time") return result("str");
-    const union = objectUnion(schema);
     if (union && union.variants.length > 1) {
       const names = union.variants.map((variant, index) => {
         const variantName = `${name}Variant${index + 1}`;
