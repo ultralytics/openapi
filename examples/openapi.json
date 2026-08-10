@@ -306,6 +306,16 @@
                       "properties": {
                         "success": { "type": "boolean", "const": true },
                         "widget": { "$ref": "#/components/schemas/WidgetDetail" },
+                        "mixed": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "required": ["message"],
+                              "properties": { "message": { "type": "string" } }
+                            },
+                            { "type": "string" }
+                          ]
+                        },
                         "primaryFailure": { "$ref": "#/components/schemas/UploadFailure" },
                         "secondaryFailure": { "$ref": "#/components/schemas/UploadFailure" }
                       }
