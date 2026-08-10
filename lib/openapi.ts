@@ -173,6 +173,18 @@ export function sdkIdentifier(value: string): string {
   return PYTHON_RESERVED.has(name) ? `${name}_` : name || "value";
 }
 
+export function allocateSdkIdentifiers(values: Array<{ location: string; name: string }>): string[] {
+  const used = new Set(["self"]);
+  return values.map(({ location, name: wireName }) => {
+    const base = sdkIdentifier(wireName);
+    let name = base;
+    if (used.has(name)) name = `${base}_${location}`;
+    for (let index = 2; used.has(name); index += 1) name = `${base}_${index}`;
+    used.add(name);
+    return name;
+  });
+}
+
 function singular(value: string): string {
   return value.endsWith("ies") ? `${value.slice(0, -3)}y` : value.endsWith("s") ? value.slice(0, -1) : value;
 }
@@ -395,7 +407,8 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
     const names = new Set(item?.required ?? []);
     for (const name of required) if (!names.has(name)) required.delete(name);
   }
-  const properties: Record<string, JsonSchema> = {};
+  for (const name of schema.required ?? []) required.add(name);
+  const properties: Record<string, JsonSchema> = { ...schema.properties };
   for (const object of objects) {
     for (const [name, property] of Object.entries(object?.properties ?? {})) {
       const current = properties[name];

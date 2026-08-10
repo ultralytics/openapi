@@ -3,6 +3,7 @@
 import { rm } from "node:fs/promises";
 import type { ApiOperation, JsonSchema, OpenApiDocument, Parameter } from "../openapi";
 import {
+  allocateSdkIdentifiers,
   getAuthentication,
   getOperations,
   objectSchema,
@@ -132,15 +133,10 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
       wholeBody: true,
     });
   }
-  const used = new Set(["self"]);
-  for (const parameter of parameters) {
-    const base = parameter.pythonName;
-    let name = base;
-    if (used.has(name)) name = `${base}_${parameter.location}`;
-    for (let index = 2; used.has(name); index += 1) name = `${base}_${index}`;
-    parameter.pythonName = name;
-    used.add(name);
-  }
+  const names = allocateSdkIdentifiers(parameters);
+  parameters.forEach((parameter, index) => {
+    parameter.pythonName = names[index] ?? parameter.pythonName;
+  });
   return parameters;
 }
 
@@ -225,7 +221,9 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const binary = body.filter((argument) => argument.schema.format === "binary");
   const data = body.filter((argument) => argument.schema.format !== "binary");
   const wholeBody = body.find((argument) => argument.wholeBody);
+  const authentication = getAuthentication(document, operation);
   const options = [
+    authentication ? `auth=(${quote(authentication.header)}, ${quote(authentication.prefix)})` : "",
     query.length ? `params={${query.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
     headers.length ||
     (operation.contentType && !["application/json", "multipart/form-data"].includes(operation.contentType))
@@ -299,6 +297,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (!schema) return "Any";
     const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
     const result = (type: string) => (nullable ? `${type} | None` : type);
+    if (schema.format === "binary") return result("bytes");
     if (schema.format === "date-time") {
       return result("datetime");
     }
@@ -319,21 +318,21 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (generated.has(name)) return;
     generated.add(name);
     const required = new Set(schema.required ?? []);
-    const fields = Object.entries(schema.properties ?? {})
-      .filter(([, value]) => !value.writeOnly)
-      .map(([wireName, value]) => {
-        const fieldName = snake(wireName);
-        const type = modelType(value, `${name}${pascal(fieldName)}`);
-        const optionalType = required.has(wireName) || type.split(" | ").includes("None") ? type : `${type} | None`;
-        const alias = fieldName === wireName ? "" : `alias=${quote(wireName)}, `;
-        const defaultValue = required.has(wireName)
-          ? alias
-            ? ` = Field(${alias.slice(0, -2)})`
-            : ""
-          : ` = Field(${alias}default=None)`;
-        const description = value.description ? `\n    """${value.description.replaceAll('"""', '\\"\\"\\"')}"""` : "";
-        return `    ${fieldName}: ${optionalType}${defaultValue}${description}`;
-      });
+    const properties = Object.entries(schema.properties ?? {}).filter(([, value]) => !value.writeOnly);
+    const fieldNames = allocateSdkIdentifiers(properties.map(([wireName]) => ({ location: "field", name: wireName })));
+    const fields = properties.map(([wireName, value], index) => {
+      const fieldName = fieldNames[index] ?? snake(wireName);
+      const type = modelType(value, `${name}${pascal(fieldName)}`);
+      const optionalType = required.has(wireName) || type.split(" | ").includes("None") ? type : `${type} | None`;
+      const alias = fieldName === wireName ? "" : `alias=${quote(wireName)}, `;
+      const defaultValue = required.has(wireName)
+        ? alias
+          ? ` = Field(${alias.slice(0, -2)})`
+          : ""
+        : ` = Field(${alias}default=None)`;
+      const description = value.description ? `\n    """${value.description.replaceAll('"""', '\\"\\"\\"')}"""` : "";
+      return `    ${fieldName}: ${optionalType}${defaultValue}${description}`;
+    });
     classes.push(`class ${name}(APIModel):\n${fields.length ? fields.join("\n\n") : "    pass"}`);
   }
 
@@ -355,11 +354,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   return `from __future__ import annotations\n\n${datetimeImport}${typingImport}\nfrom pydantic import BaseModel, ConfigDict, Field\n\n\nclass APIModel(BaseModel):\n    """Base model for API responses."""\n\n    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True, protected_namespaces=())\n\n\n${body}\n`;
 }
 
-function clientSource(document: OpenApiDocument): string {
-  const authentication = getAuthentication(document);
-  const headers = authentication
-    ? `{${quote(authentication.header)}: f"${authentication.prefix}{api_key}"} if api_key else {}`
-    : "{}";
+function clientSource(): string {
   return `from __future__ import annotations
 
 import time
@@ -414,20 +409,23 @@ class SyncAPIClient:
     def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.Client(
             base_url=f"{base_url.rstrip('/')}/",
-            headers=${headers},
             timeout=timeout,
         )
+        self._api_key = api_key
         self._max_retries = max_retries
 
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
         retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
+        headers = _without_none(kwargs.get("headers")) or {}
+        if self._api_key and (auth := kwargs.get("auth")):
+            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
         for attempt in range(self._max_retries + 1):
             try:
                 response = self._client.request(
                     method,
                     path.lstrip("/"),
                     params=_without_none(kwargs.get("params")),
-                    headers=_without_none(kwargs.get("headers")),
+                    headers=headers,
                     cookies=_without_none(kwargs.get("cookies")),
                     json=_without_not_given(kwargs.get("json")),
                     data=_without_not_given(kwargs.get("data")),
@@ -448,7 +446,8 @@ class SyncAPIClient:
             raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
         if response.status_code == 204 or not response.content:
             return None
-        if "application/json" in response.headers.get("content-type", ""):
+        media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+        if media_type == "application/json" or media_type.endswith("+json"):
             return response.json()
         return response.content
 
@@ -460,20 +459,23 @@ class AsyncAPIClient:
     def __init__(self, *, api_key: str | None, base_url: str, timeout: float, max_retries: int) -> None:
         self._client = httpx.AsyncClient(
             base_url=f"{base_url.rstrip('/')}/",
-            headers=${headers},
             timeout=timeout,
         )
+        self._api_key = api_key
         self._max_retries = max_retries
 
     async def request(self, method: str, path: str, **kwargs: Any) -> Any:
         retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
+        headers = _without_none(kwargs.get("headers")) or {}
+        if self._api_key and (auth := kwargs.get("auth")):
+            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.request(
                     method,
                     path.lstrip("/"),
                     params=_without_none(kwargs.get("params")),
-                    headers=_without_none(kwargs.get("headers")),
+                    headers=headers,
                     cookies=_without_none(kwargs.get("cookies")),
                     json=_without_not_given(kwargs.get("json")),
                     data=_without_not_given(kwargs.get("data")),
@@ -494,7 +496,8 @@ class AsyncAPIClient:
             raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
         if response.status_code == 204 or not response.content:
             return None
-        if "application/json" in response.headers.get("content-type", ""):
+        media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+        if media_type == "application/json" or media_type.endswith("+json"):
             return response.json()
         return response.content
 
@@ -568,7 +571,7 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
       `# ${config.name} Python SDK\n\nGenerated from the ${config.name} OpenAPI contract.\n\n\`\`\`bash\npip install ${config.python.project}\n\`\`\`\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()  # ${config.apiKey.environment}\n\`\`\`\n`,
     ),
     Bun.write(`${output}/LICENSE`, GENERATED_LICENSE),
-    Bun.write(`${root}/_client.py`, clientSource(document)),
+    Bun.write(`${root}/_client.py`, clientSource()),
     Bun.write(`${root}/_exceptions.py`, EXCEPTIONS_SOURCE),
     Bun.write(`${root}/client.py`, publicClientSource(config, resources, false, baseUrl)),
     Bun.write(`${root}/async_client.py`, publicClientSource(config, resources, true, baseUrl)),

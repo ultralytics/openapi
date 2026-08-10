@@ -78,16 +78,18 @@ describe("Python generator", () => {
     const runtime = await Bun.file(join(output, "src/example_api/_client.py")).text();
     const uploads = await Bun.file(join(output, "src/example_api/resources/uploads.py")).text();
     expect(client).toContain('os.environ.get("EXAMPLE_API_KEY")');
-    expect(runtime).toContain('headers={"Authorization": f"Bearer {api_key}"} if api_key else {}');
+    expect(runtime).not.toContain('headers={"Authorization": f"Bearer {api_key}"} if api_key else {}');
     expect(runtime).toContain('path.lstrip("/")');
     expect(runtime).toContain('retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}');
-    expect(runtime).toContain('headers=_without_none(kwargs.get("headers"))');
+    expect(runtime).toContain('headers = _without_none(kwargs.get("headers")) or {}');
     expect(runtime).toContain('cookies=_without_none(kwargs.get("cookies"))');
     expect(runtime).toContain('content=_without_not_given(kwargs.get("content"))');
     expect(runtime).toContain("class NotGiven:");
     expect(runtime).toContain("if not isinstance(value, NotGiven)");
     expect(runtime).toContain('json=_without_not_given(kwargs.get("json"))');
     expect(runtime).toContain("raise APIError(");
+    expect(runtime).toContain('media_type.endswith("+json")');
+    expect(uploads).toContain('auth=("Authorization", "Bearer ")');
     expect(uploads).toContain('files={"file": file}');
   });
 
@@ -107,6 +109,7 @@ describe("Python generator", () => {
     expect(widgets).toContain('provider: Literal["cloud", "local"]');
     expect(widgets).toContain("settings: dict[str, Any]");
     expect(widgets).toContain("name: str");
+    expect(widgets).toContain("region: str");
     expect(widgets).toContain("description: str | None");
     const createWidget = getOperations(document).find((operation) => operation.operationId === "create_widget");
     expect(createWidget && schemaExample(document, requestMedia(createWidget)?.[1].schema)).toMatchObject({
@@ -133,6 +136,7 @@ describe("Python generator", () => {
     expect(echo).toContain('headers={"Content-Type": "text/plain"}');
     expect(echo).toContain("content=body");
     expect(echo).toContain('"https://echo.example.com/v2/echo"');
+    expect(echo).not.toContain("auth=(");
   });
 
   test("generates typed collection responses", async () => {
@@ -141,7 +145,9 @@ describe("Python generator", () => {
     expect(reports).toContain("TypeAdapter(ReportsListResponse).validate_python(");
     expect(types).toContain("ReportsListResponse = list[ReportsListResponseItem]");
     expect(types).toContain("class ReportsListResponseItem(APIModel):");
-    expect(types).toContain("from typing import BinaryIO");
+    expect(types).toContain("artifact: bytes");
+    expect(types).toContain('user_id: str = Field(alias="user-id")');
+    expect(types).toContain('user_id_field: str = Field(alias="user_id")');
     expect(types).not.toContain("password:");
   });
 });

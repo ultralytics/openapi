@@ -136,6 +136,10 @@
                 },
                 "allOf": [
                   {
+                    "required": ["region"],
+                    "properties": {
+                      "region": { "type": "string" }
+                    },
                     "oneOf": [
                       {
                         "type": "object",
@@ -300,6 +304,7 @@
         "tags": ["Echo"],
         "summary": "Echo text",
         "operationId": "echo_text",
+        "security": [],
         "servers": [{ "url": "https://echo.example.com/v2" }],
         "requestBody": {
           "required": true,
@@ -335,11 +340,13 @@
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "required": ["id", "password", "artifact"],
+                    "required": ["id", "password", "artifact", "user-id", "user_id"],
                     "properties": {
                       "id": { "type": "string" },
                       "password": { "type": "string", "writeOnly": true },
-                      "artifact": { "type": "string", "format": "binary" }
+                      "artifact": { "type": "string", "format": "binary" },
+                      "user-id": { "type": "string" },
+                      "user_id": { "type": "string" }
                     }
                   }
                 }

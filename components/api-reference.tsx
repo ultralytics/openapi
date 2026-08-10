@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type ApiOperation,
+  allocateSdkIdentifiers,
   getAuthentication,
   getOperations,
   type OpenApiDocument,
@@ -25,7 +26,6 @@ import {
   resolveServerUrl,
   schemaExample,
   schemaLabel,
-  sdkIdentifier,
   successMedia,
 } from "@/lib/openapi";
 import { cn } from "@/lib/utils";
@@ -153,22 +153,29 @@ function codeExamples(
   ]
     .filter(Boolean)
     .join(" \\\n");
-  const arguments_ = [
+  const exampleArguments = [
     ...(operation.parameters ?? [])
       .filter((parameter) => parameter.required)
-      .map(
-        (parameter) => `${sdkIdentifier(parameter.name)}=${pythonLiteral(schemaExample(document, parameter.schema))}`,
-      ),
+      .map((parameter) => ({
+        location: parameter.in,
+        name: parameter.name,
+        value: schemaExample(document, parameter.schema),
+      })),
     ...(bodySchema?.required ?? [])
       .filter((name) => bodyProperties[name])
-      .map(
-        (name) =>
-          `${sdkIdentifier(name)}=${pythonLiteral(bodyValues[name] ?? schemaExample(document, bodyProperties[name]))}`,
-      ),
+      .map((name) => ({
+        location: "body",
+        name,
+        value: bodyValues[name] ?? schemaExample(document, bodyProperties[name]),
+      })),
     ...(!bodySchema?.properties && request?.[1].schema && operation.requestBody?.required
-      ? [`body=${pythonLiteral(bodyValue)}`]
+      ? [{ location: "body", name: "body", value: bodyValue }]
       : []),
   ];
+  const argumentNames = allocateSdkIdentifiers(exampleArguments);
+  const arguments_ = exampleArguments.map(
+    (argument, index) => `${argumentNames[index]}=${pythonLiteral(argument.value)}`,
+  );
   const python = [
     `from ${pythonConfig.package} import ${pythonConfig.client}`,
     "",
@@ -331,7 +338,7 @@ function OperationPanel({
       if (value) url.searchParams.set(parameter.name, value);
     }
 
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = success ? { Accept: success[0] } : {};
     if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;
     if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
     for (const parameter of parameters.filter((item) => item.in === "header")) {
