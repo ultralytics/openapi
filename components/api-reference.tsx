@@ -92,6 +92,14 @@ function shellQuote(value: unknown): string {
   return `'${String(value).replaceAll("'", `'"'"'`)}'`;
 }
 
+function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
+  return Object.entries(values).flatMap(([name, value]) => {
+    if (Array.isArray(value)) return value.map((item) => [name, item] as [string, unknown]);
+    if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
+    return [[name, value]];
+  });
+}
+
 interface PythonExample {
   client: string;
   package: string;
@@ -172,8 +180,8 @@ function codeExamples(
     request && request[0] !== "multipart/form-data" ? `  --header ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
     hasJsonBody ? `  --data ${shellQuote(body)}` : "",
     request?.[0] === "application/x-www-form-urlencoded"
-      ? Object.entries(bodyProperties)
-          .map(([name]) => `  --data-urlencode ${shellQuote(`${name}=${bodyValues[name] ?? "value"}`)}`)
+      ? formEntries(bodyValues)
+          .map(([name, value]) => `  --data-urlencode ${shellQuote(`${name}=${value}`)}`)
           .join(" \\\n")
       : "",
     request && !hasJsonBody && !["application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
@@ -404,16 +412,25 @@ function OperationPanel({
     const headers: Record<string, string> = success ? { Accept: success[0] } : {};
     if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;
     if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
-    for (const parameter of parameters.filter((item) => item.in === "header")) {
-      const value = values[`header:${parameter.name}`];
-      if (value) headers[parameter.name] = value;
+    try {
+      for (const parameter of parameters.filter((item) => item.in === "header")) {
+        const value = values[`header:${parameter.name}`];
+        if (value) {
+          headers[parameter.name] = serializeSimplePath(parameterValue(document, parameter, value), parameter.explode);
+        }
+      }
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : "Invalid header parameter");
+      return;
     }
 
     let requestBody: BodyInit | undefined;
     if (request?.[0] === "application/json" || request?.[0].endsWith("+json")) requestBody = body;
     if (request?.[0] === "application/x-www-form-urlencoded") {
       try {
-        requestBody = new URLSearchParams(JSON.parse(body));
+        const form = new URLSearchParams();
+        for (const [name, value] of formEntries(JSON.parse(body))) form.append(name, String(value));
+        requestBody = form;
       } catch {
         setResult("Enter valid JSON request values before sending the request.");
         return;

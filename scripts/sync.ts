@@ -3,8 +3,9 @@
 import { mkdir } from "node:fs/promises";
 import config from "../openapi.config.json";
 
-const document = /^https?:\/\//.test(config.source)
-  ? await fetch(config.source).then((response) => {
+if (config.source.startsWith("http://")) throw new Error("Remote OpenAPI sources must use HTTPS");
+const document = config.source.startsWith("https://")
+  ? await fetch(config.source, { redirect: "error" }).then((response) => {
       if (!response.ok) throw new Error(`Failed to fetch ${config.source}: ${response.status} ${response.statusText}`);
       return response.json();
     })

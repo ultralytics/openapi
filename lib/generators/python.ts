@@ -41,6 +41,7 @@ interface PythonOperation extends ApiOperation {
   name: string;
   responseName?: string;
   responseSchema?: JsonSchema;
+  responseText?: boolean;
 }
 
 function pascal(value: string): string {
@@ -176,6 +177,8 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   for (const operation of getOperations(document)) {
     const media = successMedia(operation);
     const responseSchema = media?.[1].schema;
+    const response = resolveSchema(document, responseSchema);
+    const responseType = Array.isArray(response?.type) ? response.type.find((type) => type !== "null") : response?.type;
     const resource = operation.resource;
     const values = resources.get(resource) ?? [];
     const name = operation.sdkMethod;
@@ -186,6 +189,12 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       name,
       responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
       responseSchema,
+      responseText:
+        !!media &&
+        media[0] !== "application/json" &&
+        !media[0].endsWith("+json") &&
+        response?.format !== "binary" &&
+        (responseType === "string" || response?.enum?.every((value) => typeof value === "string")),
     });
     resources.set(resource, values);
   }
@@ -258,6 +267,7 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const options = [
     relativeServer ? `server=${quote(server)}` : "",
     authentication ? `auth=(${quote(authentication.header)}, ${quote(authentication.prefix)})` : "",
+    operation.responseText ? "text=True" : "",
     query.length
       ? `params=[${query
           .map(
@@ -508,7 +518,7 @@ class SyncAPIClient:
         media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
         if media_type == "application/json" or media_type.endswith("+json"):
             return response.json()
-        if media_type.startswith("text/"):
+        if kwargs.get("text") or media_type.startswith("text/"):
             return response.text
         return response.content
 
@@ -561,7 +571,7 @@ class AsyncAPIClient:
         media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
         if media_type == "application/json" or media_type.endswith("+json"):
             return response.json()
-        if media_type.startswith("text/"):
+        if kwargs.get("text") or media_type.startswith("text/"):
             return response.text
         return response.content
 
