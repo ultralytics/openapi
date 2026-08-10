@@ -1,3 +1,5 @@
+// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
 export type HttpMethod = "delete" | "get" | "head" | "options" | "patch" | "post" | "put" | "trace";
 
 export interface JsonSchema {

@@ -1,3 +1,5 @@
+// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
 "use client";
 
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";

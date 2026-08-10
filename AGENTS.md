@@ -29,14 +29,14 @@ After opening a PR:
 ## Commands
 
 ```bash
-bun install            # install application and generator dependencies
-bun run dev            # run the documentation application
-bun run sync           # fetch the configured OpenAPI contract
-bun run generate       # generate and format all SDK outputs
-bun run typecheck      # type-check TypeScript
-bun run lint           # check formatting and lint rules
-bun run test           # run focused generator tests
-bun run build          # build the static documentation application
+bun install       # install application and generator dependencies
+bun run dev       # run the documentation application
+bun run sync      # fetch the configured OpenAPI contract
+bun run generate  # generate and format all SDK outputs
+bun run typecheck # type-check TypeScript
+bun run lint      # check formatting and lint rules
+bun run test      # run focused generator tests
+bun run build     # build the static documentation application
 ```
 
 Run checks through the package scripts. Generated Python additionally supports `python3 -m compileall -q generated/python/src` and `uvx ruff@0.16.2 check generated/python`.

@@ -1,3 +1,5 @@
+// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
 import { generatePython } from "../lib/generators/python";
 import type { OpenApiDocument } from "../lib/openapi";
 import config from "../openapi.config.json";

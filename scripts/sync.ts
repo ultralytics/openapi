@@ -1,3 +1,5 @@
+// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
 import config from "../openapi.config.json";
 
 const response = await fetch(config.source);

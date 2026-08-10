@@ -11,13 +11,13 @@
 
 Ultralytics OpenAPI generates runnable API documentation and typed SDKs from one OpenAPI contract. The documentation shares the shadcn Nova and Base UI foundation used by [Ultralytics Platform](https://platform.ultralytics.com), and API keys stay in browser memory without appearing in copied examples.
 
-| Output | Status |
-| --- | --- |
-| Interactive API documentation | Available |
-| Python SDK | Available |
-| TypeScript SDK | Coming soon |
-| Go SDK | Coming soon |
-| Java SDK | Coming soon |
+| Output                        | Status      |
+| ----------------------------- | ----------- |
+| Interactive API documentation | Available   |
+| Python SDK                    | Available   |
+| TypeScript SDK                | Coming soon |
+| Go SDK                        | Coming soon |
+| Java SDK                      | Coming soon |
 
 ## 🐍 Python
 
