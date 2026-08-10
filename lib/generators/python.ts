@@ -399,17 +399,16 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   for (const operations of resources.values()) {
     for (const operation of operations) {
       if (!operation.responseName) continue;
-      if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
-        references.set(operation.responseSchema.$ref, operation.responseName);
-      }
+      const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
       const schema = objectSchema(document, operation.responseSchema);
+      const nullableObject = !!schema?.properties && !!response && isNullable(document, response);
+      const modelName = nullableObject ? `${operation.responseName}Value` : operation.responseName;
+      if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
+        references.set(operation.responseSchema.$ref, modelName);
+      }
       if (schema?.properties) {
-        const response = resolveSchema(document, operation.responseSchema) ?? operation.responseSchema;
-        if (response && isNullable(document, response)) {
-          const valueName = `${operation.responseName}Value`;
-          addModel(schema, valueName);
-          classes.push(`${operation.responseName} = ${valueName} | None`);
-        } else addModel(schema, operation.responseName);
+        addModel(schema, modelName);
+        if (nullableObject) classes.push(`${operation.responseName} = ${modelName} | None`);
       } else if (operation.responseSchema) {
         const type = modelType(operation.responseSchema, operation.responseName);
         classes.push(`${operation.responseName} = ${type}`);

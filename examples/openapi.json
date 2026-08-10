@@ -33,6 +33,17 @@
         "properties": {
           "user_id": { "type": "string" }
         }
+      },
+      "WidgetDetail": {
+        "type": "object",
+        "required": ["id", "displayName"],
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string", "nullable": true },
+          "metadata": {
+            "anyOf": [{ "type": "object", "properties": { "source": { "type": "string" } } }, { "type": "null" }]
+          }
+        }
       }
     },
     "parameters": {
@@ -239,23 +250,8 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "required": ["id", "displayName"],
-                      "properties": {
-                        "id": { "type": "string" },
-                        "displayName": { "type": "string", "nullable": true },
-                        "metadata": {
-                          "anyOf": [
-                            { "type": "object", "properties": { "source": { "type": "string" } } },
-                            { "type": "null" }
-                          ]
-                        }
-                      }
-                    },
-                    { "type": "null" }
-                  ]
+                  "$ref": "#/components/schemas/WidgetDetail",
+                  "nullable": true
                 }
               }
             }
@@ -291,7 +287,8 @@
                   "type": "object",
                   "required": ["success"],
                   "properties": {
-                    "success": { "type": "boolean", "const": true }
+                    "success": { "type": "boolean", "const": true },
+                    "widget": { "$ref": "#/components/schemas/WidgetDetail" }
                   }
                 }
               }
