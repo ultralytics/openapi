@@ -1,18 +1,14 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-# Dependabot for package version updates
-# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
-
 version: 2
 updates:
-  - package-ecosystem: pip
+  - package-ecosystem: npm
     directory: "/"
     schedule:
       interval: weekly
       time: "04:00"
     open-pull-requests-limit: 10
-    labels:
-      - dependencies
+    labels: [dependencies]
 
   - package-ecosystem: github-actions
     directory: "/.github/workflows"
@@ -20,5 +16,4 @@ updates:
       interval: weekly
       time: "04:00"
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
+    labels: [dependencies]
