@@ -13,19 +13,27 @@ async function addHeader(path: string): Promise<void> {
       const child = `${path}/${entry.name}`;
       if (entry.isDirectory()) return addHeader(child);
 
-      const style = {
-        ".css": [`/* ${header} */\n\n`, ""],
-        ".html": ["", `<!-- ${header} -->\n`],
-        ".js": [`// ${header}\n\n`, ""],
-        ".py": [`# ${header}\n\n`, ""],
-        ".toml": [`# ${header}\n\n`, ""],
-      }[extname(entry.name)];
-      if (!style) return;
+      const extension = extname(entry.name);
+      if (extension === ".html") {
+        const content = await Bun.file(child).text();
+        const doctype = "<!DOCTYPE html>";
+        const hasDoctype = content.startsWith(doctype);
+        const prefix = `${hasDoctype ? `${doctype}\n` : ""}<!-- ${header} -->\n`;
+        if (!content.startsWith(prefix))
+          await Bun.write(child, `${prefix}${hasDoctype ? content.slice(doctype.length) : content}`);
+        return;
+      }
+
+      const prefix = {
+        ".css": `/* ${header} */\n\n`,
+        ".js": `// ${header}\n\n`,
+        ".py": `# ${header}\n\n`,
+        ".toml": `# ${header}\n\n`,
+      }[extension];
+      if (!prefix) return;
 
       const content = await Bun.file(child).text();
-      const [prefix, suffix] = style;
-      if (!content.startsWith(prefix) || !content.endsWith(suffix))
-        await Bun.write(child, `${prefix}${content}${suffix}`);
+      if (!content.startsWith(prefix)) await Bun.write(child, `${prefix}${content}`);
     }),
   );
 }
