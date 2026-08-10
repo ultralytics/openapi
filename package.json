@@ -8,7 +8,7 @@
     "dev": "bun run sync && next dev",
     "build": "bun run sync && next build",
     "sync": "bun run scripts/sync.ts",
-    "generate": "bun run sync && bun run scripts/generate.ts && uvx ruff@0.16.2 format --line-length 120 generated/python",
+    "generate": "bun run sync && bun run scripts/generate.ts && uvx ruff@0.16.2 format --no-cache --line-length 120 generated/python",
     "typecheck": "next typegen && tsgo --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

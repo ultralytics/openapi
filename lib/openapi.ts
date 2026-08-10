@@ -89,7 +89,7 @@ export interface OpenApiDocument {
     responses?: Record<string, ResponseObject>;
     securitySchemes?: Record<
       string,
-      { in?: "cookie" | "header" | "query"; name?: string; scheme?: string; type?: string }
+      { description?: string; in?: "cookie" | "header" | "query"; name?: string; scheme?: string; type?: string }
     >;
   };
   info: {

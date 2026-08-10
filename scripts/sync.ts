@@ -1,7 +1,9 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import { mkdir } from "node:fs/promises";
-import config from "../openapi.config.json";
+import { getConfig } from "../lib/config";
+
+const config = getConfig();
 
 if (config.source.startsWith("http://")) throw new Error("Remote OpenAPI sources must use HTTPS");
 const document = config.source.startsWith("https://")
