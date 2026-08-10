@@ -243,7 +243,13 @@
                   "required": ["id", "displayName"],
                   "properties": {
                     "id": { "type": "string" },
-                    "displayName": { "type": "string", "nullable": true }
+                    "displayName": { "type": "string", "nullable": true },
+                    "metadata": {
+                      "anyOf": [
+                        { "type": "object", "properties": { "source": { "type": "string" } } },
+                        { "type": "null" }
+                      ]
+                    }
                   }
                 }
               }

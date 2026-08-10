@@ -68,10 +68,23 @@ function pythonDocstringText(value: string, indentation = ""): string {
     .replaceAll("\n", `\n${indentation}`);
 }
 
+function isNullable(document: OpenApiDocument, schema: JsonSchema): boolean {
+  if (schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"))) return true;
+  return (schema.oneOf ?? schema.anyOf ?? []).some((variant) => {
+    const resolved = resolveSchema(document, variant) ?? variant;
+    return (
+      resolved.const === null ||
+      resolved.nullable === true ||
+      resolved.type === "null" ||
+      (Array.isArray(resolved.type) && resolved.type.includes("null"))
+    );
+  });
+}
+
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
-  const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
+  const nullable = isNullable(document, schema);
   const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
   if (schema.const === null) return "None";
   if (schema.const !== undefined) return result(`Literal[${quote(schema.const)}]`);
@@ -346,8 +359,8 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   function modelType(input: JsonSchema | undefined, name: string): string {
     const schema = resolveSchema(document, input);
     if (!schema) return "Any";
-    const nullable = schema.nullable === true || (Array.isArray(schema.type) && schema.type.includes("null"));
-    const result = (type: string) => (nullable ? `${type} | None` : type);
+    const nullable = isNullable(document, schema);
+    const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
     const reference = input?.$ref ? references.get(input.$ref) : undefined;
     if (reference) return defined.has(reference) ? result(reference) : quote(result(reference));
     if (input?.$ref) references.set(input.$ref, name);
