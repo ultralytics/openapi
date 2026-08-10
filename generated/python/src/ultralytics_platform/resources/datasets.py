@@ -635,7 +635,7 @@ class Datasets:
         dataset_id: str,
         session_id: str | None = None,
         source_url: str | None = None,
-        reference: Any | None = None,
+        reference: dict[str, Any] | None = None,
         target_split: Literal["train", "val", "test"] | None = None,
         class_mapping: dict[str, Any] | None = None,
         conflict_policy: Literal["skip", "keep_both", "replace"] | None = None,
@@ -649,7 +649,7 @@ class Datasets:
             dataset_id (str): Dataset ID to process
             session_id (str, optional): Upload session ID from signed-url response
             source_url (str, optional): Remote dataset archive or NDJSON URL
-            reference (Any, optional): Connected cloud folder, or On Premise folder or archive
+            reference (dict[str, Any], optional): Connected cloud folder, or On Premise folder or archive
             target_split (Literal["train", "val", "test"], optional): Target split for new images (overrides ZIP structure)
             class_mapping (dict[str, Any], optional): User-confirmed mapping from incoming class names to existing
             conflict_policy (Literal["skip", "keep_both", "replace"], optional): How to handle filename or content conflicts
@@ -1484,7 +1484,7 @@ class AsyncDatasets:
         dataset_id: str,
         session_id: str | None = None,
         source_url: str | None = None,
-        reference: Any | None = None,
+        reference: dict[str, Any] | None = None,
         target_split: Literal["train", "val", "test"] | None = None,
         class_mapping: dict[str, Any] | None = None,
         conflict_policy: Literal["skip", "keep_both", "replace"] | None = None,
@@ -1498,7 +1498,7 @@ class AsyncDatasets:
             dataset_id (str): Dataset ID to process
             session_id (str, optional): Upload session ID from signed-url response
             source_url (str, optional): Remote dataset archive or NDJSON URL
-            reference (Any, optional): Connected cloud folder, or On Premise folder or archive
+            reference (dict[str, Any], optional): Connected cloud folder, or On Premise folder or archive
             target_split (Literal["train", "val", "test"], optional): Target split for new images (overrides ZIP structure)
             class_mapping (dict[str, Any], optional): User-confirmed mapping from incoming class names to existing
             conflict_policy (Literal["skip", "keep_both", "replace"], optional): How to handle filename or content conflicts

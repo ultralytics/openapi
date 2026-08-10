@@ -64,4 +64,10 @@ describe("Python generator", () => {
     expect(types).toContain('dataset_id: str | None = Field(alias="datasetId", default=None)');
     expect(datasets).toContain("DatasetsCreateResponse.model_validate(");
   });
+
+  test("merges composed request schemas without narrowing union fields", async () => {
+    const account = await Bun.file(join(output, "src/ultralytics_platform/resources/account.py")).text();
+    expect(account).toContain('provider: Literal["gcs", "s3", "azure"]');
+    expect(account).toContain("targets: list[str]");
+  });
 });

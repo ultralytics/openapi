@@ -222,11 +222,21 @@ class Account:
             self._client.request("GET", "/api/integrations/buckets", params={"owner": owner})
         )
 
-    def connect_cloud_storage(self, *, owner: str | None = None) -> AccountConnectCloudStorageResponse:
+    def connect_cloud_storage(
+        self,
+        *,
+        provider: Literal["gcs", "s3", "azure"],
+        credentials: dict[str, Any],
+        targets: list[str],
+        owner: str | None = None,
+    ) -> AccountConnectCloudStorageResponse:
         """Connect cloud storage.
 
         Args:
             owner (str, optional): Workspace username
+            provider (Literal["gcs", "s3", "azure"]): provider request value.
+            credentials (dict[str, Any]): credentials request value.
+            targets (list[str]): targets request value.
 
         Returns:
             (AccountConnectCloudStorageResponse): The API response.
@@ -235,17 +245,22 @@ class Account:
             (APIError): If the API returns an unsuccessful response.
         """
         return AccountConnectCloudStorageResponse.model_validate(
-            self._client.request("POST", "/api/integrations/buckets", params={"owner": owner})
+            self._client.request(
+                "POST",
+                "/api/integrations/buckets",
+                params={"owner": owner},
+                json={"provider": provider, "credentials": credentials, "targets": targets},
+            )
         )
 
     def discover_cloud_storage_locations(
-        self, *, provider: Literal["azure"], credentials: dict[str, Any], owner: str | None = None
+        self, *, provider: Literal["gcs", "s3", "azure"], credentials: dict[str, Any], owner: str | None = None
     ) -> AccountDiscoverCloudStorageLocationsResponse:
         """Discover cloud storage locations.
 
         Args:
             owner (str, optional): Workspace username
-            provider (Literal["azure"]): provider request value.
+            provider (Literal["gcs", "s3", "azure"]): provider request value.
             credentials (dict[str, Any]): credentials request value.
 
         Returns:
@@ -675,11 +690,21 @@ class AsyncAccount:
             await self._client.request("GET", "/api/integrations/buckets", params={"owner": owner})
         )
 
-    async def connect_cloud_storage(self, *, owner: str | None = None) -> AccountConnectCloudStorageResponse:
+    async def connect_cloud_storage(
+        self,
+        *,
+        provider: Literal["gcs", "s3", "azure"],
+        credentials: dict[str, Any],
+        targets: list[str],
+        owner: str | None = None,
+    ) -> AccountConnectCloudStorageResponse:
         """Connect cloud storage.
 
         Args:
             owner (str, optional): Workspace username
+            provider (Literal["gcs", "s3", "azure"]): provider request value.
+            credentials (dict[str, Any]): credentials request value.
+            targets (list[str]): targets request value.
 
         Returns:
             (AccountConnectCloudStorageResponse): The API response.
@@ -688,17 +713,22 @@ class AsyncAccount:
             (APIError): If the API returns an unsuccessful response.
         """
         return AccountConnectCloudStorageResponse.model_validate(
-            await self._client.request("POST", "/api/integrations/buckets", params={"owner": owner})
+            await self._client.request(
+                "POST",
+                "/api/integrations/buckets",
+                params={"owner": owner},
+                json={"provider": provider, "credentials": credentials, "targets": targets},
+            )
         )
 
     async def discover_cloud_storage_locations(
-        self, *, provider: Literal["azure"], credentials: dict[str, Any], owner: str | None = None
+        self, *, provider: Literal["gcs", "s3", "azure"], credentials: dict[str, Any], owner: str | None = None
     ) -> AccountDiscoverCloudStorageLocationsResponse:
         """Discover cloud storage locations.
 
         Args:
             owner (str, optional): Workspace username
-            provider (Literal["azure"]): provider request value.
+            provider (Literal["gcs", "s3", "azure"]): provider request value.
             credentials (dict[str, Any]): credentials request value.
 
         Returns:

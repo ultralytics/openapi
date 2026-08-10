@@ -252,6 +252,17 @@ export function resolveSchema(document: OpenApiDocument, schema: JsonSchema | un
 export function objectSchema(document: OpenApiDocument, input: JsonSchema | undefined): JsonSchema | undefined {
   const schema = resolveSchema(document, input);
   if (!schema) return undefined;
+  if (schema.allOf?.length) {
+    const objects = schema.allOf.map((item) => objectSchema(document, item)).filter((item) => item?.properties);
+    if (objects.length) {
+      return {
+        ...schema,
+        properties: Object.assign({}, ...objects.map((item) => item?.properties)),
+        required: [...new Set(objects.flatMap((item) => item?.required ?? []))],
+        type: "object",
+      };
+    }
+  }
   const variants = schema.anyOf ?? schema.oneOf;
   if (!variants?.length) return schema;
   const objects = variants.map((item) => objectSchema(document, item)).filter((item) => item?.properties);
@@ -261,9 +272,22 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
     const names = new Set(item?.required ?? []);
     for (const name of required) if (!names.has(name)) required.delete(name);
   }
+  const properties: Record<string, JsonSchema> = {};
+  for (const object of objects) {
+    for (const [name, property] of Object.entries(object?.properties ?? {})) {
+      const current = properties[name];
+      properties[name] =
+        current && JSON.stringify(current) !== JSON.stringify(property)
+          ? {
+              anyOf: [...(current.anyOf ?? [current]), property],
+              description: current.description ?? property.description,
+            }
+          : property;
+    }
+  }
   return {
     ...schema,
-    properties: Object.assign({}, ...objects.map((item) => item?.properties)),
+    properties,
     required: [...required],
     type: "object",
   };

@@ -218,9 +218,9 @@ class Deployments:
                     "normalize": normalize,
                     "decimals": decimals,
                     "bits": bits,
+                    "file": file,
                     "source": source,
                 },
-                files={"file": file},
             )
         )
 
@@ -543,9 +543,9 @@ class AsyncDeployments:
                     "normalize": normalize,
                     "decimals": decimals,
                     "bits": bits,
+                    "file": file,
                     "source": source,
                 },
-                files={"file": file},
             )
         )
 

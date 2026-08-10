@@ -54,7 +54,8 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   if (schema.const !== undefined) return `Literal[${quote(schema.const)}]`;
   if (schema.enum?.length) return `Literal[${schema.enum.map(quote).join(", ")}]`;
   const variants = schema.oneOf ?? schema.anyOf;
-  if (variants?.length && !variants.every((item) => objectSchema(document, item)?.properties)) {
+  if (variants?.length) {
+    if (variants.every((item) => objectSchema(document, item)?.properties)) return "dict[str, Any]";
     if (variants.every((item) => item.const !== undefined)) {
       const values = variants.map((item) => item.const);
       const nonNull = values.filter((value) => value !== null);

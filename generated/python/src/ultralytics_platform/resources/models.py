@@ -407,9 +407,9 @@ class Models:
                     "normalize": normalize,
                     "decimals": decimals,
                     "bits": bits,
+                    "file": file,
                     "source": source,
                 },
-                files={"file": file},
             )
         )
 
@@ -873,9 +873,9 @@ class AsyncModels:
                     "normalize": normalize,
                     "decimals": decimals,
                     "bits": bits,
+                    "file": file,
                     "source": source,
                 },
-                files={"file": file},
             )
         )
 
