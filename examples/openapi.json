@@ -42,7 +42,8 @@
           "displayName": { "type": "string", "nullable": true },
           "metadata": {
             "anyOf": [{ "type": "object", "properties": { "source": { "type": "string" } } }, { "type": "null" }]
-          }
+          },
+          "opaque": { "anyOf": [{}, { "type": "null" }] }
         }
       },
       "UploadFailure": {
