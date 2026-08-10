@@ -44,10 +44,12 @@ interface PythonOperation extends ApiOperation {
 }
 
 function pascal(value: string): string {
-  return snake(value)
+  const name = snake(value);
+  return `${name.startsWith("_") ? "_" : ""}${name
     .split("_")
+    .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join("");
+    .join("")}`;
 }
 
 function quote(value: unknown): string {
@@ -130,6 +132,9 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
   }));
   const media = requestMedia(operation);
   if (media && !media[1].schema) throw new Error(`Unsupported schema-less request body: ${media[0]}`);
+  if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
+    throw new Error(`Unsupported request body encoding: ${media[0]}`);
+  }
   const structured =
     media?.[0] === "application/json" ||
     media?.[0].endsWith("+json") ||

@@ -64,6 +64,7 @@ export interface OpenApiServer {
 }
 
 export interface MediaType {
+  encoding?: Record<string, unknown>;
   example?: unknown;
   schema?: JsonSchema;
 }
@@ -171,7 +172,12 @@ export function sdkIdentifier(value: string): string {
     .replace(/[^a-zA-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .toLowerCase();
-  return PYTHON_RESERVED.has(name) ? `${name}_` : name || "value";
+  const identifier = name || "value";
+  return PYTHON_RESERVED.has(identifier)
+    ? `${identifier}_`
+    : /^[a-z_]/.test(identifier)
+      ? identifier
+      : `_${identifier}`;
 }
 
 export function allocateSdkIdentifiers(values: Array<{ location: string; name: string }>): string[] {
@@ -570,7 +576,9 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
 }
 
 function preferredMedia(content: Record<string, MediaType> | undefined): [string, MediaType] | undefined {
-  const media = Object.entries(content ?? {});
+  const media = Object.entries(content ?? {}).map(
+    ([type, value]) => [type.toLowerCase(), value] as [string, MediaType],
+  );
   return (
     media.find(([type]) => type === "application/json") ??
     media.find(([type]) => type.endsWith("+json")) ??

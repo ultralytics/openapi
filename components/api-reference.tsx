@@ -161,13 +161,13 @@ function codeExamples(
       .filter((parameter) => parameter.in === "header" && parameter.required)
       .map(
         (parameter) =>
-          `  --header ${shellQuote(`${parameter.name}: ${parameterExamples.get(`header:${parameter.name}`)}`)}`,
+          `  --header ${shellQuote(`${parameter.name}: ${serializeSimplePath(parameterExamples.get(`header:${parameter.name}`), parameter.explode)}`)}`,
       ),
     ...(operation.parameters ?? [])
       .filter((parameter) => parameter.in === "cookie" && parameter.required)
       .map(
         (parameter) =>
-          `  --cookie ${shellQuote(`${parameter.name}=${parameterExamples.get(`cookie:${parameter.name}`)}`)}`,
+          `  --cookie ${shellQuote(serializeQueryParameter(parameter.name, parameterExamples.get(`cookie:${parameter.name}`), "form", parameter.explode).replaceAll("&", "; "))}`,
       ),
     request && request[0] !== "multipart/form-data" ? `  --header ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
     hasJsonBody ? `  --data ${shellQuote(body)}` : "",
