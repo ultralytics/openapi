@@ -2,9 +2,6 @@
 
 blank_issues_enabled: true
 contact_links:
-  - name: 📄 Platform API Docs
-    url: https://platform.ultralytics.com/api/docs
-    about: Browse the current Ultralytics Platform API
   - name: 💬 Forum
     url: https://community.ultralytics.com/
     about: Ask on Ultralytics Community Forum
