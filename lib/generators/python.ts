@@ -400,7 +400,11 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     let nullable = isNullable(document, { ...schema, oneOf: undefined, anyOf: undefined });
     for (const variant of union) {
       const resolved = resolveSchema(document, variant) ?? variant;
-      if (resolved.const === null || resolved.type === "null") {
+      if (
+        resolved.const === null ||
+        resolved.type === "null" ||
+        (Array.isArray(resolved.type) && resolved.type.length === 1 && resolved.type[0] === "null")
+      ) {
         nullable = true;
         continue;
       }

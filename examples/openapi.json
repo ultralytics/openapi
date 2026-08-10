@@ -54,7 +54,7 @@
           },
           {
             "properties": { "error": { "type": "string" }, "retryAfter": { "type": "integer" } },
-            "oneOf": [{ "required": ["error"] }, { "required": ["retryAfter"] }, { "type": "null" }]
+            "oneOf": [{ "required": ["error"] }, { "required": ["retryAfter"] }, { "type": ["null"] }]
           }
         ]
       }
