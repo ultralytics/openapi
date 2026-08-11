@@ -727,7 +727,7 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
       ]),
     );
   }
-  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "string";
+  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "";
 }
 
 export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undefined): string {
@@ -854,7 +854,7 @@ export function curlCodeSample(
   operation: ApiOperation,
   {
     apiKey = "YOUR_API_KEY",
-    body = "",
+    body,
     environment,
     files = {},
     origin,
@@ -906,7 +906,7 @@ export function curlCodeSample(
   );
   let bodyValues: Record<string, unknown> = {};
   try {
-    const parsed = JSON.parse(body) as unknown;
+    const parsed = JSON.parse(body ?? "") as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) bodyValues = parsed as Record<string, unknown>;
   } catch {
     // Non-JSON request bodies are emitted verbatim below.
@@ -940,7 +940,7 @@ export function curlCodeSample(
           .join(" \\\n")
       : "",
     request &&
-    body &&
+    body !== undefined &&
     !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
       ? `  --data ${shellQuote(body)}`
       : "",

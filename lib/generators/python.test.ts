@@ -132,6 +132,15 @@ describe("Python generator", () => {
     expect(curl).toContain("--form 'file=@path/to/file'");
     expect(curl).not.toContain("Content-Type: multipart/form-data");
     expect(curl).not.toContain("--data '");
+    const raw = getOperations(document).find((operation) => requestMedia(operation)?.[0] === "text/plain");
+    expect(raw).toBeDefined();
+    if (!raw) return;
+    expect(
+      curlCodeSample(document, raw, {
+        body: requestBodyExample(document, raw),
+        origin: "https://docs.example.com",
+      }),
+    ).toContain("--data ''");
     const multipartDocument = structuredClone(document);
     const multipartUpload = getOperations(multipartDocument).find(
       (operation) => requestMedia(operation)?.[0] === "multipart/form-data",
@@ -180,6 +189,10 @@ describe("Python generator", () => {
         oneOf: [{ enum: ["pose"], type: "string" }],
       }),
     ).toEqual(["values: obb", "values: classify", "values: pose"]);
+  });
+
+  test("uses empty generic string examples", () => {
+    expect(schemaExample(document, { type: "string" })).toBe("");
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {
