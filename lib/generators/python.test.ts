@@ -74,6 +74,18 @@ describe("Python generator", () => {
     expect(() => getAuthentication(multiple)).toThrow("Multiple authentication schemes");
   });
 
+  test("uses a configured package README", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openapi-readme-"));
+    const readme = join(directory, "README.md");
+    try {
+      await Bun.write(readme, "# Consumer-owned README\n");
+      await generatePython(document, { ...config, python: { ...config.python, readme } }, join(directory, "generated"));
+      expect(await Bun.file(join(directory, "generated/README.md")).text()).toBe("# Consumer-owned README\n");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("generates resource methods and Google-style docstrings", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
     expect(widgets).toContain("def list(");

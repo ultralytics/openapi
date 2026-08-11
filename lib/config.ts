@@ -15,6 +15,7 @@ export interface OpenApiConfig {
     install: string;
     package: string;
     project: string;
+    readme?: string;
     version: string;
   };
   source: string;
@@ -31,6 +32,9 @@ export function getConfig(): OpenApiConfig {
   }
   if (config.license && !isAbsolute(config.license.file)) {
     config.license.file = resolve(directory, config.license.file);
+  }
+  if (config.python.readme && !isAbsolute(config.python.readme)) {
+    config.python.readme = resolve(directory, config.python.readme);
   }
   return config;
 }
