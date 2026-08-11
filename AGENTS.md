@@ -44,6 +44,7 @@ Run checks through the package scripts. Generated Python additionally supports `
 
 ## Architecture
 
+- Downstream API docs and SDK consumers must track this repository's `main` branch. Never introduce a commit SHA or tag pin for `ultralytics/openapi` in Portal, SDK, or related automation.
 - `openapi.config.json` points to the sole local or remote API contract. Never duplicate or patch endpoint definitions in a generator.
 - `lib/openapi.ts` owns parsing, schema normalization, examples, and operation names shared by documentation and every SDK.
 - `lib/generators/` contains language-specific renderers. Add another language only when its implementation is ready; do not add placeholder abstractions.
