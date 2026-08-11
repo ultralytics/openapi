@@ -18,8 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   type ApiOperation,
   buildApiRequest,
+  curlCodeSample,
   expandServerUrl,
-  formEntries,
   getAuthentication,
   getOperations,
   type JsonSchema,
@@ -32,8 +32,6 @@ import {
   schemaExample,
   schemaFields,
   schemaLabel,
-  serializeQueryParameter,
-  serializeSimplePath,
   successMedia,
 } from "@/lib/openapi";
 import { cn } from "@/lib/utils";
@@ -53,10 +51,6 @@ function operationSearchText(operation: ApiOperation) {
   return `${operation.method} ${operation.path} ${operation.summary ?? ""} ${operation.tag}`.toLowerCase();
 }
 
-function shellQuote(value: unknown): string {
-  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
-}
-
 interface PythonExample {
   client: string;
   install: string;
@@ -68,96 +62,30 @@ function codeExamples(
   operation: ApiOperation,
   body: string,
   environment: string,
+  files: Record<string, File>,
   origin: string,
   pythonConfig: PythonExample,
+  values: Record<string, string>,
 ) {
-  const server = operation.server ?? document.servers?.[0];
-  const expandedServer = server ? expandServerUrl(server) : undefined;
-  const baseUrl =
-    expandedServer && origin ? new URL(expandedServer, `${origin}/`).toString() : (expandedServer ?? origin);
-  const parameterExamples = new Map(
+  const examples = Object.fromEntries(
     (operation.parameters ?? [])
       .filter((parameter) => parameter.required)
-      .map((parameter) => [`${parameter.in}:${parameter.name}`, schemaExample(document, parameter.schema)]),
+      .map((parameter) => [
+        `${parameter.in}:${parameter.name}`,
+        String(schemaExample(document, parameter.schema) ?? ""),
+      ]),
   );
-  let path = operation.path;
-  for (const parameter of (operation.parameters ?? []).filter((parameter) => parameter.in === "path")) {
-    path = path.replace(
-      `{${parameter.name}}`,
-      serializeSimplePath(parameterExamples.get(`path:${parameter.name}`), parameter.explode, parameter.allowReserved),
-    );
-  }
-  const query = (operation.parameters ?? [])
-    .filter((parameter) => parameter.in === "query" && parameter.required)
-    .map((parameter) =>
-      serializeQueryParameter(
-        parameter.name,
-        parameterExamples.get(`query:${parameter.name}`),
-        parameter.style,
-        parameter.explode,
-        parameter.allowReserved,
-      ),
-    )
-    .join("&");
-  const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
-  const authentication = getAuthentication(document, operation);
-  const hasJsonBody = request?.[0] === "application/json" || request?.[0].endsWith("+json");
-  const bodySchema = objectSchema(document, request?.[1].schema);
-  const bodyProperties = Object.fromEntries(
-    Object.entries(bodySchema?.properties ?? {}).filter(([, schema]) => !resolveSchema(document, schema)?.readOnly),
-  );
   let bodyValue: unknown = request ? schemaExample(document, request[1].schema) : undefined;
-  let bodyValues: Record<string, unknown> = {};
   try {
     bodyValue = JSON.parse(body);
-    if (bodyValue && typeof bodyValue === "object" && !Array.isArray(bodyValue)) {
-      bodyValues = bodyValue as Record<string, unknown>;
-    }
   } catch {
-    if (request?.[0].startsWith("text/")) bodyValue = body;
+    if (!request?.[0].startsWith("text/")) bodyValue = undefined;
   }
-  const curl = [
-    `curl --request ${operation.method.toUpperCase()}`,
-    `  --url ${shellQuote(url)}`,
-    authentication
-      ? `  --header ${shellQuote(`${authentication.header}: ${authentication.prefix}`)}"$${environment}"`
-      : "",
-    ...(operation.parameters ?? [])
-      .filter((parameter) => parameter.in === "header" && parameter.required)
-      .map(
-        (parameter) =>
-          `  --header ${shellQuote(`${parameter.name}: ${serializeSimplePath(parameterExamples.get(`header:${parameter.name}`), parameter.explode)}`)}`,
-      ),
-    ...(operation.parameters ?? [])
-      .filter((parameter) => parameter.in === "cookie" && parameter.required)
-      .map(
-        (parameter) =>
-          `  --cookie ${shellQuote(serializeQueryParameter(parameter.name, parameterExamples.get(`cookie:${parameter.name}`), "form", parameter.explode).replaceAll("&", "; "))}`,
-      ),
-    request && request[0] !== "multipart/form-data" ? `  --header ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
-    hasJsonBody ? `  --data ${shellQuote(body)}` : "",
-    request?.[0] === "application/x-www-form-urlencoded"
-      ? formEntries(bodyValues)
-          .map(([name, value]) => `  --data-urlencode ${shellQuote(`${name}=${value}`)}`)
-          .join(" \\\n")
-      : "",
-    request && !hasJsonBody && !["application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
-      ? `  --data ${shellQuote(body)}`
-      : "",
-    request?.[0] === "multipart/form-data"
-      ? Object.entries(bodyProperties)
-          .map(
-            ([name, schema]) =>
-              `  --form ${shellQuote(`${name}=${resolveSchema(document, schema)?.format === "binary" ? "@path/to/file" : (bodyValues[name] ?? "value")}`)}`,
-          )
-          .join(" \\\n")
-      : "",
-  ]
-    .filter(Boolean)
-    .join(" \\\n");
-  const python = pythonCodeSample(document, operation, { ...pythonConfig, environment }, bodyValue);
-  return { curl, python };
+  return {
+    curl: curlCodeSample(document, operation, { body, environment, files, origin, values: { ...examples, ...values } }),
+    python: pythonCodeSample(document, operation, { ...pythonConfig, environment }, bodyValue),
+  };
 }
 
 function CodeBlock({ code }: { code: string }) {
@@ -433,8 +361,8 @@ function OperationPanel({
   );
   const success = successMedia(operation);
   const examples = useMemo(
-    () => codeExamples(document, operation, body, environment, origin, python),
-    [body, document, environment, operation, origin, python],
+    () => codeExamples(document, operation, body, environment, files, origin, python, values),
+    [body, document, environment, files, operation, origin, python, values],
   );
 
   useEffect(() => setOrigin(window.location.origin), []);
@@ -459,6 +387,7 @@ function OperationPanel({
         body,
         files,
         origin: window.location.origin,
+        serverUrl: window.location.origin,
         values,
       });
     } catch (error) {

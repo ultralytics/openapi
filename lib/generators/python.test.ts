@@ -7,9 +7,12 @@ import { join } from "node:path";
 import config from "../../openapi.config.json";
 import {
   addPythonCodeSamples,
+  buildApiRequest,
+  curlCodeSample,
   getAuthentication,
   getOperations,
   type OpenApiDocument,
+  requestBodyExample,
   requestMedia,
   resolveServerUrl,
   schemaExample,
@@ -106,6 +109,33 @@ describe("Python generator", () => {
     expect(createSample?.source).toContain("description=None");
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
+  });
+
+  test("builds safe live requests and valid multipart cURL", () => {
+    const list = getOperations(document).find((operation) => operation.method === "get");
+    const upload = getOperations(document).find((operation) => requestMedia(operation)?.[0] === "multipart/form-data");
+    expect(list).toBeDefined();
+    expect(upload).toBeDefined();
+    if (!list || !upload) return;
+    const values = Object.fromEntries(
+      (list.parameters ?? [])
+        .filter((parameter) => parameter.required)
+        .map((parameter) => [`${parameter.in}:${parameter.name}`, String(schemaExample(document, parameter.schema))]),
+    );
+    expect(
+      buildApiRequest(document, list, {
+        origin: "https://preview.example.com",
+        serverUrl: "https://preview.example.com",
+        values,
+      }).url,
+    ).toStartWith("https://preview.example.com/");
+    const curl = curlCodeSample(document, upload, {
+      body: requestBodyExample(document, upload),
+      origin: "https://docs.example.com",
+    });
+    expect(curl).toContain("--form 'file=@path/to/file'");
+    expect(curl).not.toContain("Content-Type: multipart/form-data");
+    expect(curl).not.toContain("--data '");
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {
