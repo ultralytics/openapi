@@ -966,10 +966,21 @@ export function curlCodeSample(
   const formatFormValue = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
   const contentType = request?.[0];
   const form = formEntries(bodyValues);
+  const multipart =
+    contentType === "multipart/form-data"
+      ? [...new Set([...Object.keys(bodyValues), ...Object.keys(files)])].map((name) => {
+          const binary = files[name] || resolveSchema(document, properties[name])?.format === "binary";
+          const bodyFile = bodyValues[name];
+          const value = binary
+            ? `@${files[name]?.name ?? (typeof bodyFile === "string" && bodyFile !== "..." ? bodyFile.replace(/^@/, "") : "path/to/file")}`
+            : formatFormValue(bodyValues[name]);
+          return `  ${binary ? "-F" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
+        })
+      : [];
   const hasBodyArgument =
     ((contentType === "application/json" || contentType?.endsWith("+json")) && Boolean(body)) ||
     (contentType === "application/x-www-form-urlencoded" && form.length > 0) ||
-    (contentType === "multipart/form-data" && Object.keys(properties).length > 0) ||
+    (contentType === "multipart/form-data" && multipart.length > 0) ||
     (contentType !== undefined &&
       !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(contentType) &&
       body !== undefined);
@@ -1014,17 +1025,7 @@ export function curlCodeSample(
     !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
       ? `  -d ${shellQuote(body)}`
       : "",
-    request?.[0] === "multipart/form-data"
-      ? Object.entries(properties)
-          .map(([name, schema]) => {
-            const binary = resolveSchema(document, schema)?.format === "binary";
-            const value = binary
-              ? `@${files[name]?.name ?? "path/to/file"}`
-              : formatFormValue(bodyValues[name] ?? schemaExample(document, schema));
-            return `  ${binary ? "-F" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
-          })
-          .join(" \\\n")
-      : "",
+    request?.[0] === "multipart/form-data" ? multipart.join(" \\\n") : "",
   ]
     .filter(Boolean)
     .join(" \\\n");

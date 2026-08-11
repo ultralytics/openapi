@@ -153,12 +153,12 @@ describe("Python generator", () => {
     if (media?.[1].schema?.properties) media[1].schema.properties.note = { type: "string" };
     expect(multipartUpload).toBeDefined();
     if (!multipartUpload) return;
-    expect(
-      curlCodeSample(multipartDocument, multipartUpload, {
-        body: JSON.stringify({ note: "@/tmp/secret" }),
-        origin: "https://docs.example.com",
-      }),
-    ).toContain("--form-string 'note=@/tmp/secret'");
+    const authoredMultipartCurl = curlCodeSample(multipartDocument, multipartUpload, {
+      body: JSON.stringify({ note: "@/tmp/secret" }),
+      origin: "https://docs.example.com",
+    });
+    expect(authoredMultipartCurl).toContain("--form-string 'note=@/tmp/secret'");
+    expect(authoredMultipartCurl).not.toContain("file=@");
     const structuredDocument = structuredClone(document);
     const structured = getOperations(structuredDocument).find((operation) => operation.method === "get");
     expect(structured).toBeDefined();
