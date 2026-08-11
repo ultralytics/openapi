@@ -215,6 +215,9 @@ describe("Python generator", () => {
     expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "..."\n}');
     createMedia[1].schema = { properties: { id: { readOnly: true, type: "string" } }, type: "object" };
     expect(requestBodyExample(minimalDocument, create)).toBe("{}");
+    minimalDocument.components = { schemas: { Node: { oneOf: [{ $ref: "#/components/schemas/Node" }] } } };
+    createMedia[1].schema = { $ref: "#/components/schemas/Node" };
+    expect(() => requestBodyExample(minimalDocument, create)).not.toThrow();
     const retrieve = getOperations(document).find((operation) => operation.path === "/widgets/{widgetId}");
     expect(retrieve).toBeDefined();
     if (!retrieve) return;

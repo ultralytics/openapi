@@ -830,14 +830,16 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
 function authoredSchemaExample(
   document: OpenApiDocument,
   input: JsonSchema | undefined,
+  depth = 0,
 ): { found: boolean; value?: unknown } {
+  if (depth > 8) return { found: false };
   const schema = resolveSchema(document, input);
   if (!schema) return { found: false };
   if (schema.example !== undefined) return { found: true, value: schema.example };
   const union = schema.oneOf ?? schema.anyOf;
-  if (union?.length) return authoredSchemaExample(document, union[0]);
+  if (union?.length) return authoredSchemaExample(document, union[0], depth + 1);
   for (const item of schema.allOf ?? []) {
-    const authored = authoredSchemaExample(document, item);
+    const authored = authoredSchemaExample(document, item, depth + 1);
     if (authored.found) return authored;
   }
   return { found: false };
@@ -852,8 +854,8 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
       : authoredSchemaExample(document, request[1].schema);
   const generated = !authored.found;
   let example = generated ? schemaExample(document, request[1].schema) : authored.value;
-  const object = objectSchema(document, request[1].schema);
   if (generated && example && typeof example === "object" && !Array.isArray(example)) {
+    const object = objectSchema(document, request[1].schema);
     example = { ...example };
     const named = Object.entries(object?.properties ?? {});
     const properties = named.filter(([, property]) => !resolveSchema(document, property)?.readOnly);
