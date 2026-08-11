@@ -9,7 +9,7 @@ export interface OpenApiConfig {
   header?: string;
   license?: { file: string; id: string };
   name: string;
-  repository: string;
+  repository?: string;
   python: {
     client: string;
     install: string;

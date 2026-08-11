@@ -20,7 +20,7 @@ interface PythonConfig {
   apiKey: { environment: string };
   license?: { file: string; id: string };
   name: string;
-  repository: string;
+  repository?: string;
   python: { client: string; install: string; package: string; project: string; version: string };
 }
 
@@ -769,11 +769,14 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
     .find(({ operation }) => operation.method === "get" && operation.arguments.every((argument) => !argument.required));
   const license = config.license ?? { file: "LICENSE", id: "AGPL-3.0-only" };
   const licenseText = await Bun.file(license.file).text();
+  const projectUrls = config.repository
+    ? `\n\n[project.urls]\nRepository = "${config.repository}"\nIssues = "${config.repository}/issues"`
+    : "";
   await rm(output, { force: true, recursive: true });
   await Promise.all([
     Bun.write(
       `${output}/pyproject.toml`,
-      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\ndescription = "Python client for ${config.name}"\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\nrequires-python = ">=3.11"\ndependencies = ["httpx>=0.28,<1"]\n\n[project.urls]\nRepository = "${config.repository}"\nIssues = "${config.repository}/issues"\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
+      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\ndescription = "Python client for ${config.name}"\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\nrequires-python = ">=3.11"\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
     ),
     Bun.write(
       `${output}/README.md`,
