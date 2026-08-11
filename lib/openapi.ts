@@ -702,15 +702,21 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
   if (type === "array") return [schemaExample(document, schema.items, depth + 1)];
   if (type === "boolean") return false;
   if (type === "integer" || type === "number") {
-    const increment = type === "integer" ? 1 : Number.EPSILON;
-    const exclusiveMinimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : undefined;
-    const exclusiveMaximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : undefined;
-    let value = exclusiveMinimum !== undefined ? exclusiveMinimum + increment : (schema.minimum ?? 1);
-    if (schema.exclusiveMinimum === true && schema.minimum !== undefined) value = schema.minimum + increment;
-    if (exclusiveMaximum !== undefined && value >= exclusiveMaximum) value = exclusiveMaximum - increment;
-    else if (schema.maximum !== undefined && value > schema.maximum) value = schema.maximum;
-    if (schema.exclusiveMaximum === true && schema.maximum !== undefined && value >= schema.maximum)
-      value = schema.maximum - increment;
+    const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
+    const step = multiple ?? 1;
+    const minimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : schema.minimum;
+    const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
+    const minimumExclusive = typeof schema.exclusiveMinimum === "number" || schema.exclusiveMinimum === true;
+    const maximumExclusive = typeof schema.exclusiveMaximum === "number" || schema.exclusiveMaximum === true;
+    let value = minimum ?? 1;
+    if (minimumExclusive) value += step;
+    if (type === "integer") value = Math.ceil(value);
+    if (multiple) value = Math.ceil(value / multiple) * multiple;
+    if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) {
+      value = maximum - (maximumExclusive ? step : 0);
+      if (type === "integer") value = Math.floor(value);
+      if (multiple) value = Math.floor(value / multiple) * multiple;
+    }
     return value;
   }
   if (type === "object" || schema.properties) {
@@ -901,7 +907,9 @@ export function buildApiRequest(
     const form = new URLSearchParams();
     let bodyValues: Record<string, unknown>;
     try {
-      bodyValues = JSON.parse(body) as Record<string, unknown>;
+      const parsed = JSON.parse(body) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+      bodyValues = parsed as Record<string, unknown>;
     } catch {
       throw new Error("Enter valid JSON request values before sending the request.");
     }
@@ -913,7 +921,9 @@ export function buildApiRequest(
     const requestSchema = objectSchema(document, request[1].schema);
     let bodyValues: Record<string, unknown>;
     try {
-      bodyValues = JSON.parse(body) as Record<string, unknown>;
+      const parsed = JSON.parse(body) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+      bodyValues = parsed as Record<string, unknown>;
     } catch {
       throw new Error("Enter valid JSON request values before sending the request.");
     }
