@@ -103,6 +103,7 @@ function formEntries(values: Record<string, unknown>): Array<[string, unknown]> 
 
 interface PythonExample {
   client: string;
+  install?: string;
   package: string;
 }
 
@@ -399,12 +400,23 @@ function SchemaFields({
   );
 }
 
-function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specUrl: string }) {
+function OverviewPanel({
+  document,
+  environment,
+  python,
+  specUrl,
+}: {
+  document: OpenApiDocument;
+  environment: string;
+  python: PythonExample;
+  specUrl: string;
+}) {
   const operations = getOperations(document);
   const tagDescriptions = new Map(document.tags?.map((tag) => [tag.name, tag.description]));
   const tags = new Map<string, number>();
   for (const operation of operations) tags.set(operation.tag, (tags.get(operation.tag) ?? 0) + 1);
   const authentications = Object.entries(document.components?.securitySchemes ?? {});
+  const pythonExample = `from ${python.package} import Async${python.client}, ${python.client}\n\nwith ${python.client}() as client:  # Reads ${environment}\n    ...\n\nasync def main():\n    async with Async${python.client}() as client:\n        ...`;
 
   return (
     <main className="min-w-0 flex-1 px-5 py-10 lg:px-10" id="main-content">
@@ -414,6 +426,7 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
             <Badge variant="secondary">OpenAPI {document.openapi}</Badge>
             <Badge variant="outline">API {document.info.version}</Badge>
             <Badge variant="outline">{operations.length} operations</Badge>
+            <Badge variant="outline">REST + Python SDK</Badge>
           </div>
           <h1 className="text-pretty font-heading text-4xl font-semibold tracking-tight" id="overview">
             {document.info.title}
@@ -423,9 +436,16 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
               <ReactMarkdown>{document.info.description}</ReactMarkdown>
             </div>
           ) : null}
-          <Button className="mt-6" render={<a download href={specUrl} />} variant="outline">
-            Download OpenAPI contract
-          </Button>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button render={<a download href={specUrl} />} variant="outline">
+              Download OpenAPI contract
+            </Button>
+            {document.externalDocs ? (
+              <Button render={<a href={document.externalDocs.url} />} variant="outline">
+                {document.externalDocs.description ?? "Guides"}
+              </Button>
+            ) : null}
+          </div>
         </section>
 
         {document.servers?.length ? (
@@ -459,6 +479,18 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
             ))}
           </section>
         ) : null}
+
+        <section className="space-y-4">
+          <div>
+            <h2 className="font-heading text-2xl font-semibold">Python SDK</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+              Install the typed client, set {environment}, then choose a resource to see the Python call generated from
+              the same operation as the REST reference.
+            </p>
+          </div>
+          {python.install ? <CodeBlock code={python.install} /> : null}
+          <CodeBlock code={pythonExample} />
+        </section>
 
         <section className="space-y-4">
           <h2 className="font-heading text-2xl font-semibold">Resources</h2>
@@ -946,7 +978,7 @@ export function ApiReference({
             python={python}
           />
         ) : (
-          <OverviewPanel document={document} specUrl={specUrl} />
+          <OverviewPanel document={document} environment={apiKeyEnvironment} python={python} specUrl={specUrl} />
         )}
       </div>
     </div>

@@ -97,6 +97,7 @@ export interface OpenApiDocument {
     title: string;
     version: string;
   };
+  externalDocs?: { description?: string; url: string };
   openapi: string;
   paths: Record<
     string,
