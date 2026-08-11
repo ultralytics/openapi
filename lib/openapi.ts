@@ -927,11 +927,20 @@ export function curlCodeSample(
     // Non-JSON request bodies are emitted verbatim below.
   }
   const formatFormValue = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
+  const contentType = request?.[0];
+  const hasBodyArgument =
+    ((contentType === "application/json" || contentType?.endsWith("+json")) && Boolean(body)) ||
+    (contentType === "application/x-www-form-urlencoded" && Object.keys(bodyValues).length > 0) ||
+    (contentType === "multipart/form-data" && Object.keys(properties).length > 0) ||
+    (contentType !== undefined &&
+      !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(contentType) &&
+      body !== undefined);
+  const inferredPost = operation.method === "post" && hasBodyArgument;
   return [
-    `curl --request ${operation.method.toUpperCase()}`,
-    `  --url ${shellQuote(url)}`,
+    `curl ${shellQuote(url)}`,
+    operation.method !== "get" && !inferredPost ? `  -X ${operation.method.toUpperCase()}` : "",
     authentication
-      ? `  --header ${shellQuote(`${authentication.header}: ${authentication.prefix}${environment ? "" : apiKey}`)}${environment ? `"$${environment}"` : ""}`
+      ? `  -H ${shellQuote(`${authentication.header}: ${authentication.prefix}${environment ? "" : apiKey}`)}${environment ? `"$${environment}"` : ""}`
       : "",
     ...(operation.parameters ?? [])
       .filter(
@@ -943,11 +952,11 @@ export function curlCodeSample(
         const value = parameterValueOrExample(parameter);
         return parameter.in === "cookie"
           ? `  --cookie ${shellQuote(serializeQueryParameter(parameter.name, value, "form", parameter.explode).replaceAll("&", "; "))}`
-          : `  --header ${shellQuote(`${parameter.name}: ${serializeSimplePath(value, parameter.explode)}`)}`;
+          : `  -H ${shellQuote(`${parameter.name}: ${serializeSimplePath(value, parameter.explode)}`)}`;
       }),
-    request && request[0] !== "multipart/form-data" ? `  --header ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
+    request && request[0] !== "multipart/form-data" ? `  -H ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
     request && (request[0] === "application/json" || request[0].endsWith("+json")) && body
-      ? `  --data ${shellQuote(body)}`
+      ? `  -d ${shellQuote(body)}`
       : "",
     request?.[0] === "application/x-www-form-urlencoded"
       ? formEntries(bodyValues)
@@ -957,7 +966,7 @@ export function curlCodeSample(
     request &&
     body !== undefined &&
     !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
-      ? `  --data ${shellQuote(body)}`
+      ? `  -d ${shellQuote(body)}`
       : "",
     request?.[0] === "multipart/form-data"
       ? Object.entries(properties)
@@ -966,7 +975,7 @@ export function curlCodeSample(
             const value = binary
               ? `@${files[name]?.name ?? "path/to/file"}`
               : formatFormValue(bodyValues[name] ?? schemaExample(document, schema));
-            return `  ${binary ? "--form" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
+            return `  ${binary ? "-F" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
           })
           .join(" \\\n")
       : "",
