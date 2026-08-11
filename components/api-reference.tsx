@@ -287,7 +287,7 @@ function OperationNavigation({
             className="pl-8"
             name="api-search"
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search API"
+            placeholder="Search operations…"
             value={query}
           />
         </div>
@@ -300,6 +300,7 @@ function OperationNavigation({
               "block rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
               !selectedId && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
+            aria-current={!selectedId ? "page" : undefined}
             href="#overview"
           >
             Overview
@@ -310,6 +311,7 @@ function OperationNavigation({
               <div className="space-y-0.5">
                 {taggedOperations.map((operation) => (
                   <a
+                    aria-current={selectedId === operation.id ? "page" : undefined}
                     className={cn(
                       "operation-list-item flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
                       selectedId === operation.id && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -428,7 +430,7 @@ function OverviewPanel({
             <Badge variant="outline">{operations.length} operations</Badge>
             <Badge variant="outline">REST + Python SDK</Badge>
           </div>
-          <h1 className="text-pretty font-heading text-4xl font-semibold tracking-tight" id="overview">
+          <h1 className="scroll-mt-20 text-pretty font-heading text-4xl font-semibold tracking-tight" id="overview">
             {document.info.title}
           </h1>
           {document.info.description ? (
@@ -882,7 +884,11 @@ export function ApiReference({
   const selected = operations.find((operation) => operation.id === selectedId);
   const tags = useMemo(() => {
     const grouped = new Map<string, ApiOperation[]>();
-    for (const operation of filtered) grouped.set(operation.tag, [...(grouped.get(operation.tag) ?? []), operation]);
+    for (const operation of filtered) {
+      const group = grouped.get(operation.tag);
+      if (group) group.push(operation);
+      else grouped.set(operation.tag, [operation]);
+    }
     return grouped;
   }, [filtered]);
 
