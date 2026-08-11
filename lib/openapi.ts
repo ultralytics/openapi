@@ -12,12 +12,22 @@ export interface JsonSchema {
   description?: string;
   enum?: unknown[];
   example?: unknown;
+  exclusiveMaximum?: boolean | number;
+  exclusiveMinimum?: boolean | number;
   format?: string;
   items?: JsonSchema;
+  maxItems?: number;
+  maxLength?: number;
+  maximum?: number;
+  minItems?: number;
+  minLength?: number;
+  minimum?: number;
+  multipleOf?: number;
   nullable?: boolean;
   oneOf?: JsonSchema[];
   properties?: Record<string, JsonSchema>;
   propertyNames?: JsonSchema;
+  pattern?: string;
   readOnly?: boolean;
   required?: string[];
   title?: string;
@@ -112,6 +122,16 @@ export interface OpenApiDocument {
 export interface ApiAuthentication {
   header: string;
   prefix: string;
+}
+
+export type ApiAuthenticationMode = "none" | "optional" | "required";
+
+export interface SchemaField {
+  depth: number;
+  description?: string;
+  name: string;
+  required: boolean;
+  schema: JsonSchema;
 }
 
 export interface ApiOperation extends OperationObject {
@@ -580,6 +600,12 @@ export function getAuthentication(document: OpenApiDocument, operation?: ApiOper
   return unique[0];
 }
 
+export function getAuthenticationMode(document: OpenApiDocument, operation: ApiOperation): ApiAuthenticationMode {
+  const requirements = operation.security ?? document.security ?? [];
+  if (!getAuthentication(document, operation)) return "none";
+  return requirements.some((requirement) => Object.keys(requirement).length === 0) ? "optional" : "required";
+}
+
 export function resolveSchema(
   document: OpenApiDocument,
   schema: JsonSchema | undefined,
@@ -651,7 +677,7 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
 }
 
 export function schemaExample(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): unknown {
-  if (!input || depth > 5) return null;
+  if (!input || depth > 8) return null;
   const schema = resolveSchema(document, input) ?? input;
   if (schema.example !== undefined) return schema.example;
   if (schema.default !== undefined) return schema.default;
@@ -675,7 +701,24 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
   if (type === "array") return [schemaExample(document, schema.items, depth + 1)];
   if (type === "boolean") return false;
-  if (type === "integer" || type === "number") return 0;
+  if (type === "integer" || type === "number") {
+    const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
+    const step = multiple ?? 1;
+    const minimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : schema.minimum;
+    const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
+    const minimumExclusive = typeof schema.exclusiveMinimum === "number" || schema.exclusiveMinimum === true;
+    const maximumExclusive = typeof schema.exclusiveMaximum === "number" || schema.exclusiveMaximum === true;
+    let value = minimum ?? 1;
+    if (minimumExclusive) value += step;
+    if (type === "integer") value = Math.ceil(value);
+    if (multiple) value = Math.ceil(value / multiple) * multiple;
+    if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) {
+      value = maximum - (maximumExclusive ? step : 0);
+      if (type === "integer") value = Math.floor(value);
+      if (multiple) value = Math.floor(value / multiple) * multiple;
+    }
+    return value;
+  }
   if (type === "object" || schema.properties) {
     return Object.fromEntries(
       Object.entries(schema.properties ?? {}).map(([name, property]) => [
@@ -699,6 +742,58 @@ export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undef
   return schema.type ?? (schema.properties ? "object" : "any");
 }
 
+export function schemaConstraints(document: OpenApiDocument, input: JsonSchema | undefined): string[] {
+  const schema = resolveSchema(document, input);
+  if (!schema) return [];
+  const constraints: string[] = [];
+  if (schema.enum?.length) constraints.push(`values: ${schema.enum.map(String).join(", ")}`);
+  if (typeof schema.exclusiveMinimum === "number") constraints.push(`greater than ${schema.exclusiveMinimum}`);
+  else if (schema.minimum !== undefined)
+    constraints.push(`${schema.exclusiveMinimum ? "greater than" : "minimum"} ${schema.minimum}`);
+  if (typeof schema.exclusiveMaximum === "number") constraints.push(`less than ${schema.exclusiveMaximum}`);
+  else if (schema.maximum !== undefined)
+    constraints.push(`${schema.exclusiveMaximum ? "less than" : "maximum"} ${schema.maximum}`);
+  if (schema.minLength !== undefined) constraints.push(`minimum length ${schema.minLength}`);
+  if (schema.maxLength !== undefined) constraints.push(`maximum length ${schema.maxLength}`);
+  if (schema.minItems !== undefined) constraints.push(`minimum items ${schema.minItems}`);
+  if (schema.maxItems !== undefined) constraints.push(`maximum items ${schema.maxItems}`);
+  if (schema.multipleOf !== undefined) constraints.push(`multiple of ${schema.multipleOf}`);
+  if (schema.pattern) constraints.push(`pattern ${schema.pattern}`);
+  if (schema.default !== undefined) constraints.push(`default ${String(schema.default)}`);
+  return constraints;
+}
+
+export function schemaFields(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  direction: "request" | "response",
+  depth = 0,
+  prefix = "",
+  references = new Set<string>(),
+): SchemaField[] {
+  if (!input || depth > 4 || (input.$ref && references.has(input.$ref))) return [];
+  const seen = input.$ref ? new Set([...references, input.$ref]) : references;
+  const schema = resolveSchema(document, input);
+  const item = Array.isArray(schema?.type)
+    ? schema.type.includes("array")
+      ? schema.items
+      : schema
+    : schema?.type === "array"
+      ? schema.items
+      : schema;
+  const object = objectSchema(document, item);
+  const required = new Set(object?.required ?? []);
+  return Object.entries(object?.properties ?? {}).flatMap(([name, field]) => {
+    const resolved = resolveSchema(document, field);
+    if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly)) return [];
+    const fieldName = `${prefix}${name}${resolved?.type === "array" ? "[]" : ""}`;
+    return [
+      { depth, description: resolved?.description, name: fieldName, required: required.has(name), schema: field },
+      ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
+    ];
+  });
+}
+
 export function requestMedia(operation: ApiOperation): [string, MediaType] | undefined {
   return preferredMedia(operation.requestBody?.content);
 }
@@ -709,6 +804,153 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
     responses.find(([status]) => /^2\d\d$/.test(status))?.[1] ??
     responses.find(([status]) => /^2xx$/i.test(status))?.[1];
   return response ? preferredMedia(response.content) : undefined;
+}
+
+export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
+  const request = requestMedia(operation);
+  if (!request) return "";
+  let example = request[1].example !== undefined ? request[1].example : schemaExample(document, request[1].schema);
+  const schema = objectSchema(document, request[1].schema);
+  if (example && typeof example === "object" && !Array.isArray(example)) {
+    example = { ...example };
+    for (const [name, property] of Object.entries(schema?.properties ?? {})) {
+      if (resolveSchema(document, property)?.readOnly) delete (example as Record<string, unknown>)[name];
+    }
+  }
+  return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
+}
+
+export function parameterValue(document: OpenApiDocument, parameter: Parameter, value: string): unknown {
+  const schema = resolveSchema(document, parameter.schema);
+  const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+  if (type !== "array" && type !== "object" && !schema?.properties) return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`Enter valid JSON for ${parameter.name}.`);
+  }
+}
+
+export function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
+  return Object.entries(values).flatMap(([name, value]) => {
+    if (Array.isArray(value)) return value.map((item) => [name, item] as [string, unknown]);
+    if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
+    return [[name, value]];
+  });
+}
+
+export function buildApiRequest(
+  document: OpenApiDocument,
+  operation: ApiOperation,
+  {
+    apiKey = "",
+    body = "",
+    files = {},
+    origin,
+    values = {},
+  }: {
+    apiKey?: string;
+    body?: string;
+    files?: Record<string, File>;
+    origin: string;
+    values?: Record<string, string>;
+  },
+): { body?: BodyInit; headers: Record<string, string>; url: string } {
+  const parameters = operation.parameters ?? [];
+  const missing = parameters.find((parameter) => parameter.required && !values[`${parameter.in}:${parameter.name}`]);
+  if (missing) throw new Error(`Enter ${missing.name} before sending the request.`);
+  if (parameters.some((parameter) => parameter.in === "cookie")) {
+    throw new Error("Browser requests cannot set cookie parameters. Use a generated code example.");
+  }
+
+  let path = operation.path;
+  for (const parameter of parameters.filter((item) => item.in === "path")) {
+    path = path.replace(
+      `{${parameter.name}}`,
+      serializeSimplePath(
+        parameterValue(document, parameter, values[`path:${parameter.name}`] ?? ""),
+        parameter.explode,
+        parameter.allowReserved,
+      ),
+    );
+  }
+
+  const query = parameters
+    .filter((item) => item.in === "query" && values[`query:${item.name}`])
+    .map((parameter) =>
+      serializeQueryParameter(
+        parameter.name,
+        parameterValue(document, parameter, values[`query:${parameter.name}`] ?? ""),
+        parameter.style,
+        parameter.explode,
+        parameter.allowReserved,
+      ),
+    )
+    .join("&");
+  const baseUrl = resolveServerUrl(document, origin, operation);
+  const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
+  const request = requestMedia(operation);
+  const success = successMedia(operation);
+  const authentication = getAuthentication(document, operation);
+  const headers: Record<string, string> = success ? { Accept: success[0] } : {};
+  if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;
+  if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
+  for (const parameter of parameters.filter((item) => item.in === "header")) {
+    const value = values[`header:${parameter.name}`];
+    if (value)
+      headers[parameter.name] = serializeSimplePath(parameterValue(document, parameter, value), parameter.explode);
+  }
+
+  let requestBody: BodyInit | undefined;
+  if (request?.[0] === "application/json" || request?.[0].endsWith("+json")) requestBody = body;
+  if (request?.[0] === "application/x-www-form-urlencoded") {
+    const form = new URLSearchParams();
+    let bodyValues: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+      bodyValues = parsed as Record<string, unknown>;
+    } catch {
+      throw new Error("Enter valid JSON request values before sending the request.");
+    }
+    for (const [name, value] of formEntries(bodyValues)) form.append(name, String(value));
+    requestBody = form;
+  }
+  if (request?.[0] === "multipart/form-data") {
+    const form = new FormData();
+    const requestSchema = objectSchema(document, request[1].schema);
+    let bodyValues: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+      bodyValues = parsed as Record<string, unknown>;
+    } catch {
+      throw new Error("Enter valid JSON request values before sending the request.");
+    }
+    for (const [name, value] of Object.entries(bodyValues)) {
+      if (
+        resolveSchema(document, requestSchema?.properties?.[name])?.format === "binary" ||
+        value === null ||
+        value === undefined
+      )
+        continue;
+      form.append(name, typeof value === "string" ? value : JSON.stringify(value));
+    }
+    for (const [name, file] of Object.entries(files)) form.append(name, file);
+    const missingFile = Object.entries(requestSchema?.properties ?? {}).find(
+      ([name, schema]) =>
+        resolveSchema(document, schema)?.format === "binary" && requestSchema?.required?.includes(name) && !files[name],
+    );
+    if (missingFile) throw new Error(`Choose ${missingFile[0]} before sending the request.`);
+    requestBody = form;
+  }
+  if (
+    request &&
+    !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
+  ) {
+    requestBody = body;
+  }
+  return { body: requestBody, headers, url };
 }
 
 function preferredMedia(content: Record<string, MediaType> | undefined): [string, MediaType] | undefined {
