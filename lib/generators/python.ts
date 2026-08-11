@@ -1,7 +1,7 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import { rm } from "node:fs/promises";
-import type { ApiOperation, JsonSchema, OpenApiDocument, Parameter } from "../openapi";
+import type { ApiOperation, JsonSchema, OpenApiDocument, SdkArgument } from "../openapi";
 import {
   allocateSdkIdentifiers,
   expandServerUrl,
@@ -11,6 +11,7 @@ import {
   requestMedia,
   resolveSchema,
   resolveServerUrl,
+  sdkArguments,
   sdkIdentifier as snake,
   successMedia,
 } from "../openapi";
@@ -22,21 +23,8 @@ interface PythonConfig {
   python: { client: string; install: string; package: string; project: string; version: string };
 }
 
-interface Argument {
-  allowReserved?: boolean;
-  description: string;
-  explode?: boolean;
-  location: "body" | Parameter["in"];
-  name: string;
-  pythonName: string;
-  required: boolean;
-  schema: JsonSchema;
-  style?: string;
-  wholeBody?: boolean;
-}
-
 interface PythonOperation extends ApiOperation {
-  arguments: Argument[];
+  arguments: SdkArgument[];
   contentType?: string;
   name: string;
   responseName?: string;
@@ -124,7 +112,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   return result("Any");
 }
 
-function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argument[] {
+function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
   const unsupported = (operation.parameters ?? []).find(
     (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
   );
@@ -143,61 +131,17 @@ function argumentsFor(document: OpenApiDocument, operation: ApiOperation): Argum
   if (structuredParameter) {
     throw new Error(`Unsupported ${structuredParameter.in} parameter: ${structuredParameter.name}`);
   }
-  const parameters: Argument[] = (operation.parameters ?? []).map((parameter: Parameter) => ({
-    allowReserved: parameter.allowReserved,
-    description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
-    explode: parameter.explode,
-    location: parameter.in,
-    name: parameter.name,
-    pythonName: snake(parameter.name),
-    required: parameter.in === "path" || parameter.required === true,
-    schema: parameter.schema ?? {},
-    style: parameter.style,
-  }));
   const media = requestMedia(operation);
   if (media && !media[1].schema) throw new Error(`Unsupported schema-less request body: ${media[0]}`);
   if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
     throw new Error(`Unsupported request body encoding: ${media[0]}`);
   }
-  const structured =
-    media?.[0] === "application/json" ||
-    media?.[0].endsWith("+json") ||
-    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
-  const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
-  if (body?.properties) {
-    for (const [name, schema] of Object.entries(body.properties)) {
-      const property = resolveSchema(document, schema) ?? schema;
-      if (property.readOnly) continue;
-      parameters.push({
-        description: property.description ?? `${name} request value.`,
-        location: "body",
-        name,
-        pythonName: snake(name),
-        required: body.required?.includes(name) ?? false,
-        schema: property,
-      });
-    }
-  } else if (media?.[1].schema) {
-    parameters.push({
-      description: media[1].schema.description ?? "Request body.",
-      location: "body",
-      name: "body",
-      pythonName: "body",
-      required: operation.requestBody?.required ?? false,
-      schema: media[1].schema,
-      wholeBody: true,
-    });
-  }
-  const names = allocateSdkIdentifiers(parameters);
-  parameters.forEach((parameter, index) => {
-    parameter.pythonName = names[index] ?? parameter.pythonName;
-  });
-  return parameters;
 }
 
 function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   const resources = new Map<string, PythonOperation[]>();
   for (const operation of getOperations(document)) {
+    validateOperation(document, operation);
     const media = successMedia(operation);
     const responseSchema = media?.[1].schema;
     const response = resolveSchema(document, responseSchema);
@@ -207,7 +151,7 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
     const name = operation.sdkMethod;
     values.push({
       ...operation,
-      arguments: argumentsFor(document, operation),
+      arguments: sdkArguments(document, operation),
       contentType: requestMedia(operation)?.[0],
       name,
       responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,

@@ -79,6 +79,7 @@ interface OperationObject {
   servers?: OpenApiServer[];
   summary?: string;
   tags?: string[];
+  "x-codeSamples"?: Array<{ label: string; lang: string; source: string }>;
 }
 
 export interface OpenApiDocument {
@@ -124,6 +125,25 @@ export interface ApiOperation extends OperationObject {
   requestBody?: RequestBodyObject;
   responses?: Record<string, ResponseObject>;
   server?: OpenApiServer;
+}
+
+export interface PythonCodeSampleConfig {
+  client: string;
+  environment: string;
+  package: string;
+}
+
+export interface SdkArgument {
+  allowReserved?: boolean;
+  description: string;
+  explode?: boolean;
+  location: "body" | Parameter["in"];
+  name: string;
+  pythonName: string;
+  required: boolean;
+  schema: JsonSchema;
+  style?: string;
+  wholeBody?: boolean;
 }
 
 const HTTP_METHODS = new Set<HttpMethod>(["delete", "get", "head", "options", "patch", "post", "put", "trace"]);
@@ -372,6 +392,121 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   }
 
   return operations;
+}
+
+export function sdkArguments(document: OpenApiDocument, operation: ApiOperation): SdkArgument[] {
+  const parameters: SdkArgument[] = (operation.parameters ?? []).map((parameter) => ({
+    allowReserved: parameter.allowReserved,
+    description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
+    explode: parameter.explode,
+    location: parameter.in,
+    name: parameter.name,
+    pythonName: sdkIdentifier(parameter.name),
+    required: parameter.in === "path" || parameter.required === true,
+    schema: parameter.schema ?? {},
+    style: parameter.style,
+  }));
+  const media = requestMedia(operation);
+  const structured =
+    media?.[0] === "application/json" ||
+    media?.[0].endsWith("+json") ||
+    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
+  const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
+  if (body?.properties) {
+    for (const [name, schema] of Object.entries(body.properties)) {
+      const property = resolveSchema(document, schema) ?? schema;
+      if (property.readOnly) continue;
+      parameters.push({
+        description: property.description ?? `${name} request value.`,
+        location: "body",
+        name,
+        pythonName: sdkIdentifier(name),
+        required: body.required?.includes(name) ?? false,
+        schema: property,
+      });
+    }
+  } else if (media) {
+    parameters.push({
+      description: media[1].schema?.description ?? "Request body.",
+      location: "body",
+      name: "body",
+      pythonName: "body",
+      required: operation.requestBody?.required ?? false,
+      schema: media[1].schema ?? {},
+      wholeBody: true,
+    });
+  }
+  const names = allocateSdkIdentifiers(parameters);
+  parameters.forEach((parameter, index) => {
+    parameter.pythonName = names[index] ?? parameter.pythonName;
+  });
+  return parameters;
+}
+
+function pythonLiteral(value: unknown): string {
+  if (value === null) return "None";
+  if (value === true) return "True";
+  if (value === false) return "False";
+  if (Array.isArray(value)) return `[${value.map(pythonLiteral).join(", ")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${JSON.stringify(key)}: ${pythonLiteral(item)}`)
+      .join(", ")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function pythonCodeSample(
+  document: OpenApiDocument,
+  operation: ApiOperation,
+  config: PythonCodeSampleConfig,
+  bodyValue?: unknown,
+): string {
+  const request = requestMedia(operation);
+  const exampleBody =
+    bodyValue !== undefined
+      ? bodyValue
+      : request?.[1].example !== undefined
+        ? request[1].example
+        : schemaExample(document, request?.[1].schema);
+  const bodyValues =
+    exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
+      ? (exampleBody as Record<string, unknown>)
+      : {};
+  const values = sdkArguments(document, operation)
+    .filter((argument) => argument.required)
+    .map((argument) => {
+      const value =
+        argument.location !== "body"
+          ? schemaExample(document, argument.schema)
+          : argument.wholeBody
+            ? exampleBody
+            : bodyValues[argument.name] !== undefined
+              ? bodyValues[argument.name]
+              : schemaExample(document, argument.schema);
+      return `${argument.pythonName}=${pythonLiteral(value)}`;
+    });
+  return [
+    `from ${config.package} import ${config.client}`,
+    "",
+    `client = ${config.client}()  # Reads ${config.environment}`,
+    values.length
+      ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${values.map((value) => `    ${value},`).join("\n")}\n)`
+      : `response = client.${operation.resource}.${operation.sdkMethod}()`,
+    "print(response)",
+  ].join("\n");
+}
+
+export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCodeSampleConfig): OpenApiDocument {
+  for (const operation of getOperations(document)) {
+    const target = document.paths[operation.path][operation.method];
+    if (!target) continue;
+    target["x-codeSamples"] = [
+      ...(target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK"),
+      { label: "Python SDK", lang: "Python", source: pythonCodeSample(document, operation, config) },
+    ];
+  }
+  return document;
 }
 
 function componentName(reference: string, section: string): string {

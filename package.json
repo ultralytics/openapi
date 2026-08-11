@@ -4,6 +4,9 @@
   "private": true,
   "description": "Generate documentation and typed SDKs from OpenAPI",
   "license": "AGPL-3.0-only",
+  "exports": {
+    "./openapi": "./lib/openapi.ts"
+  },
   "scripts": {
     "dev": "bun run sync && next dev",
     "build": "bun run sync && next build && bun run scripts/headers.ts out",
