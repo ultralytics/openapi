@@ -986,7 +986,7 @@ export function curlCodeSample(
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
   const authentication = getAuthentication(document, operation);
-  const requestSchema = objectSchema(document, request?.[1].schema);
+  const requestSchema = exampleObjectSchema(document, request?.[1].schema);
   const properties = Object.fromEntries(
     Object.entries(requestSchema?.properties ?? {}).filter(([, schema]) => !resolveSchema(document, schema)?.readOnly),
   );

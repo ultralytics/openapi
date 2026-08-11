@@ -238,7 +238,11 @@ describe("Python generator", () => {
                 type: "object",
               },
               {
-                properties: { conf: { type: "number" }, source: { type: "string" } },
+                properties: {
+                  conf: { type: "number" },
+                  file: { anyOf: [{ format: "binary", type: "string" }, { type: "null" }] },
+                  source: { type: "string" },
+                },
                 required: ["source"],
                 type: "object",
               },
