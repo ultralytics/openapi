@@ -792,21 +792,7 @@ export function schemaFields(
   const object = objectSchema(document, item);
   const required = new Set(object?.required ?? []);
   const properties = Object.entries(object?.properties ?? {});
-  if (!properties.length && typeof object?.additionalProperties === "object") {
-    const field = object.additionalProperties;
-    const fieldName = `${prefix}[key: string]`;
-    return [
-      {
-        depth,
-        description: resolveSchema(document, field)?.description,
-        name: fieldName,
-        required: false,
-        schema: field,
-      },
-      ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
-    ];
-  }
-  return properties.flatMap(([name, field]) => {
+  const fields = properties.flatMap(([name, field]) => {
     const resolved = resolveSchema(document, field);
     if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly)) return [];
     const fieldName = `${prefix}${name}${resolved?.type === "array" ? "[]" : ""}`;
@@ -815,6 +801,17 @@ export function schemaFields(
       ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
     ];
   });
+  if (typeof object?.additionalProperties !== "object") return fields;
+  const field = object.additionalProperties;
+  const resolved = resolveSchema(document, field);
+  if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly))
+    return fields;
+  const fieldName = `${prefix}[key: string]${resolved?.type === "array" ? "[]" : ""}`;
+  return [
+    ...fields,
+    { depth, description: resolved?.description, name: fieldName, required: false, schema: field },
+    ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
+  ];
 }
 
 export function requestMedia(operation: ApiOperation): [string, MediaType] | undefined {

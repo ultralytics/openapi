@@ -203,6 +203,14 @@ describe("Python generator", () => {
     expect(schemaFields(document, schema, "response")).toEqual([
       { depth: 0, description: undefined, name: "[key: string]", required: false, schema: value },
     ]);
+    const items = { items: { properties: { id: { type: "string" } }, type: "object" }, type: "array" };
+    expect(
+      schemaFields(
+        document,
+        { additionalProperties: items, properties: { total: { type: "integer" } }, type: "object" },
+        "response",
+      ).map((field) => field.name),
+    ).toEqual(["total", "[key: string][]", "[key: string][].id"]);
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {
