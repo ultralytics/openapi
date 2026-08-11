@@ -741,7 +741,8 @@ export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undef
   return schema.type ?? (schema.properties ? "object" : "any");
 }
 
-export function schemaConstraints(document: OpenApiDocument, input: JsonSchema | undefined): string[] {
+export function schemaConstraints(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): string[] {
+  if (depth > 8) return [];
   const schema = resolveSchema(document, input);
   if (!schema) return [];
   const constraints: string[] = [];
@@ -759,7 +760,11 @@ export function schemaConstraints(document: OpenApiDocument, input: JsonSchema |
   if (schema.multipleOf !== undefined) constraints.push(`multiple of ${schema.multipleOf}`);
   if (schema.pattern) constraints.push(`pattern ${schema.pattern}`);
   if (schema.default !== undefined) constraints.push(`default ${String(schema.default)}`);
-  return constraints;
+  const nested = [
+    ...(schema.oneOf ?? schema.anyOf ?? []),
+    ...(schema.type === "array" && schema.items ? [schema.items] : []),
+  ];
+  return [...new Set([...constraints, ...nested.flatMap((item) => schemaConstraints(document, item, depth + 1))])];
 }
 
 export function schemaFields(
