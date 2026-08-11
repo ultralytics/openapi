@@ -173,6 +173,13 @@ describe("Python generator", () => {
       "values: detect, segment",
       "values: pose",
     ]);
+    expect(
+      schemaConstraints(document, {
+        allOf: [{ enum: ["obb"], type: "string" }],
+        anyOf: [{ enum: ["classify"], type: "string" }],
+        oneOf: [{ enum: ["pose"], type: "string" }],
+      }),
+    ).toEqual(["values: obb", "values: classify", "values: pose"]);
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {

@@ -761,7 +761,9 @@ export function schemaConstraints(document: OpenApiDocument, input: JsonSchema |
   if (schema.pattern) constraints.push(`pattern ${schema.pattern}`);
   if (schema.default !== undefined) constraints.push(`default ${String(schema.default)}`);
   const nested = [
-    ...(schema.oneOf ?? schema.anyOf ?? []),
+    ...(schema.allOf ?? []),
+    ...(schema.anyOf ?? []),
+    ...(schema.oneOf ?? []),
     ...(schema.type === "array" && schema.items ? [schema.items] : []),
   ];
   return [...new Set([...constraints, ...nested.flatMap((item) => schemaConstraints(document, item, depth + 1))])];
