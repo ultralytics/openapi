@@ -631,6 +631,25 @@ export function resolveSchema(
   };
 }
 
+function schemasEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => schemasEqual(value, right[index]))
+    );
+  }
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  const leftEntries = Object.entries(left);
+  const rightRecord = right as Record<string, unknown>;
+  return (
+    leftEntries.length === Object.keys(rightRecord).length &&
+    leftEntries.every(([key, value]) => Object.hasOwn(rightRecord, key) && schemasEqual(value, rightRecord[key]))
+  );
+}
+
 export function objectSchema(document: OpenApiDocument, input: JsonSchema | undefined): JsonSchema | undefined {
   const schema = resolveSchema(document, input);
   if (!schema) return undefined;
@@ -660,7 +679,7 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
     for (const [name, property] of Object.entries(object?.properties ?? {})) {
       const current = properties[name];
       properties[name] =
-        current && JSON.stringify(current) !== JSON.stringify(property)
+        current && !schemasEqual(current, property)
           ? {
               anyOf: [...(current.anyOf ?? [current]), property],
               description: current.description ?? property.description,
