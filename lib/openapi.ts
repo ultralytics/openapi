@@ -827,31 +827,43 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
   return response ? preferredMedia(response.content) : undefined;
 }
 
+function authoredSchemaExample(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+): { found: boolean; value?: unknown } {
+  const schema = resolveSchema(document, input);
+  if (!schema) return { found: false };
+  if (schema.example !== undefined) return { found: true, value: schema.example };
+  const union = schema.oneOf ?? schema.anyOf;
+  if (union?.length) return authoredSchemaExample(document, union[0]);
+  for (const item of schema.allOf ?? []) {
+    const authored = authoredSchemaExample(document, item);
+    if (authored.found) return authored;
+  }
+  return { found: false };
+}
+
 export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
   const request = requestMedia(operation);
   if (!request) return "";
-  const schema = resolveSchema(document, request[1].schema);
-  const variant = resolveSchema(document, (schema?.oneOf ?? schema?.anyOf)?.[0]);
   const authored =
     request[1].example !== undefined
-      ? request[1].example
-      : schema?.example !== undefined
-        ? schema.example
-        : variant?.example;
-  const generated = authored === undefined;
-  let example = generated ? schemaExample(document, request[1].schema) : authored;
+      ? { found: true, value: request[1].example }
+      : authoredSchemaExample(document, request[1].schema);
+  const generated = !authored.found;
+  let example = generated ? schemaExample(document, request[1].schema) : authored.value;
   const object = objectSchema(document, request[1].schema);
   if (generated && example && typeof example === "object" && !Array.isArray(example)) {
     example = { ...example };
-    const properties = Object.entries(object?.properties ?? {}).filter(
-      ([, property]) => !resolveSchema(document, property)?.readOnly,
-    );
+    const named = Object.entries(object?.properties ?? {});
+    const properties = named.filter(([, property]) => !resolveSchema(document, property)?.readOnly);
     const required = new Set(object?.required ?? []);
     const selected = properties.some(([name]) => required.has(name))
       ? properties.filter(([name]) => required.has(name))
       : properties.slice(0, 1);
     const values = example as Record<string, unknown>;
     if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
+    else if (named.length) example = {};
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }

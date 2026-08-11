@@ -205,10 +205,16 @@ describe("Python generator", () => {
       oneOf: [{ example: { name: "authored", optional: "preserved" }, type: "object" }],
     };
     expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
+    createMedia[1].schema = {
+      allOf: [{ oneOf: [{ example: { name: "authored", optional: "preserved" }, type: "object" }] }],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
     createMedia[1].schema = { example: null, type: ["object", "null"] };
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     createMedia[1].schema = { additionalProperties: { type: "string" }, type: "object" };
     expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "..."\n}');
+    createMedia[1].schema = { properties: { id: { readOnly: true, type: "string" } }, type: "object" };
+    expect(requestBodyExample(minimalDocument, create)).toBe("{}");
     const retrieve = getOperations(document).find((operation) => operation.path === "/widgets/{widgetId}");
     expect(retrieve).toBeDefined();
     if (!retrieve) return;
