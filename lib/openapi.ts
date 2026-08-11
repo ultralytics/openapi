@@ -729,7 +729,7 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
     return { key: schemaExample(document, schema.additionalProperties, depth + 1) };
   }
-  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "string";
+  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "...";
 }
 
 export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undefined): string {
@@ -830,10 +830,11 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
 export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
   const request = requestMedia(operation);
   if (!request) return "";
-  const generated = request[1].example === undefined;
-  let example = generated ? schemaExample(document, request[1].schema) : request[1].example;
+  const authored = request[1].example ?? resolveSchema(document, request[1].schema)?.example;
+  const generated = authored === undefined;
+  let example = generated ? schemaExample(document, request[1].schema) : authored;
   const schema = objectSchema(document, request[1].schema);
-  if (example && typeof example === "object" && !Array.isArray(example)) {
+  if (generated && example && typeof example === "object" && !Array.isArray(example)) {
     example = { ...example };
     const properties = Object.entries(schema?.properties ?? {}).filter(
       ([, property]) => !resolveSchema(document, property)?.readOnly,
@@ -843,7 +844,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
       ? properties.filter(([name]) => required.has(name))
       : properties.slice(0, 1);
     const values = example as Record<string, unknown>;
-    example = Object.fromEntries((generated ? selected : properties).map(([name]) => [name, values[name]]));
+    example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
@@ -944,17 +945,24 @@ export function curlCodeSample(
   }
   const formatFormValue = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
   const contentType = request?.[0];
+  const form = formEntries(bodyValues);
   const hasBodyArgument =
     ((contentType === "application/json" || contentType?.endsWith("+json")) && Boolean(body)) ||
-    (contentType === "application/x-www-form-urlencoded" && Object.keys(bodyValues).length > 0) ||
+    (contentType === "application/x-www-form-urlencoded" && form.length > 0) ||
     (contentType === "multipart/form-data" && Object.keys(properties).length > 0) ||
     (contentType !== undefined &&
       !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(contentType) &&
       body !== undefined);
   const inferredPost = operation.method === "post" && hasBodyArgument;
   return [
-    `curl ${/^[A-Za-z0-9._~:/{}%+-]+$/.test(url) ? url : shellQuote(url)}`,
-    operation.method !== "get" && !inferredPost ? `  -X ${operation.method.toUpperCase()}` : "",
+    `curl${/[{}[\]]/.test(url) ? " -g" : ""} ${/^[A-Za-z0-9._~:/{}%+-]+$/.test(url) ? url : shellQuote(url)}`,
+    operation.method === "get"
+      ? hasBodyArgument
+        ? "  -X GET"
+        : ""
+      : !inferredPost
+        ? `  -X ${operation.method.toUpperCase()}`
+        : "",
     authentication
       ? environment
         ? `  -H "${authentication.header}: ${authentication.prefix}$${environment}"`
@@ -977,7 +985,7 @@ export function curlCodeSample(
       ? `  -d ${shellQuote(body)}`
       : "",
     request?.[0] === "application/x-www-form-urlencoded"
-      ? formEntries(bodyValues)
+      ? form
           .map(([name, value]) => `  --data-urlencode ${shellQuote(`${name}=${formatFormValue(value)}`)}`)
           .join(" \\\n")
       : "",
