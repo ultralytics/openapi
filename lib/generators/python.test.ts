@@ -81,7 +81,13 @@ describe("Python generator", () => {
   });
 
   test("adds Python SDK samples from the generated resource tree", () => {
-    const decorated = addPythonCodeSamples(structuredClone(document), {
+    const source = structuredClone(document);
+    const createWidget = getOperations(source).find(
+      (operation) => operation.path === "/widgets" && operation.method === "post",
+    );
+    const media = createWidget && requestMedia(createWidget);
+    if (media) media[1].example = { description: "Contract example" };
+    const decorated = addPythonCodeSamples(source, {
       client: config.python.client,
       environment: config.apiKey.environment,
       package: config.python.package,
@@ -90,6 +96,8 @@ describe("Python generator", () => {
     expect(sample?.label).toBe("Python SDK");
     expect(sample?.source).toContain("response = client.widgets.retrieve(");
     expect(sample?.source).toContain('widget_id="widget_123"');
+    const createSample = decorated.paths["/widgets"]?.post?.["x-codeSamples"]?.[0];
+    expect(createSample?.source).toContain('description="Contract example"');
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {

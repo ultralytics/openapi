@@ -133,6 +133,19 @@ export interface PythonCodeSampleConfig {
   package: string;
 }
 
+export interface SdkArgument {
+  allowReserved?: boolean;
+  description: string;
+  explode?: boolean;
+  location: "body" | Parameter["in"];
+  name: string;
+  pythonName: string;
+  required: boolean;
+  schema: JsonSchema;
+  style?: string;
+  wholeBody?: boolean;
+}
+
 const HTTP_METHODS = new Set<HttpMethod>(["delete", "get", "head", "options", "patch", "post", "put", "trace"]);
 
 const PYTHON_RESERVED = new Set([
@@ -381,6 +394,77 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   return operations;
 }
 
+export function sdkArguments(document: OpenApiDocument, operation: ApiOperation): SdkArgument[] {
+  const unsupported = (operation.parameters ?? []).find(
+    (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
+  );
+  if (unsupported) throw new Error(`Unsupported path style: ${unsupported.style}`);
+  if (operation.parameters?.some((parameter) => parameter.in === "query" && parameter.allowReserved)) {
+    throw new Error("Unsupported query parameter: allowReserved");
+  }
+  const structuredParameter = operation.parameters?.find((parameter) => {
+    const schema = resolveSchema(document, parameter.schema);
+    const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+    return (
+      (parameter.in === "header" || parameter.in === "cookie") &&
+      (type === "array" || type === "object" || schema?.properties)
+    );
+  });
+  if (structuredParameter) {
+    throw new Error(`Unsupported ${structuredParameter.in} parameter: ${structuredParameter.name}`);
+  }
+  const parameters: SdkArgument[] = (operation.parameters ?? []).map((parameter) => ({
+    allowReserved: parameter.allowReserved,
+    description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
+    explode: parameter.explode,
+    location: parameter.in,
+    name: parameter.name,
+    pythonName: sdkIdentifier(parameter.name),
+    required: parameter.in === "path" || parameter.required === true,
+    schema: parameter.schema ?? {},
+    style: parameter.style,
+  }));
+  const media = requestMedia(operation);
+  if (media && !media[1].schema) throw new Error(`Unsupported schema-less request body: ${media[0]}`);
+  if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
+    throw new Error(`Unsupported request body encoding: ${media[0]}`);
+  }
+  const structured =
+    media?.[0] === "application/json" ||
+    media?.[0].endsWith("+json") ||
+    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
+  const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
+  if (body?.properties) {
+    for (const [name, schema] of Object.entries(body.properties)) {
+      const property = resolveSchema(document, schema) ?? schema;
+      if (property.readOnly) continue;
+      parameters.push({
+        description: property.description ?? `${name} request value.`,
+        location: "body",
+        name,
+        pythonName: sdkIdentifier(name),
+        required: body.required?.includes(name) ?? false,
+        schema: property,
+      });
+    }
+  } else if (media?.[1].schema) {
+    parameters.push({
+      description: media[1].schema.description ?? "Request body.",
+      location: "body",
+      name: "body",
+      pythonName: "body",
+      required: operation.requestBody?.required ?? false,
+      schema: media[1].schema,
+      wholeBody: true,
+    });
+  }
+  const names = allocateSdkIdentifiers(parameters);
+  parameters.forEach((parameter, index) => {
+    parameter.pythonName = names[index] ?? parameter.pythonName;
+  });
+  return parameters;
+}
+
 function pythonLiteral(value: unknown): string {
   if (value === null) return "None";
   if (value === true) return "True";
@@ -401,35 +485,22 @@ export function pythonCodeSample(
   bodyValue?: unknown,
 ): string {
   const request = requestMedia(operation);
-  const bodySchema = objectSchema(document, request?.[1].schema);
-  const bodyProperties = Object.fromEntries(
-    Object.entries(bodySchema?.properties ?? {}).filter(([, schema]) => !resolveSchema(document, schema)?.readOnly),
-  );
+  const exampleBody = bodyValue ?? request?.[1].example ?? schemaExample(document, request?.[1].schema);
   const bodyValues =
-    bodyValue && typeof bodyValue === "object" && !Array.isArray(bodyValue)
-      ? (bodyValue as Record<string, unknown>)
+    exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
+      ? (exampleBody as Record<string, unknown>)
       : {};
-  const arguments_ = [
-    ...(operation.parameters ?? [])
-      .filter((parameter) => parameter.required)
-      .map((parameter) => ({
-        location: parameter.in,
-        name: parameter.name,
-        value: schemaExample(document, parameter.schema),
-      })),
-    ...(bodySchema?.required ?? [])
-      .filter((name) => bodyProperties[name])
-      .map((name) => ({
-        location: "body",
-        name,
-        value: bodyValues[name] ?? schemaExample(document, bodyProperties[name]),
-      })),
-    ...(!bodySchema?.properties && request?.[1].schema && operation.requestBody?.required
-      ? [{ location: "body", name: "body", value: bodyValue ?? schemaExample(document, request[1].schema) }]
-      : []),
-  ];
-  const names = allocateSdkIdentifiers(arguments_);
-  const values = arguments_.map((argument, index) => `${names[index]}=${pythonLiteral(argument.value)}`);
+  const values = sdkArguments(document, operation)
+    .filter((argument) => argument.required)
+    .map((argument) => {
+      const value =
+        argument.location !== "body"
+          ? schemaExample(document, argument.schema)
+          : argument.wholeBody
+            ? exampleBody
+            : (bodyValues[argument.name] ?? schemaExample(document, argument.schema));
+      return `${argument.pythonName}=${pythonLiteral(value)}`;
+    });
   return [
     `from ${config.package} import ${config.client}`,
     "",
