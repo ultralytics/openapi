@@ -117,10 +117,8 @@ Ultralytics thrives on community collaboration, and we deeply value your contrib
 
 ## 📄 License
 
-Ultralytics offers two licensing options:
-
-- **AGPL-3.0 License**: An [OSI-approved](https://opensource.org/license/agpl-3.0) open-source license ideal for students, researchers, and enthusiasts who value open collaboration. See the [LICENSE](LICENSE) file for details.
-- **Enterprise License**: Designed for commercial use, this license allows integrating Ultralytics software and AI models into commercial products without AGPL-3.0's open-source requirements. For enterprise solutions, contact [Ultralytics Licensing](https://www.ultralytics.com/license).
+- **AGPL-3.0 License**: The generator and documentation application are licensed under the [AGPL-3.0 License](LICENSE).
+- **Enterprise License**: Commercial licensing is available separately through [Ultralytics Licensing](https://www.ultralytics.com/license).
 
 Generated SDKs default to AGPL-3.0, and their licenses are configurable through `openapi.config.json`.
 

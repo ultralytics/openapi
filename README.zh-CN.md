@@ -117,10 +117,8 @@ Ultralytics 因社区协作而蓬勃发展，我们非常重视您的贡献！�
 
 ## 📄 许可证
 
-Ultralytics 提供两种许可证选项：
-
-- **AGPL-3.0 许可证**：经 [OSI 认证](https://opensource.org/license/agpl-3.0)的开源许可证，适合重视开放协作的学生、研究人员和爱好者。详情请参阅 [LICENSE](LICENSE) 文件。
-- **企业许可证**：专为商业用途设计，允许将 Ultralytics 软件和 AI 模型集成到商业产品中，而无需遵循 AGPL-3.0 的开源要求。如需企业解决方案，请联系 [Ultralytics Licensing](https://www.ultralytics.com/license)。
+- **AGPL-3.0 许可证**：生成器和文档应用采用 [AGPL-3.0 许可证](LICENSE)。
+- **企业许可证**：商业许可证可通过 [Ultralytics Licensing](https://www.ultralytics.com/license) 单独获取。
 
 生成的 SDK 默认采用 AGPL-3.0，其许可证可通过 `openapi.config.json` 配置。
 
