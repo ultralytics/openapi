@@ -48,12 +48,14 @@ describe("Python generator", () => {
     const source = await Bun.file(join(output, "src/example_api/__init__.py")).text();
     const client = await Bun.file(join(output, "src/example_api/client.py")).text();
     const project = await Bun.file(join(output, "pyproject.toml")).text();
+    const readme = await Bun.file(join(output, "README.md")).text();
     expect(source).toContain("from .client import Example");
     expect(source).toContain("from .async_client import AsyncExample");
     expect(client).toContain('base_url: str = "https://api.example.com/v1"');
     expect(project).toContain('license = "AGPL-3.0-only"');
     expect(project).toContain('dependencies = ["httpx>=0.28,<1"]');
     expect(project).toContain('Repository = "https://github.com/ultralytics/openapi"');
+    expect(readme).toContain("https://spdx.org/licenses/AGPL-3.0-only.html");
     expect(await Bun.file(join(output, "LICENSE")).text()).toBe(await Bun.file("LICENSE").text());
     expect(resolveServerUrl({ ...document, servers: [{ url: "/v2" }] })).toBe("http://localhost:3000/v2");
     expect(serializeSimplePath({ role: "admin/user" }, true)).toBe("role=admin%2Fuser");

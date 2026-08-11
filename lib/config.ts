@@ -7,7 +7,7 @@ export interface OpenApiConfig {
   apiKey: { environment: string };
   docs?: { basePath?: string };
   header?: string;
-  license?: { file: string; id: string };
+  license?: { file: string; id: string; url?: string };
   name: string;
   repository?: string;
   python: {

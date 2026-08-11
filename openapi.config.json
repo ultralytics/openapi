@@ -7,7 +7,8 @@
   },
   "license": {
     "id": "AGPL-3.0-only",
-    "file": "LICENSE"
+    "file": "LICENSE",
+    "url": "https://spdx.org/licenses/AGPL-3.0-only.html"
   },
   "python": {
     "client": "Example",
