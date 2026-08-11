@@ -109,7 +109,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
       );
     }
     const types = [...new Set(variants.flatMap((item) => pythonType(document, item, true).split(" | ")))];
-    if (schema.anyOf && types.includes("Any")) return "Any";
+    if (schema.oneOf === undefined && schema.anyOf && types.includes("Any")) return "Any";
     return result([...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | "));
   }
   const type = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
