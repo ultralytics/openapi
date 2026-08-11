@@ -130,6 +130,20 @@ describe("Python generator", () => {
     expect(curl).toContain("--form 'file=@path/to/file'");
     expect(curl).not.toContain("Content-Type: multipart/form-data");
     expect(curl).not.toContain("--data '");
+    const multipartDocument = structuredClone(document);
+    const multipartUpload = getOperations(multipartDocument).find(
+      (operation) => requestMedia(operation)?.[0] === "multipart/form-data",
+    );
+    const media = multipartUpload && requestMedia(multipartUpload);
+    if (media?.[1].schema?.properties) media[1].schema.properties.note = { type: "string" };
+    expect(multipartUpload).toBeDefined();
+    if (!multipartUpload) return;
+    expect(
+      curlCodeSample(multipartDocument, multipartUpload, {
+        body: JSON.stringify({ note: "@/tmp/secret" }),
+        origin: "https://docs.example.com",
+      }),
+    ).toContain("--form-string 'note=@/tmp/secret'");
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {

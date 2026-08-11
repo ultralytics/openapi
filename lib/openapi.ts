@@ -936,11 +936,11 @@ export function curlCodeSample(
     request?.[0] === "multipart/form-data"
       ? Object.entries(properties)
           .map(([name, schema]) => {
-            const value =
-              resolveSchema(document, schema)?.format === "binary"
-                ? `@${files[name]?.name ?? "path/to/file"}`
-                : formatFormValue(bodyValues[name] ?? schemaExample(document, schema));
-            return `  --form ${shellQuote(`${name}=${value}`)}`;
+            const binary = resolveSchema(document, schema)?.format === "binary";
+            const value = binary
+              ? `@${files[name]?.name ?? "path/to/file"}`
+              : formatFormValue(bodyValues[name] ?? schemaExample(document, schema));
+            return `  ${binary ? "--form" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
           })
           .join(" \\\n")
       : "",
