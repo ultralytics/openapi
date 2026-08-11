@@ -86,7 +86,7 @@ describe("Python generator", () => {
       (operation) => operation.path === "/widgets" && operation.method === "post",
     );
     const media = createWidget && requestMedia(createWidget);
-    if (media) media[1].example = { description: "Contract example" };
+    if (media) media[1].example = { description: null };
     const echo = getOperations(source).find((operation) => operation.path === "/echo");
     const echoMedia = echo && requestMedia(echo);
     if (echoMedia) {
@@ -103,7 +103,7 @@ describe("Python generator", () => {
     expect(sample?.source).toContain("response = client.widgets.retrieve(");
     expect(sample?.source).toContain('widget_id="widget_123"');
     const createSample = decorated.paths["/widgets"]?.post?.["x-codeSamples"]?.[0];
-    expect(createSample?.source).toContain('description="Contract example"');
+    expect(createSample?.source).toContain("description=None");
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
   });

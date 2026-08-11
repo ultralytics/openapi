@@ -481,7 +481,9 @@ export function pythonCodeSample(
           ? schemaExample(document, argument.schema)
           : argument.wholeBody
             ? exampleBody
-            : (bodyValues[argument.name] ?? schemaExample(document, argument.schema));
+            : bodyValues[argument.name] !== undefined
+              ? bodyValues[argument.name]
+              : schemaExample(document, argument.schema);
       return `${argument.pythonName}=${pythonLiteral(value)}`;
     });
   return [
