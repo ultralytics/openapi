@@ -17,6 +17,7 @@ import {
   resolveServerUrl,
   schemaConstraints,
   schemaExample,
+  schemaFields,
   schemaLabel,
   serializeSimplePath,
 } from "../openapi";
@@ -193,6 +194,15 @@ describe("Python generator", () => {
 
   test("uses empty generic string examples", () => {
     expect(schemaExample(document, { type: "string" })).toBe("");
+  });
+
+  test("renders dictionary schemas", () => {
+    const value = { anyOf: [{ enum: ["High", "Medium", "Low"], type: "string" }, { type: "null" }] };
+    const schema = { additionalProperties: value, propertyNames: { type: "string" }, type: "object" };
+    expect(schemaExample(document, schema)).toEqual({ key: "High" });
+    expect(schemaFields(document, schema, "response")).toEqual([
+      { depth: 0, description: undefined, name: "[key: string]", required: false, schema: value },
+    ]);
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {

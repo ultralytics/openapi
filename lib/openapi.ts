@@ -720,12 +720,14 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     return value;
   }
   if (type === "object" || schema.properties) {
-    return Object.fromEntries(
+    const example = Object.fromEntries(
       Object.entries(schema.properties ?? {}).map(([name, property]) => [
         name,
         schemaExample(document, property, depth + 1),
       ]),
     );
+    if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
+    return { key: schemaExample(document, schema.additionalProperties, depth + 1) };
   }
   return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "";
 }
@@ -789,7 +791,22 @@ export function schemaFields(
       : schema;
   const object = objectSchema(document, item);
   const required = new Set(object?.required ?? []);
-  return Object.entries(object?.properties ?? {}).flatMap(([name, field]) => {
+  const properties = Object.entries(object?.properties ?? {});
+  if (!properties.length && typeof object?.additionalProperties === "object") {
+    const field = object.additionalProperties;
+    const fieldName = `${prefix}[key: string]`;
+    return [
+      {
+        depth,
+        description: resolveSchema(document, field)?.description,
+        name: fieldName,
+        required: false,
+        schema: field,
+      },
+      ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
+    ];
+  }
+  return properties.flatMap(([name, field]) => {
     const resolved = resolveSchema(document, field);
     if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly)) return [];
     const fieldName = `${prefix}${name}${resolved?.type === "array" ? "[]" : ""}`;
