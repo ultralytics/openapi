@@ -711,6 +711,135 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
   return response ? preferredMedia(response.content) : undefined;
 }
 
+export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
+  const request = requestMedia(operation);
+  if (!request) return "";
+  let example = request[1].example !== undefined ? request[1].example : schemaExample(document, request[1].schema);
+  const schema = objectSchema(document, request[1].schema);
+  if (example && typeof example === "object" && !Array.isArray(example)) {
+    example = { ...example };
+    for (const [name, property] of Object.entries(schema?.properties ?? {})) {
+      if (resolveSchema(document, property)?.readOnly) delete (example as Record<string, unknown>)[name];
+    }
+  }
+  return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
+}
+
+export function parameterValue(document: OpenApiDocument, parameter: Parameter, value: string): unknown {
+  const schema = resolveSchema(document, parameter.schema);
+  const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+  if (type !== "array" && type !== "object" && !schema?.properties) return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`Enter valid JSON for ${parameter.name}.`);
+  }
+}
+
+export function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
+  return Object.entries(values).flatMap(([name, value]) => {
+    if (Array.isArray(value)) return value.map((item) => [name, item] as [string, unknown]);
+    if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
+    return [[name, value]];
+  });
+}
+
+export function buildApiRequest(
+  document: OpenApiDocument,
+  operation: ApiOperation,
+  {
+    apiKey = "",
+    body = "",
+    files = {},
+    origin,
+    values = {},
+  }: {
+    apiKey?: string;
+    body?: string;
+    files?: Record<string, File>;
+    origin: string;
+    values?: Record<string, string>;
+  },
+): { body?: BodyInit; headers: Record<string, string>; url: string } {
+  const parameters = operation.parameters ?? [];
+  const missing = parameters.find((parameter) => parameter.required && !values[`${parameter.in}:${parameter.name}`]);
+  if (missing) throw new Error(`Enter ${missing.name} before sending the request.`);
+
+  let path = operation.path;
+  for (const parameter of parameters.filter((item) => item.in === "path")) {
+    path = path.replace(
+      `{${parameter.name}}`,
+      serializeSimplePath(
+        parameterValue(document, parameter, values[`path:${parameter.name}`] ?? ""),
+        parameter.explode,
+        parameter.allowReserved,
+      ),
+    );
+  }
+
+  const query = parameters
+    .filter((item) => item.in === "query" && values[`query:${item.name}`])
+    .map((parameter) =>
+      serializeQueryParameter(
+        parameter.name,
+        parameterValue(document, parameter, values[`query:${parameter.name}`] ?? ""),
+        parameter.style,
+        parameter.explode,
+        parameter.allowReserved,
+      ),
+    )
+    .join("&");
+  const baseUrl = resolveServerUrl(document, origin, operation);
+  const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
+  const request = requestMedia(operation);
+  const success = successMedia(operation);
+  const authentication = getAuthentication(document, operation);
+  const headers: Record<string, string> = success ? { Accept: success[0] } : {};
+  if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;
+  if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
+  for (const parameter of parameters.filter((item) => item.in === "header")) {
+    const value = values[`header:${parameter.name}`];
+    if (value)
+      headers[parameter.name] = serializeSimplePath(parameterValue(document, parameter, value), parameter.explode);
+  }
+
+  let requestBody: BodyInit | undefined;
+  if (request?.[0] === "application/json" || request?.[0].endsWith("+json")) requestBody = body;
+  if (request?.[0] === "application/x-www-form-urlencoded") {
+    const form = new URLSearchParams();
+    for (const [name, value] of formEntries(JSON.parse(body))) form.append(name, String(value));
+    requestBody = form;
+  }
+  if (request?.[0] === "multipart/form-data") {
+    const form = new FormData();
+    const requestSchema = objectSchema(document, request[1].schema);
+    const bodyValues = JSON.parse(body) as Record<string, unknown>;
+    for (const [name, value] of Object.entries(bodyValues)) {
+      if (
+        resolveSchema(document, requestSchema?.properties?.[name])?.format === "binary" ||
+        value === null ||
+        value === undefined
+      )
+        continue;
+      form.append(name, typeof value === "string" ? value : JSON.stringify(value));
+    }
+    for (const [name, file] of Object.entries(files)) form.append(name, file);
+    const missingFile = Object.entries(requestSchema?.properties ?? {}).find(
+      ([name, schema]) =>
+        resolveSchema(document, schema)?.format === "binary" && requestSchema?.required?.includes(name) && !files[name],
+    );
+    if (missingFile) throw new Error(`Choose ${missingFile[0]} before sending the request.`);
+    requestBody = form;
+  }
+  if (
+    request &&
+    !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
+  ) {
+    requestBody = body;
+  }
+  return { body: requestBody, headers, url };
+}
+
 function preferredMedia(content: Record<string, MediaType> | undefined): [string, MediaType] | undefined {
   const media = Object.entries(content ?? {}).map(
     ([type, value]) => [type.toLowerCase(), value] as [string, MediaType],

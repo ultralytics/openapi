@@ -17,17 +17,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type ApiOperation,
+  buildApiRequest,
   expandServerUrl,
+  formEntries,
   getAuthentication,
   getOperations,
   type JsonSchema,
   type OpenApiDocument,
   objectSchema,
-  type Parameter,
   pythonCodeSample,
+  requestBodyExample,
   requestMedia,
   resolveSchema,
-  resolveServerUrl,
   schemaExample,
   schemaLabel,
   serializeQueryParameter,
@@ -51,41 +52,8 @@ function operationSearchText(operation: ApiOperation) {
   return `${operation.method} ${operation.path} ${operation.summary ?? ""} ${operation.tag}`.toLowerCase();
 }
 
-function requestBodyExample(document: OpenApiDocument, operation: ApiOperation) {
-  const request = requestMedia(operation);
-  if (!request) return "";
-  let example = request[1].example !== undefined ? request[1].example : schemaExample(document, request[1].schema);
-  const schema = objectSchema(document, request[1].schema);
-  if (example && typeof example === "object" && !Array.isArray(example)) {
-    example = { ...example };
-    for (const [name, property] of Object.entries(schema?.properties ?? {})) {
-      if (resolveSchema(document, property)?.readOnly) delete (example as Record<string, unknown>)[name];
-    }
-  }
-  return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
-}
-
-function parameterValue(document: OpenApiDocument, parameter: Parameter, value: string) {
-  const schema = resolveSchema(document, parameter.schema);
-  const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
-  if (type !== "array" && type !== "object" && !schema?.properties) return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error(`Enter valid JSON for ${parameter.name}.`);
-  }
-}
-
 function shellQuote(value: unknown): string {
   return `'${String(value).replaceAll("'", `'"'"'`)}'`;
-}
-
-function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
-  return Object.entries(values).flatMap(([name, value]) => {
-    if (Array.isArray(value)) return value.map((item) => [name, item] as [string, unknown]);
-    if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
-    return [[name, value]];
-  });
 }
 
 interface PythonExample {
@@ -502,7 +470,6 @@ function OperationPanel({
     ([, schema]) => resolveSchema(document, schema)?.format === "binary",
   );
   const success = successMedia(operation);
-  const authentication = getAuthentication(document, operation);
   const examples = useMemo(
     () => codeExamples(document, operation, body, environment, origin, python),
     [body, document, environment, operation, origin, python],
@@ -523,114 +490,26 @@ function OperationPanel({
   }
 
   async function sendRequest() {
-    const missing = parameters.find((parameter) => parameter.required && !values[`${parameter.in}:${parameter.name}`]);
-    if (missing) {
-      setResult(`Enter ${missing.name} before sending the request.`);
-      return;
-    }
-    let path = operation.path;
+    let requestInit: ReturnType<typeof buildApiRequest>;
     try {
-      for (const parameter of parameters.filter((item) => item.in === "path")) {
-        const value = parameterValue(document, parameter, values[`path:${parameter.name}`] ?? "");
-        path = path.replace(
-          `{${parameter.name}}`,
-          serializeSimplePath(value, parameter.explode, parameter.allowReserved),
-        );
-      }
+      requestInit = buildApiRequest(document, operation, {
+        apiKey,
+        body,
+        files,
+        origin: window.location.origin,
+        values,
+      });
     } catch (error) {
-      setResult(error instanceof Error ? error.message : "Invalid path parameter");
+      setResult(error instanceof Error ? error.message : "Invalid request values");
       return;
     }
-
-    const baseUrl = resolveServerUrl(document, window.location.origin, operation);
-    let requestUrl = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
-    try {
-      const query = parameters
-        .filter((item) => item.in === "query" && values[`query:${item.name}`])
-        .map((parameter) =>
-          serializeQueryParameter(
-            parameter.name,
-            parameterValue(document, parameter, values[`query:${parameter.name}`] ?? ""),
-            parameter.style,
-            parameter.explode,
-            parameter.allowReserved,
-          ),
-        )
-        .join("&");
-      if (query) requestUrl += `?${query}`;
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "Invalid query parameter");
-      return;
-    }
-    const url = new URL(requestUrl, window.location.origin);
-
-    const headers: Record<string, string> = success ? { Accept: success[0] } : {};
-    if (apiKey && authentication) headers[authentication.header] = `${authentication.prefix}${apiKey}`;
-    if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
-    try {
-      for (const parameter of parameters.filter((item) => item.in === "header")) {
-        const value = values[`header:${parameter.name}`];
-        if (value) {
-          headers[parameter.name] = serializeSimplePath(parameterValue(document, parameter, value), parameter.explode);
-        }
-      }
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "Invalid header parameter");
-      return;
-    }
-
-    let requestBody: BodyInit | undefined;
-    if (request?.[0] === "application/json" || request?.[0].endsWith("+json")) requestBody = body;
-    if (request?.[0] === "application/x-www-form-urlencoded") {
-      try {
-        const form = new URLSearchParams();
-        for (const [name, value] of formEntries(JSON.parse(body))) form.append(name, String(value));
-        requestBody = form;
-      } catch {
-        setResult("Enter valid JSON request values before sending the request.");
-        return;
-      }
-    }
-    if (request?.[0] === "multipart/form-data") {
-      const form = new FormData();
-      let values: Record<string, unknown> = {};
-      try {
-        values = JSON.parse(body);
-      } catch {
-        setResult("Enter valid JSON request values before sending the request.");
-        return;
-      }
-      for (const [name, value] of Object.entries(values)) {
-        if (
-          resolveSchema(document, requestSchema?.properties?.[name])?.format === "binary" ||
-          value === null ||
-          value === undefined
-        )
-          continue;
-        form.append(name, typeof value === "string" ? value : JSON.stringify(value));
-      }
-      for (const [name, file] of Object.entries(files)) form.append(name, file);
-      const missingFile = binaryFields.find(([name]) => requestSchema?.required?.includes(name) && !files[name]);
-      if (missingFile) {
-        setResult(`Choose ${missingFile[0]} before sending the request.`);
-        return;
-      }
-      requestBody = form;
-    }
-    if (
-      request &&
-      !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
-    ) {
-      requestBody = body;
-    }
-
     setSending(true);
     setResult("");
     setStatus(undefined);
     try {
-      const response = await fetch(url, {
-        body: requestBody,
-        headers,
+      const response = await fetch(requestInit.url, {
+        body: requestInit.body,
+        headers: requestInit.headers,
         method: operation.method.toUpperCase(),
       });
       const text = await response.text();
