@@ -87,6 +87,12 @@ describe("Python generator", () => {
     );
     const media = createWidget && requestMedia(createWidget);
     if (media) media[1].example = { description: "Contract example" };
+    const echo = getOperations(source).find((operation) => operation.path === "/echo");
+    const echoMedia = echo && requestMedia(echo);
+    if (echoMedia) {
+      echoMedia[1].example = null;
+      if (echoMedia[1].schema) echoMedia[1].schema.type = ["string", "null"];
+    }
     const decorated = addPythonCodeSamples(source, {
       client: config.python.client,
       environment: config.apiKey.environment,
@@ -98,6 +104,8 @@ describe("Python generator", () => {
     expect(sample?.source).toContain('widget_id="widget_123"');
     const createSample = decorated.paths["/widgets"]?.post?.["x-codeSamples"]?.[0];
     expect(createSample?.source).toContain('description="Contract example"');
+    const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
+    expect(echoSample?.source).toContain("body=None");
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {

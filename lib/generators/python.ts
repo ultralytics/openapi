@@ -112,9 +112,36 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   return result("Any");
 }
 
+function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
+  const unsupported = (operation.parameters ?? []).find(
+    (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
+  );
+  if (unsupported) throw new Error(`Unsupported path style: ${unsupported.style}`);
+  if (operation.parameters?.some((parameter) => parameter.in === "query" && parameter.allowReserved)) {
+    throw new Error("Unsupported query parameter: allowReserved");
+  }
+  const structuredParameter = operation.parameters?.find((parameter) => {
+    const schema = resolveSchema(document, parameter.schema);
+    const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+    return (
+      (parameter.in === "header" || parameter.in === "cookie") &&
+      (type === "array" || type === "object" || schema?.properties)
+    );
+  });
+  if (structuredParameter) {
+    throw new Error(`Unsupported ${structuredParameter.in} parameter: ${structuredParameter.name}`);
+  }
+  const media = requestMedia(operation);
+  if (media && !media[1].schema) throw new Error(`Unsupported schema-less request body: ${media[0]}`);
+  if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
+    throw new Error(`Unsupported request body encoding: ${media[0]}`);
+  }
+}
+
 function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   const resources = new Map<string, PythonOperation[]>();
   for (const operation of getOperations(document)) {
+    validateOperation(document, operation);
     const media = successMedia(operation);
     const responseSchema = media?.[1].schema;
     const response = resolveSchema(document, responseSchema);

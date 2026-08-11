@@ -395,24 +395,6 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
 }
 
 export function sdkArguments(document: OpenApiDocument, operation: ApiOperation): SdkArgument[] {
-  const unsupported = (operation.parameters ?? []).find(
-    (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
-  );
-  if (unsupported) throw new Error(`Unsupported path style: ${unsupported.style}`);
-  if (operation.parameters?.some((parameter) => parameter.in === "query" && parameter.allowReserved)) {
-    throw new Error("Unsupported query parameter: allowReserved");
-  }
-  const structuredParameter = operation.parameters?.find((parameter) => {
-    const schema = resolveSchema(document, parameter.schema);
-    const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
-    return (
-      (parameter.in === "header" || parameter.in === "cookie") &&
-      (type === "array" || type === "object" || schema?.properties)
-    );
-  });
-  if (structuredParameter) {
-    throw new Error(`Unsupported ${structuredParameter.in} parameter: ${structuredParameter.name}`);
-  }
   const parameters: SdkArgument[] = (operation.parameters ?? []).map((parameter) => ({
     allowReserved: parameter.allowReserved,
     description: parameter.description ?? `${parameter.name} ${parameter.in} parameter.`,
@@ -425,10 +407,6 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     style: parameter.style,
   }));
   const media = requestMedia(operation);
-  if (media && !media[1].schema) throw new Error(`Unsupported schema-less request body: ${media[0]}`);
-  if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
-    throw new Error(`Unsupported request body encoding: ${media[0]}`);
-  }
   const structured =
     media?.[0] === "application/json" ||
     media?.[0].endsWith("+json") ||
@@ -447,14 +425,14 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
         schema: property,
       });
     }
-  } else if (media?.[1].schema) {
+  } else if (media) {
     parameters.push({
-      description: media[1].schema.description ?? "Request body.",
+      description: media[1].schema?.description ?? "Request body.",
       location: "body",
       name: "body",
       pythonName: "body",
       required: operation.requestBody?.required ?? false,
-      schema: media[1].schema,
+      schema: media[1].schema ?? {},
       wholeBody: true,
     });
   }
@@ -485,7 +463,12 @@ export function pythonCodeSample(
   bodyValue?: unknown,
 ): string {
   const request = requestMedia(operation);
-  const exampleBody = bodyValue ?? request?.[1].example ?? schemaExample(document, request?.[1].schema);
+  const exampleBody =
+    bodyValue !== undefined
+      ? bodyValue
+      : request?.[1].example !== undefined
+        ? request[1].example
+        : schemaExample(document, request?.[1].schema);
   const bodyValues =
     exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
       ? (exampleBody as Record<string, unknown>)

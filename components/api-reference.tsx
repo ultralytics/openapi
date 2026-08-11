@@ -54,7 +54,7 @@ function operationSearchText(operation: ApiOperation) {
 function requestBodyExample(document: OpenApiDocument, operation: ApiOperation) {
   const request = requestMedia(operation);
   if (!request) return "";
-  let example = request[1].example ?? schemaExample(document, request[1].schema);
+  let example = request[1].example !== undefined ? request[1].example : schemaExample(document, request[1].schema);
   const schema = objectSchema(document, request[1].schema);
   if (example && typeof example === "object" && !Array.isArray(example)) {
     example = { ...example };
