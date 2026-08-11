@@ -222,6 +222,10 @@ describe("Python generator", () => {
       images: ["..."],
       model: "yolo11n.pt",
     });
+    createMedia[1].schema = { allOf: [{ example: "authored", type: "string" }, { minLength: 1 }] };
+    expect(requestBodyExample(minimalDocument, create)).toBe('"authored"');
+    createMedia[1].schema = { allOf: [{ example: null, type: ["string", "null"] }] };
+    expect(requestBodyExample(minimalDocument, create)).toBe("null");
     const unionCreate = structuredClone(create);
     unionCreate.requestBody = {
       content: {

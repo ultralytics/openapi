@@ -890,9 +890,14 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
     else if (named.length) example = {};
   }
-  if (authored.nested && authored.value && typeof authored.value === "object" && !Array.isArray(authored.value)) {
+  if (authored.nested && authored.value !== undefined) {
     example =
-      example && typeof example === "object" && !Array.isArray(example)
+      authored.value !== null &&
+      typeof authored.value === "object" &&
+      !Array.isArray(authored.value) &&
+      example !== null &&
+      typeof example === "object" &&
+      !Array.isArray(example)
         ? { ...example, ...authored.value }
         : authored.value;
   }
