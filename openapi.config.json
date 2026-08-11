@@ -10,6 +10,7 @@
   },
   "python": {
     "client": "Example",
+    "install": "pip install example-api-sdk",
     "package": "example_api",
     "project": "example-api-sdk",
     "version": "0.1.0"

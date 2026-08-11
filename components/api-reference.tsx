@@ -103,6 +103,7 @@ function formEntries(values: Record<string, unknown>): Array<[string, unknown]> 
 
 interface PythonExample {
   client: string;
+  install: string;
   package: string;
 }
 
@@ -283,12 +284,15 @@ function OperationNavigation({
           <Input
             aria-label="Search operations"
             autoComplete="off"
-            className="pl-8"
+            className="pr-12 pl-8"
             name="api-search"
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search API"
+            placeholder="Search operations…"
             value={query}
           />
+          <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
+            ⌘K
+          </kbd>
         </div>
       </div>
       <Separator />
@@ -299,6 +303,7 @@ function OperationNavigation({
               "block rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
               !selectedId && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
+            aria-current={!selectedId ? "page" : undefined}
             href="#overview"
           >
             Overview
@@ -309,6 +314,7 @@ function OperationNavigation({
               <div className="space-y-0.5">
                 {taggedOperations.map((operation) => (
                   <a
+                    aria-current={selectedId === operation.id ? "page" : undefined}
                     className={cn(
                       "operation-list-item flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
                       selectedId === operation.id && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -399,12 +405,23 @@ function SchemaFields({
   );
 }
 
-function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specUrl: string }) {
+function OverviewPanel({
+  document,
+  environment,
+  python,
+  specUrl,
+}: {
+  document: OpenApiDocument;
+  environment: string;
+  python: PythonExample;
+  specUrl: string;
+}) {
   const operations = getOperations(document);
   const tagDescriptions = new Map(document.tags?.map((tag) => [tag.name, tag.description]));
   const tags = new Map<string, number>();
   for (const operation of operations) tags.set(operation.tag, (tags.get(operation.tag) ?? 0) + 1);
   const authentications = Object.entries(document.components?.securitySchemes ?? {});
+  const pythonExample = `import asyncio\n\nfrom ${python.package} import Async${python.client}, ${python.client}\n\nwith ${python.client}() as client:  # Reads ${environment}\n    ...\n\nasync def main():\n    async with Async${python.client}() as client:\n        ...\n\nasyncio.run(main())`;
 
   return (
     <main className="min-w-0 flex-1 px-5 py-10 lg:px-10" id="main-content">
@@ -414,8 +431,9 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
             <Badge variant="secondary">OpenAPI {document.openapi}</Badge>
             <Badge variant="outline">API {document.info.version}</Badge>
             <Badge variant="outline">{operations.length} operations</Badge>
+            <Badge variant="outline">REST + Python SDK</Badge>
           </div>
-          <h1 className="text-pretty font-heading text-4xl font-semibold tracking-tight" id="overview">
+          <h1 className="scroll-mt-20 text-pretty font-heading text-4xl font-semibold tracking-tight" id="overview">
             {document.info.title}
           </h1>
           {document.info.description ? (
@@ -423,9 +441,16 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
               <ReactMarkdown>{document.info.description}</ReactMarkdown>
             </div>
           ) : null}
-          <Button className="mt-6" render={<a download href={specUrl} />} variant="outline">
-            Download OpenAPI contract
-          </Button>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button render={<a download href={specUrl} />} variant="outline">
+              Download OpenAPI contract
+            </Button>
+            {document.externalDocs ? (
+              <Button render={<a href={document.externalDocs.url} />} variant="outline">
+                {document.externalDocs.description ?? "Guides"}
+              </Button>
+            ) : null}
+          </div>
         </section>
 
         {document.servers?.length ? (
@@ -459,6 +484,18 @@ function OverviewPanel({ document, specUrl }: { document: OpenApiDocument; specU
             ))}
           </section>
         ) : null}
+
+        <section className="space-y-4">
+          <div>
+            <h2 className="font-heading text-2xl font-semibold">Python SDK</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+              Install the typed client, set {environment}, then choose a resource to see the Python call generated from
+              the same operation as the REST reference.
+            </p>
+          </div>
+          <CodeBlock code={python.install} />
+          <CodeBlock code={pythonExample} />
+        </section>
 
         <section className="space-y-4">
           <h2 className="font-heading text-2xl font-semibold">Resources</h2>
@@ -850,7 +887,11 @@ export function ApiReference({
   const selected = operations.find((operation) => operation.id === selectedId);
   const tags = useMemo(() => {
     const grouped = new Map<string, ApiOperation[]>();
-    for (const operation of filtered) grouped.set(operation.tag, [...(grouped.get(operation.tag) ?? []), operation]);
+    for (const operation of filtered) {
+      const group = grouped.get(operation.tag);
+      if (group) group.push(operation);
+      else grouped.set(operation.tag, [operation]);
+    }
     return grouped;
   }, [filtered]);
 
@@ -867,6 +908,18 @@ export function ApiReference({
   }, [specUrl]);
 
   useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        for (const input of window.document.querySelectorAll<HTMLInputElement>('[name="api-search"]')) {
+          if (input.offsetParent) {
+            input.focus();
+            break;
+          }
+        }
+      }
+    }
+
     function selectFromHash() {
       const hash = window.location.hash.slice(1);
       setSelectedId(hash.startsWith("operation=") ? decodeURIComponent(hash.slice("operation=".length)) : undefined);
@@ -874,8 +927,12 @@ export function ApiReference({
       window.scrollTo(0, 0);
     }
     selectFromHash();
+    window.addEventListener("keydown", focusSearch);
     window.addEventListener("hashchange", selectFromHash);
-    return () => window.removeEventListener("hashchange", selectFromHash);
+    return () => {
+      window.removeEventListener("keydown", focusSearch);
+      window.removeEventListener("hashchange", selectFromHash);
+    };
   }, []);
 
   if (error) return <div className="p-8 text-sm text-destructive">{error}</div>;
@@ -946,7 +1003,7 @@ export function ApiReference({
             python={python}
           />
         ) : (
-          <OverviewPanel document={document} specUrl={specUrl} />
+          <OverviewPanel document={document} environment={apiKeyEnvironment} python={python} specUrl={specUrl} />
         )}
       </div>
     </div>

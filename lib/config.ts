@@ -11,7 +11,7 @@ export interface OpenApiConfig {
   name: string;
   python: {
     client: string;
-    install?: string;
+    install: string;
     package: string;
     project: string;
     version: string;
@@ -23,6 +23,7 @@ export const configPath = process.env.OPENAPI_CONFIG ?? "openapi.config.json";
 
 export function getConfig(): OpenApiConfig {
   const config = JSON.parse(readFileSync(configPath, "utf8")) as OpenApiConfig;
+  config.python.install ||= `pip install ${config.python.project}`;
   const directory = dirname(resolve(configPath));
   if (!/^[a-z][a-z\d+.-]*:\/\//i.test(config.source) && !isAbsolute(config.source)) {
     config.source = resolve(directory, config.source);

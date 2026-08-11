@@ -19,7 +19,7 @@ interface PythonConfig {
   apiKey: { environment: string };
   license?: { file: string; id: string };
   name: string;
-  python: { client: string; install?: string; package: string; project: string; version: string };
+  python: { client: string; install: string; package: string; project: string; version: string };
 }
 
 interface Argument {
@@ -821,7 +821,6 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
   const baseUrl = resolveServerUrl(document);
   const license = config.license ?? { file: "LICENSE", id: "AGPL-3.0-only" };
   const licenseText = await Bun.file(license.file).text();
-  const install = config.python.install ?? `pip install ${config.python.project}`;
   await rm(output, { force: true, recursive: true });
   await Promise.all([
     Bun.write(
@@ -830,7 +829,7 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
     ),
     Bun.write(
       `${output}/README.md`,
-      `# ${config.name} Python SDK\n\nTyped synchronous and asynchronous Python clients generated from the ${config.name} OpenAPI contract.\n\n## Installation\n\n\`\`\`bash\n${install}\n\`\`\`\n\n## Usage\n\nSet \`${config.apiKey.environment}\`, then create one client with grouped API resources:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()\n\`\`\`\n\nEvery resource is also available through the asynchronous client:\n\n\`\`\`python\nfrom ${config.python.package} import Async${config.python.client}\n\nclient = Async${config.python.client}()\n\`\`\`\n\nThe clients include typed responses, multipart uploads, retries for temporary failures, and structured API errors.\n`,
+      `# ${config.name} Python SDK\n\nTyped synchronous and asynchronous Python clients generated from the ${config.name} OpenAPI contract.\n\n## Installation\n\n\`\`\`bash\n${config.python.install}\n\`\`\`\n\n## Usage\n\nSet \`${config.apiKey.environment}\`, then create one client with grouped API resources:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}()\n\`\`\`\n\nEvery resource is also available through the asynchronous client:\n\n\`\`\`python\nfrom ${config.python.package} import Async${config.python.client}\n\nclient = Async${config.python.client}()\n\`\`\`\n\nThe clients include typed responses, multipart uploads, retries for temporary failures, and structured API errors.\n`,
     ),
     Bun.write(`${output}/LICENSE`, licenseText),
     Bun.write(`${root}/_client.py`, clientSource()),
