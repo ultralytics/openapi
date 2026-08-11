@@ -830,13 +830,20 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
 export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
   const request = requestMedia(operation);
   if (!request) return "";
-  let example = request[1].example !== undefined ? request[1].example : schemaExample(document, request[1].schema);
+  const generated = request[1].example === undefined;
+  let example = generated ? schemaExample(document, request[1].schema) : request[1].example;
   const schema = objectSchema(document, request[1].schema);
   if (example && typeof example === "object" && !Array.isArray(example)) {
     example = { ...example };
-    for (const [name, property] of Object.entries(schema?.properties ?? {})) {
-      if (resolveSchema(document, property)?.readOnly) delete (example as Record<string, unknown>)[name];
-    }
+    const properties = Object.entries(schema?.properties ?? {}).filter(
+      ([, property]) => !resolveSchema(document, property)?.readOnly,
+    );
+    const required = new Set(schema?.required ?? []);
+    const selected = properties.some(([name]) => required.has(name))
+      ? properties.filter(([name]) => required.has(name))
+      : properties.slice(0, 1);
+    const values = example as Record<string, unknown>;
+    example = Object.fromEntries((generated ? selected : properties).map(([name]) => [name, values[name]]));
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
@@ -894,10 +901,8 @@ export function curlCodeSample(
   };
   let path = operation.path;
   for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {
-    path = path.replace(
-      `{${parameter.name}}`,
-      serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved),
-    );
+    const value = serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved);
+    if (value) path = path.replace(`{${parameter.name}}`, value);
   }
   const query = (operation.parameters ?? [])
     .filter((parameter) => parameter.in === "query" && (parameter.required || values[`query:${parameter.name}`]))
@@ -937,10 +942,12 @@ export function curlCodeSample(
       body !== undefined);
   const inferredPost = operation.method === "post" && hasBodyArgument;
   return [
-    `curl ${shellQuote(url)}`,
+    `curl ${/^[A-Za-z0-9._~:/{}%+-]+$/.test(url) ? url : shellQuote(url)}`,
     operation.method !== "get" && !inferredPost ? `  -X ${operation.method.toUpperCase()}` : "",
     authentication
-      ? `  -H ${shellQuote(`${authentication.header}: ${authentication.prefix}${environment ? "" : apiKey}`)}${environment ? `"$${environment}"` : ""}`
+      ? environment
+        ? `  -H "${authentication.header}: ${authentication.prefix}$${environment}"`
+        : `  -H ${shellQuote(`${authentication.header}: ${authentication.prefix}${apiKey}`)}`
       : "",
     ...(operation.parameters ?? [])
       .filter(

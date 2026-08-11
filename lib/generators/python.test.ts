@@ -131,6 +131,7 @@ describe("Python generator", () => {
       origin: "https://docs.example.com",
     });
     expect(curl).toContain("-F 'file=@path/to/file'");
+    expect(curl).toStartWith("curl https://api.example.com/v1/uploads");
     expect(curl).not.toContain("--request");
     expect(curl).not.toContain("--url");
     expect(curl).not.toContain("Content-Type: multipart/form-data");
@@ -172,6 +173,28 @@ describe("Python generator", () => {
         values: { "query:filter": "[" },
       }),
     ).not.toThrow();
+
+    const minimalDocument = structuredClone(document);
+    const create = getOperations(minimalDocument).find(
+      (operation) => operation.path === "/widgets" && operation.method === "post",
+    );
+    const createMedia = create && requestMedia(create);
+    expect(create).toBeDefined();
+    expect(createMedia).toBeDefined();
+    if (!create || !createMedia) return;
+    createMedia[1].schema = {
+      properties: { name: { type: "string" }, description: { type: "string" } },
+      type: "object",
+    };
+    const minimalBody = requestBodyExample(minimalDocument, create);
+    expect(minimalBody).toBe('{\n  "name": ""\n}');
+    const minimalCurl = curlCodeSample(minimalDocument, create, {
+      body: minimalBody,
+      environment: "EXAMPLE_API_KEY",
+      origin: "https://docs.example.com",
+    });
+    expect(minimalCurl).toContain('-H "Authorization: Bearer $EXAMPLE_API_KEY"');
+    expect(minimalCurl).not.toContain("description");
   });
 
   test("keeps enum values out of schema type labels", () => {
