@@ -32,6 +32,7 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
   "license": { "id": "AGPL-3.0-only", "file": "LICENSE" },
   "python": {
     "client": "Example",
+    "install": "pip install example-api-sdk",
     "package": "example_api",
     "project": "example-api-sdk",
     "version": "0.1.0"

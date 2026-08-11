@@ -3,7 +3,7 @@
 "use client";
 
 import { CheckIcon, CopyIcon, KeyRoundIcon, LoaderCircleIcon, MenuIcon, PlayIcon, SearchIcon } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 import { Badge } from "@/components/ui/badge";
@@ -103,7 +103,7 @@ function formEntries(values: Record<string, unknown>): Array<[string, unknown]> 
 
 interface PythonExample {
   client: string;
-  install?: string;
+  install: string;
   package: string;
 }
 
@@ -273,6 +273,19 @@ function OperationNavigation({
   selectedId?: string;
   tags: Map<string, ApiOperation[]>;
 }) {
+  const searchInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInput.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="p-4">
@@ -284,12 +297,16 @@ function OperationNavigation({
           <Input
             aria-label="Search operations"
             autoComplete="off"
-            className="pl-8"
+            className="pr-12 pl-8"
             name="api-search"
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search operations…"
+            ref={searchInput}
             value={query}
           />
+          <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
+            ⌘K
+          </kbd>
         </div>
       </div>
       <Separator />
@@ -418,7 +435,7 @@ function OverviewPanel({
   const tags = new Map<string, number>();
   for (const operation of operations) tags.set(operation.tag, (tags.get(operation.tag) ?? 0) + 1);
   const authentications = Object.entries(document.components?.securitySchemes ?? {});
-  const pythonExample = `from ${python.package} import Async${python.client}, ${python.client}\n\nwith ${python.client}() as client:  # Reads ${environment}\n    ...\n\nasync def main():\n    async with Async${python.client}() as client:\n        ...`;
+  const pythonExample = `import asyncio\n\nfrom ${python.package} import Async${python.client}, ${python.client}\n\nwith ${python.client}() as client:  # Reads ${environment}\n    ...\n\nasync def main():\n    async with Async${python.client}() as client:\n        ...\n\nasyncio.run(main())`;
 
   return (
     <main className="min-w-0 flex-1 px-5 py-10 lg:px-10" id="main-content">
@@ -490,7 +507,7 @@ function OverviewPanel({
               the same operation as the REST reference.
             </p>
           </div>
-          {python.install ? <CodeBlock code={python.install} /> : null}
+          <CodeBlock code={python.install} />
           <CodeBlock code={pythonExample} />
         </section>
 

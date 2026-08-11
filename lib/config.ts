@@ -11,7 +11,7 @@ export interface OpenApiConfig {
   name: string;
   python: {
     client: string;
-    install?: string;
+    install: string;
     package: string;
     project: string;
     version: string;
