@@ -182,6 +182,10 @@ describe("Python generator", () => {
     ).toEqual(["values: obb", "values: classify", "values: pose"]);
   });
 
+  test("uses empty generic string examples", () => {
+    expect(schemaExample(document, { type: "string" })).toBe("");
+  });
+
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {
     const client = await Bun.file(join(output, "src/example_api/client.py")).text();
     const runtime = await Bun.file(join(output, "src/example_api/_client.py")).text();

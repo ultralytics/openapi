@@ -727,7 +727,7 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
       ]),
     );
   }
-  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "string";
+  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "";
 }
 
 export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undefined): string {
