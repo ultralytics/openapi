@@ -729,7 +729,7 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
     return { key: schemaExample(document, schema.additionalProperties, depth + 1) };
   }
-  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "";
+  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "...";
 }
 
 export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undefined): string {
@@ -827,16 +827,45 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
   return response ? preferredMedia(response.content) : undefined;
 }
 
+function authoredSchemaExample(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  depth = 0,
+): { found: boolean; value?: unknown } {
+  if (depth > 8) return { found: false };
+  const schema = resolveSchema(document, input);
+  if (!schema) return { found: false };
+  if (schema.example !== undefined) return { found: true, value: schema.example };
+  const union = schema.oneOf ?? schema.anyOf;
+  if (union?.length) return authoredSchemaExample(document, union[0], depth + 1);
+  for (const item of schema.allOf ?? []) {
+    const authored = authoredSchemaExample(document, item, depth + 1);
+    if (authored.found) return authored;
+  }
+  return { found: false };
+}
+
 export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
   const request = requestMedia(operation);
   if (!request) return "";
-  let example = request[1].example !== undefined ? request[1].example : schemaExample(document, request[1].schema);
-  const schema = objectSchema(document, request[1].schema);
-  if (example && typeof example === "object" && !Array.isArray(example)) {
+  const authored =
+    request[1].example !== undefined
+      ? { found: true, value: request[1].example }
+      : authoredSchemaExample(document, request[1].schema);
+  const generated = !authored.found;
+  let example = generated ? schemaExample(document, request[1].schema) : authored.value;
+  if (generated && example && typeof example === "object" && !Array.isArray(example)) {
+    const object = objectSchema(document, request[1].schema);
     example = { ...example };
-    for (const [name, property] of Object.entries(schema?.properties ?? {})) {
-      if (resolveSchema(document, property)?.readOnly) delete (example as Record<string, unknown>)[name];
-    }
+    const named = Object.entries(object?.properties ?? {});
+    const properties = named.filter(([, property]) => !resolveSchema(document, property)?.readOnly);
+    const required = new Set(object?.required ?? []);
+    const selected = properties.some(([name]) => required.has(name))
+      ? properties.filter(([name]) => required.has(name))
+      : properties.slice(0, 1);
+    const values = example as Record<string, unknown>;
+    if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
+    else if (named.length) example = {};
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
@@ -885,7 +914,7 @@ export function curlCodeSample(
 ): string {
   const parameterValueOrExample = (parameter: Parameter) => {
     const value = values[`${parameter.in}:${parameter.name}`];
-    if (!value) return schemaExample(document, parameter.schema);
+    if (value === undefined) return schemaExample(document, parameter.schema);
     try {
       return parameterValue(document, parameter, value);
     } catch {
@@ -894,10 +923,18 @@ export function curlCodeSample(
   };
   let path = operation.path;
   for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {
-    path = path.replace(
-      `{${parameter.name}}`,
-      serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved),
-    );
+    const schema = resolveSchema(document, parameter.schema);
+    const supplied = values[`${parameter.in}:${parameter.name}`];
+    const explicit =
+      schema?.example !== undefined ||
+      schema?.default !== undefined ||
+      schema?.const !== undefined ||
+      Boolean(schema?.enum?.length);
+    if (!explicit && supplied === undefined) {
+      continue;
+    }
+    const value = serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved);
+    if (value) path = path.replace(`{${parameter.name}}`, value);
   }
   const query = (operation.parameters ?? [])
     .filter((parameter) => parameter.in === "query" && (parameter.required || values[`query:${parameter.name}`]))
@@ -927,11 +964,40 @@ export function curlCodeSample(
     // Non-JSON request bodies are emitted verbatim below.
   }
   const formatFormValue = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
+  const contentType = request?.[0];
+  const form = formEntries(bodyValues);
+  const multipart =
+    contentType === "multipart/form-data"
+      ? [...new Set([...Object.keys(bodyValues), ...Object.keys(files)])].map((name) => {
+          const binary = files[name] || resolveSchema(document, properties[name])?.format === "binary";
+          const bodyFile = bodyValues[name];
+          const value = binary
+            ? `@${files[name]?.name ?? (typeof bodyFile === "string" && bodyFile !== "..." ? bodyFile.replace(/^@/, "") : "path/to/file")}`
+            : formatFormValue(bodyValues[name]);
+          return `  ${binary ? "-F" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
+        })
+      : [];
+  const hasBodyArgument =
+    ((contentType === "application/json" || contentType?.endsWith("+json")) && Boolean(body)) ||
+    (contentType === "application/x-www-form-urlencoded" && form.length > 0) ||
+    (contentType === "multipart/form-data" && multipart.length > 0) ||
+    (contentType !== undefined &&
+      !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(contentType) &&
+      body !== undefined);
+  const inferredPost = operation.method === "post" && hasBodyArgument;
   return [
-    `curl --request ${operation.method.toUpperCase()}`,
-    `  --url ${shellQuote(url)}`,
+    `curl${/[{}[\]]/.test(url) ? " -g" : ""} ${/^[A-Za-z0-9._~:/{}%+-]+$/.test(url) ? url : shellQuote(url)}`,
+    operation.method === "get"
+      ? hasBodyArgument
+        ? "  -X GET"
+        : ""
+      : !inferredPost
+        ? `  -X ${operation.method.toUpperCase()}`
+        : "",
     authentication
-      ? `  --header ${shellQuote(`${authentication.header}: ${authentication.prefix}${environment ? "" : apiKey}`)}${environment ? `"$${environment}"` : ""}`
+      ? environment
+        ? `  -H "${authentication.header}: ${authentication.prefix}$${environment}"`
+        : `  -H ${shellQuote(`${authentication.header}: ${authentication.prefix}${apiKey}`)}`
       : "",
     ...(operation.parameters ?? [])
       .filter(
@@ -943,33 +1009,23 @@ export function curlCodeSample(
         const value = parameterValueOrExample(parameter);
         return parameter.in === "cookie"
           ? `  --cookie ${shellQuote(serializeQueryParameter(parameter.name, value, "form", parameter.explode).replaceAll("&", "; "))}`
-          : `  --header ${shellQuote(`${parameter.name}: ${serializeSimplePath(value, parameter.explode)}`)}`;
+          : `  -H ${shellQuote(`${parameter.name}: ${serializeSimplePath(value, parameter.explode)}`)}`;
       }),
-    request && request[0] !== "multipart/form-data" ? `  --header ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
+    request && request[0] !== "multipart/form-data" ? `  -H ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
     request && (request[0] === "application/json" || request[0].endsWith("+json")) && body
-      ? `  --data ${shellQuote(body)}`
+      ? `  -d ${shellQuote(body)}`
       : "",
     request?.[0] === "application/x-www-form-urlencoded"
-      ? formEntries(bodyValues)
+      ? form
           .map(([name, value]) => `  --data-urlencode ${shellQuote(`${name}=${formatFormValue(value)}`)}`)
           .join(" \\\n")
       : "",
     request &&
     body !== undefined &&
     !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
-      ? `  --data ${shellQuote(body)}`
+      ? `  -d ${shellQuote(body)}`
       : "",
-    request?.[0] === "multipart/form-data"
-      ? Object.entries(properties)
-          .map(([name, schema]) => {
-            const binary = resolveSchema(document, schema)?.format === "binary";
-            const value = binary
-              ? `@${files[name]?.name ?? "path/to/file"}`
-              : formatFormValue(bodyValues[name] ?? schemaExample(document, schema));
-            return `  ${binary ? "--form" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
-          })
-          .join(" \\\n")
-      : "",
+    request?.[0] === "multipart/form-data" ? multipart.join(" \\\n") : "",
   ]
     .filter(Boolean)
     .join(" \\\n");

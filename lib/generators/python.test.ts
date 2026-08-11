@@ -133,9 +133,12 @@ describe("Python generator", () => {
       body: requestBodyExample(document, upload),
       origin: "https://docs.example.com",
     });
-    expect(curl).toContain("--form 'file=@path/to/file'");
+    expect(curl).toContain("-F 'file=@path/to/file'");
+    expect(curl).toStartWith("curl https://api.example.com/v1/uploads");
+    expect(curl).not.toContain("--request");
+    expect(curl).not.toContain("--url");
     expect(curl).not.toContain("Content-Type: multipart/form-data");
-    expect(curl).not.toContain("--data '");
+    expect(curl).not.toContain("-d '");
     const raw = getOperations(document).find((operation) => requestMedia(operation)?.[0] === "text/plain");
     expect(raw).toBeDefined();
     if (!raw) return;
@@ -144,7 +147,7 @@ describe("Python generator", () => {
         body: requestBodyExample(document, raw),
         origin: "https://docs.example.com",
       }),
-    ).toContain("--data ''");
+    ).toContain("-d '...'");
     const multipartDocument = structuredClone(document);
     const multipartUpload = getOperations(multipartDocument).find(
       (operation) => requestMedia(operation)?.[0] === "multipart/form-data",
@@ -153,12 +156,12 @@ describe("Python generator", () => {
     if (media?.[1].schema?.properties) media[1].schema.properties.note = { type: "string" };
     expect(multipartUpload).toBeDefined();
     if (!multipartUpload) return;
-    expect(
-      curlCodeSample(multipartDocument, multipartUpload, {
-        body: JSON.stringify({ note: "@/tmp/secret" }),
-        origin: "https://docs.example.com",
-      }),
-    ).toContain("--form-string 'note=@/tmp/secret'");
+    const authoredMultipartCurl = curlCodeSample(multipartDocument, multipartUpload, {
+      body: JSON.stringify({ note: "@/tmp/secret" }),
+      origin: "https://docs.example.com",
+    });
+    expect(authoredMultipartCurl).toContain("--form-string 'note=@/tmp/secret'");
+    expect(authoredMultipartCurl).not.toContain("file=@");
     const structuredDocument = structuredClone(document);
     const structured = getOperations(structuredDocument).find((operation) => operation.method === "get");
     expect(structured).toBeDefined();
@@ -173,6 +176,85 @@ describe("Python generator", () => {
         values: { "query:filter": "[" },
       }),
     ).not.toThrow();
+
+    const minimalDocument = structuredClone(document);
+    const create = getOperations(minimalDocument).find(
+      (operation) => operation.path === "/widgets" && operation.method === "post",
+    );
+    const createMedia = create && requestMedia(create);
+    expect(create).toBeDefined();
+    expect(createMedia).toBeDefined();
+    if (!create || !createMedia) return;
+    createMedia[1].schema = {
+      properties: { name: { type: "string" }, description: { type: "string" } },
+      type: "object",
+    };
+    const minimalBody = requestBodyExample(minimalDocument, create);
+    expect(minimalBody).toBe('{\n  "name": "..."\n}');
+    const minimalCurl = curlCodeSample(minimalDocument, create, {
+      body: minimalBody,
+      environment: "EXAMPLE_API_KEY",
+      origin: "https://docs.example.com",
+    });
+    expect(minimalCurl).toContain('-H "Authorization: Bearer $EXAMPLE_API_KEY"');
+    expect(minimalCurl).not.toContain("description");
+    createMedia[1].schema = {
+      example: { name: "authored", undocumented: "preserved" },
+      properties: { name: { type: "string" } },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toContain('"undocumented": "preserved"');
+    createMedia[1].schema = {
+      oneOf: [{ example: { name: "authored", optional: "preserved" }, type: "object" }],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
+    createMedia[1].schema = {
+      allOf: [{ oneOf: [{ example: { name: "authored", optional: "preserved" }, type: "object" }] }],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
+    createMedia[1].schema = { example: null, type: ["object", "null"] };
+    expect(requestBodyExample(minimalDocument, create)).toBe("null");
+    createMedia[1].schema = { additionalProperties: { type: "string" }, type: "object" };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "..."\n}');
+    createMedia[1].schema = { properties: { id: { readOnly: true, type: "string" } }, type: "object" };
+    expect(requestBodyExample(minimalDocument, create)).toBe("{}");
+    minimalDocument.components = { schemas: { Node: { oneOf: [{ $ref: "#/components/schemas/Node" }] } } };
+    createMedia[1].schema = { $ref: "#/components/schemas/Node" };
+    expect(() => requestBodyExample(minimalDocument, create)).not.toThrow();
+    const retrieve = getOperations(document).find((operation) => operation.path === "/widgets/{widgetId}");
+    expect(retrieve).toBeDefined();
+    if (!retrieve) return;
+    const pathParameter = retrieve.parameters?.find((parameter) => parameter.in === "path");
+    if (pathParameter) pathParameter.schema = { type: "integer" };
+    const retrieveCurl = curlCodeSample(document, retrieve, { origin: "https://docs.example.com" });
+    expect(retrieveCurl).toStartWith("curl -g ");
+    expect(retrieveCurl).toContain("/widgets/{widgetId}");
+    expect(
+      curlCodeSample(document, retrieve, {
+        origin: "https://docs.example.com",
+        values: { "path:widgetId": "1" },
+      }),
+    ).toContain("/widgets/1");
+    expect(
+      curlCodeSample(document, retrieve, {
+        origin: "https://docs.example.com",
+        values: { "path:widgetId": "" },
+      }),
+    ).toContain("/widgets/{widgetId}");
+    const session = getOperations(document).find((operation) => operation.path === "/sessions");
+    expect(session).toBeDefined();
+    if (!session) return;
+    expect(curlCodeSample(document, session, { body: '{"tags":[]}', origin: "https://docs.example.com" })).toContain(
+      "-X POST",
+    );
+    const getWithBody = structuredClone(structured);
+    getWithBody.requestBody = raw.requestBody;
+    expect(
+      curlCodeSample(structuredDocument, getWithBody, {
+        body: requestBodyExample(document, raw),
+        origin: "https://docs.example.com",
+      }),
+    ).toContain("-X GET");
   });
 
   test("keeps enum values out of schema type labels", () => {
@@ -195,8 +277,8 @@ describe("Python generator", () => {
     ).toEqual(["values: obb", "values: classify", "values: pose"]);
   });
 
-  test("uses empty generic string examples", () => {
-    expect(schemaExample(document, { type: "string" })).toBe("");
+  test("uses generic string examples", () => {
+    expect(schemaExample(document, { type: "string" })).toBe("...");
   });
 
   test("renders dictionary schemas", () => {
