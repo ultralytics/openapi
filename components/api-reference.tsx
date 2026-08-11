@@ -3,7 +3,7 @@
 "use client";
 
 import { CheckIcon, CopyIcon, KeyRoundIcon, LoaderCircleIcon, MenuIcon, PlayIcon, SearchIcon } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 import { Badge } from "@/components/ui/badge";
@@ -273,19 +273,6 @@ function OperationNavigation({
   selectedId?: string;
   tags: Map<string, ApiOperation[]>;
 }) {
-  const searchInput = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    function focusSearch(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        searchInput.current?.focus();
-      }
-    }
-    window.addEventListener("keydown", focusSearch);
-    return () => window.removeEventListener("keydown", focusSearch);
-  }, []);
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="p-4">
@@ -301,7 +288,6 @@ function OperationNavigation({
             name="api-search"
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search operations…"
-            ref={searchInput}
             value={query}
           />
           <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
@@ -922,6 +908,18 @@ export function ApiReference({
   }, [specUrl]);
 
   useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        for (const input of window.document.querySelectorAll<HTMLInputElement>('[name="api-search"]')) {
+          if (input.offsetParent) {
+            input.focus();
+            break;
+          }
+        }
+      }
+    }
+
     function selectFromHash() {
       const hash = window.location.hash.slice(1);
       setSelectedId(hash.startsWith("operation=") ? decodeURIComponent(hash.slice("operation=".length)) : undefined);
@@ -929,8 +927,12 @@ export function ApiReference({
       window.scrollTo(0, 0);
     }
     selectFromHash();
+    window.addEventListener("keydown", focusSearch);
     window.addEventListener("hashchange", selectFromHash);
-    return () => window.removeEventListener("hashchange", selectFromHash);
+    return () => {
+      window.removeEventListener("keydown", focusSearch);
+      window.removeEventListener("hashchange", selectFromHash);
+    };
   }, []);
 
   if (error) return <div className="p-8 text-sm text-destructive">{error}</div>;
