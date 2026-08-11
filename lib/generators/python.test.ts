@@ -15,7 +15,9 @@ import {
   requestBodyExample,
   requestMedia,
   resolveServerUrl,
+  schemaConstraints,
   schemaExample,
+  schemaLabel,
   serializeSimplePath,
 } from "../openapi";
 import { generatePython } from "./python";
@@ -158,6 +160,26 @@ describe("Python generator", () => {
         values: { "query:filter": "[" },
       }),
     ).not.toThrow();
+  });
+
+  test("keeps enum values out of schema type labels", () => {
+    const schema = { enum: ["detect", "segment"], type: "string" };
+    expect(schemaLabel(document, schema)).toBe("string");
+    expect(schemaConstraints(document, schema)).toEqual(["values: detect, segment"]);
+    const array = { items: schema, type: "array" };
+    expect(schemaLabel(document, array)).toBe("string[]");
+    expect(schemaConstraints(document, array)).toEqual(["values: detect, segment"]);
+    expect(schemaConstraints(document, { anyOf: [schema, { enum: ["pose"], type: "string" }] })).toEqual([
+      "values: detect, segment",
+      "values: pose",
+    ]);
+    expect(
+      schemaConstraints(document, {
+        allOf: [{ enum: ["obb"], type: "string" }],
+        anyOf: [{ enum: ["classify"], type: "string" }],
+        oneOf: [{ enum: ["pose"], type: "string" }],
+      }),
+    ).toEqual(["values: obb", "values: classify", "values: pose"]);
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {

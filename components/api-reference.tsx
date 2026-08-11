@@ -29,6 +29,7 @@ import {
   requestBodyExample,
   requestMedia,
   resolveSchema,
+  schemaConstraints,
   schemaExample,
   schemaFields,
   schemaLabel,
@@ -49,6 +50,14 @@ const METHOD_VARIANTS = {
 
 function operationSearchText(operation: ApiOperation) {
   return `${operation.method} ${operation.path} ${operation.summary ?? ""} ${operation.tag}`.toLowerCase();
+}
+
+function SchemaConstraintList({ document, schema }: { document: OpenApiDocument; schema: JsonSchema | undefined }) {
+  return schemaConstraints(document, schema).map((constraint) => (
+    <p className="text-xs text-muted-foreground" key={constraint}>
+      {constraint}
+    </p>
+  ));
 }
 
 interface PythonExample {
@@ -203,6 +212,7 @@ function SchemaFields({
               {field.required ? <Badge variant="outline">required</Badge> : null}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{schemaLabel(document, field.schema)}</p>
+            <SchemaConstraintList document={document} schema={field.schema} />
           </div>
           <p className="text-sm leading-6 text-muted-foreground">{field.description ?? "No description provided."}</p>
         </div>
@@ -446,6 +456,7 @@ function OperationPanel({
                       <p className="mt-1 text-xs text-muted-foreground">
                         {parameter.in} · {schemaLabel(document, parameter.schema)}
                       </p>
+                      <SchemaConstraintList document={document} schema={parameter.schema} />
                     </div>
                     <div>
                       <Input
@@ -474,6 +485,7 @@ function OperationPanel({
                 <p className="text-sm text-muted-foreground">
                   {request[0]} · {schemaLabel(document, request[1].schema)}
                 </p>
+                <SchemaConstraintList document={document} schema={request[1].schema} />
               </div>
               <Textarea
                 aria-label="Request body"
@@ -509,6 +521,7 @@ function OperationPanel({
                   ? `${success[0]} · ${schemaLabel(document, success[1].schema)}`
                   : "See documented status codes below."}
               </p>
+              {success ? <SchemaConstraintList document={document} schema={success[1].schema} /> : null}
             </div>
             <div className="divide-y rounded-xl border">
               {Object.entries(operation.responses ?? {}).map(([responseStatus, response]) => (

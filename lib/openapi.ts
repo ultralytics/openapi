@@ -734,7 +734,6 @@ export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undef
   if (!input) return "any";
   const schema = resolveSchema(document, input) ?? input;
   if (input.$ref) return input.$ref.split("/").at(-1) ?? "object";
-  if (schema.enum) return schema.enum.map(String).join(" | ");
   if (schema.oneOf || schema.anyOf)
     return (schema.oneOf ?? schema.anyOf ?? []).map((item) => schemaLabel(document, item)).join(" | ");
   if (Array.isArray(schema.type)) return schema.type.join(" | ");
@@ -742,7 +741,8 @@ export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undef
   return schema.type ?? (schema.properties ? "object" : "any");
 }
 
-export function schemaConstraints(document: OpenApiDocument, input: JsonSchema | undefined): string[] {
+export function schemaConstraints(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): string[] {
+  if (depth > 8) return [];
   const schema = resolveSchema(document, input);
   if (!schema) return [];
   const constraints: string[] = [];
@@ -760,7 +760,13 @@ export function schemaConstraints(document: OpenApiDocument, input: JsonSchema |
   if (schema.multipleOf !== undefined) constraints.push(`multiple of ${schema.multipleOf}`);
   if (schema.pattern) constraints.push(`pattern ${schema.pattern}`);
   if (schema.default !== undefined) constraints.push(`default ${String(schema.default)}`);
-  return constraints;
+  const nested = [
+    ...(schema.allOf ?? []),
+    ...(schema.anyOf ?? []),
+    ...(schema.oneOf ?? []),
+    ...(schema.type === "array" && schema.items ? [schema.items] : []),
+  ];
+  return [...new Set([...constraints, ...nested.flatMap((item) => schemaConstraints(document, item, depth + 1))])];
 }
 
 export function schemaFields(
