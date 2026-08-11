@@ -212,6 +212,45 @@ describe("Python generator", () => {
       allOf: [{ oneOf: [{ example: { name: "authored", optional: "preserved" }, type: "object" }] }],
     };
     expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
+    createMedia[1].schema = {
+      allOf: [
+        { example: { model: "yolo11n.pt" }, properties: { model: { type: "string" } }, type: "object" },
+        { properties: { images: { items: { type: "string" }, type: "array" } }, required: ["images"], type: "object" },
+      ],
+    };
+    expect(JSON.parse(requestBodyExample(minimalDocument, create))).toEqual({
+      images: ["..."],
+      model: "yolo11n.pt",
+    });
+    const unionCreate = structuredClone(create);
+    unionCreate.requestBody = {
+      content: {
+        "multipart/form-data": {
+          schema: {
+            oneOf: [
+              {
+                properties: { conf: { type: "number" }, file: { format: "binary", type: "string" } },
+                required: ["file"],
+                type: "object",
+              },
+              {
+                properties: { conf: { type: "number" }, source: { type: "string" } },
+                required: ["source"],
+                type: "object",
+              },
+            ],
+          },
+        },
+      },
+    };
+    const unionBody = requestBodyExample(minimalDocument, unionCreate);
+    expect(unionBody).toBe('{\n  "file": "..."\n}');
+    expect(
+      curlCodeSample(minimalDocument, unionCreate, {
+        body: unionBody,
+        origin: "https://docs.example.com",
+      }),
+    ).toContain("-F 'file=@path/to/file'");
     createMedia[1].schema = { example: null, type: ["object", "null"] };
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     createMedia[1].schema = { additionalProperties: { type: "string" }, type: "object" };

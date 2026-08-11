@@ -831,18 +831,41 @@ function authoredSchemaExample(
   document: OpenApiDocument,
   input: JsonSchema | undefined,
   depth = 0,
-): { found: boolean; value?: unknown } {
+): { found: boolean; nested?: boolean; value?: unknown } {
   if (depth > 8) return { found: false };
   const schema = resolveSchema(document, input);
   if (!schema) return { found: false };
   if (schema.example !== undefined) return { found: true, value: schema.example };
   const union = schema.oneOf ?? schema.anyOf;
-  if (union?.length) return authoredSchemaExample(document, union[0], depth + 1);
+  if (union?.length) {
+    const authored = authoredSchemaExample(document, union[0], depth + 1);
+    return authored.found ? { ...authored, nested: true } : authored;
+  }
   for (const item of schema.allOf ?? []) {
     const authored = authoredSchemaExample(document, item, depth + 1);
-    if (authored.found) return authored;
+    if (authored.found) return { ...authored, nested: true };
   }
   return { found: false };
+}
+
+function exampleObjectSchema(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  depth = 0,
+): JsonSchema | undefined {
+  if (depth > 8) return input;
+  const schema = resolveSchema(document, input);
+  if (!schema) return undefined;
+  const union = schema.oneOf ?? schema.anyOf;
+  return objectSchema(document, {
+    ...schema,
+    allOf: [
+      ...(schema.allOf ?? []).map((item) => exampleObjectSchema(document, item, depth + 1) ?? item),
+      ...(union?.length ? [exampleObjectSchema(document, union[0], depth + 1) ?? union[0]] : []),
+    ],
+    anyOf: undefined,
+    oneOf: undefined,
+  });
 }
 
 export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
@@ -852,10 +875,10 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     request[1].example !== undefined
       ? { found: true, value: request[1].example }
       : authoredSchemaExample(document, request[1].schema);
-  const generated = !authored.found;
+  const generated = !authored.found || authored.nested;
   let example = generated ? schemaExample(document, request[1].schema) : authored.value;
   if (generated && example && typeof example === "object" && !Array.isArray(example)) {
-    const object = objectSchema(document, request[1].schema);
+    const object = exampleObjectSchema(document, request[1].schema);
     example = { ...example };
     const named = Object.entries(object?.properties ?? {});
     const properties = named.filter(([, property]) => !resolveSchema(document, property)?.readOnly);
@@ -866,6 +889,12 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     const values = example as Record<string, unknown>;
     if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
     else if (named.length) example = {};
+  }
+  if (authored.nested && authored.value && typeof authored.value === "object" && !Array.isArray(authored.value)) {
+    example =
+      example && typeof example === "object" && !Array.isArray(example)
+        ? { ...example, ...authored.value }
+        : authored.value;
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
