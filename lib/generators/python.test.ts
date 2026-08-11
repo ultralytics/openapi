@@ -380,6 +380,39 @@ describe("Python generator", () => {
     expect(uploads).toContain('files={"file": file}');
   });
 
+  test("keeps binary files in multipart unions", async () => {
+    const source = structuredClone(document);
+    const upload = getOperations(source).find((operation) => requestMedia(operation)?.[0] === "multipart/form-data");
+    const media = upload && requestMedia(upload);
+    expect(media).toBeDefined();
+    if (!media) return;
+    media[1].schema = {
+      anyOf: [
+        {
+          properties: { file: { description: "File", format: "binary", type: "string" } },
+          required: ["file"],
+          type: "object",
+        },
+        {
+          properties: {
+            file: { type: "string", format: "binary", description: "File" },
+            source: { type: "string" },
+          },
+          required: ["source"],
+          type: "object",
+        },
+      ],
+    };
+    const directory = await mkdtemp(join(tmpdir(), "openapi-multipart-union-"));
+    try {
+      await generatePython(source, config, directory);
+      const uploads = await Bun.file(join(directory, "src/example_api/resources/uploads.py")).text();
+      expect(uploads).toContain('files={"file": file}');
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("generates typed dictionary responses with wire keys", async () => {
     const types = await Bun.file(join(output, "src/example_api/types.py")).text();
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
