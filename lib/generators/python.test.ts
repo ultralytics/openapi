@@ -144,7 +144,7 @@ describe("Python generator", () => {
         body: requestBodyExample(document, raw),
         origin: "https://docs.example.com",
       }),
-    ).toContain("-d ''");
+    ).toContain("-d 'string'");
     const multipartDocument = structuredClone(document);
     const multipartUpload = getOperations(multipartDocument).find(
       (operation) => requestMedia(operation)?.[0] === "multipart/form-data",
@@ -187,7 +187,7 @@ describe("Python generator", () => {
       type: "object",
     };
     const minimalBody = requestBodyExample(minimalDocument, create);
-    expect(minimalBody).toBe('{\n  "name": ""\n}');
+    expect(minimalBody).toBe('{\n  "name": "string"\n}');
     const minimalCurl = curlCodeSample(minimalDocument, create, {
       body: minimalBody,
       environment: "EXAMPLE_API_KEY",
@@ -195,6 +195,12 @@ describe("Python generator", () => {
     });
     expect(minimalCurl).toContain('-H "Authorization: Bearer $EXAMPLE_API_KEY"');
     expect(minimalCurl).not.toContain("description");
+    const retrieve = getOperations(document).find((operation) => operation.path === "/widgets/{widgetId}");
+    expect(retrieve).toBeDefined();
+    if (!retrieve) return;
+    const pathParameter = retrieve.parameters?.find((parameter) => parameter.in === "path");
+    if (pathParameter) pathParameter.schema = { type: "string" };
+    expect(curlCodeSample(document, retrieve, { origin: "https://docs.example.com" })).toContain("/widgets/{widgetId}");
   });
 
   test("keeps enum values out of schema type labels", () => {
@@ -217,8 +223,8 @@ describe("Python generator", () => {
     ).toEqual(["values: obb", "values: classify", "values: pose"]);
   });
 
-  test("uses empty generic string examples", () => {
-    expect(schemaExample(document, { type: "string" })).toBe("");
+  test("uses generic string examples", () => {
+    expect(schemaExample(document, { type: "string" })).toBe("string");
   });
 
   test("renders dictionary schemas", () => {

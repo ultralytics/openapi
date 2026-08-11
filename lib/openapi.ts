@@ -729,7 +729,7 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
     return { key: schemaExample(document, schema.additionalProperties, depth + 1) };
   }
-  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "";
+  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "string";
 }
 
 export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undefined): string {
@@ -901,6 +901,17 @@ export function curlCodeSample(
   };
   let path = operation.path;
   for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {
+    const schema = resolveSchema(document, parameter.schema);
+    const generated = schemaExample(document, parameter.schema);
+    const supplied = values[`${parameter.in}:${parameter.name}`];
+    const explicit =
+      schema?.example !== undefined ||
+      schema?.default !== undefined ||
+      schema?.const !== undefined ||
+      Boolean(schema?.enum?.length);
+    if (!explicit && (!supplied || supplied === String(generated ?? ""))) {
+      continue;
+    }
     const value = serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved);
     if (value) path = path.replace(`{${parameter.name}}`, value);
   }
