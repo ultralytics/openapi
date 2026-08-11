@@ -1,12 +1,14 @@
 {
   "source": "examples/openapi.json",
   "name": "Example API",
+  "repository": "https://github.com/ultralytics/openapi",
   "apiKey": {
     "environment": "EXAMPLE_API_KEY"
   },
   "license": {
     "id": "AGPL-3.0-only",
-    "file": "LICENSE"
+    "file": "LICENSE",
+    "url": "https://spdx.org/licenses/AGPL-3.0-only.html"
   },
   "python": {
     "client": "Example",
