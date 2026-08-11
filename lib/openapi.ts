@@ -806,7 +806,8 @@ export function schemaFields(
   const resolved = resolveSchema(document, field);
   if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly))
     return fields;
-  const fieldName = `${prefix}[key: string]${resolved?.type === "array" ? "[]" : ""}`;
+  const isArray = Array.isArray(resolved?.type) ? resolved.type.includes("array") : resolved?.type === "array";
+  const fieldName = `${prefix}[key: string]${isArray ? "[]" : ""}`;
   return [
     ...fields,
     { depth, description: resolved?.description, name: fieldName, required: false, schema: field },

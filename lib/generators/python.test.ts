@@ -203,7 +203,10 @@ describe("Python generator", () => {
     expect(schemaFields(document, schema, "response")).toEqual([
       { depth: 0, description: undefined, name: "[key: string]", required: false, schema: value },
     ]);
-    const items = { items: { properties: { id: { type: "string" } }, type: "object" }, type: "array" };
+    const items = {
+      items: { properties: { id: { type: "string" } }, type: "object" },
+      type: ["array", "null"],
+    };
     expect(
       schemaFields(
         document,
