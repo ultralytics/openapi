@@ -831,7 +831,13 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
   const request = requestMedia(operation);
   if (!request) return "";
   const schema = resolveSchema(document, request[1].schema);
-  const authored = request[1].example !== undefined ? request[1].example : schema?.example;
+  const variant = resolveSchema(document, (schema?.oneOf ?? schema?.anyOf)?.[0]);
+  const authored =
+    request[1].example !== undefined
+      ? request[1].example
+      : schema?.example !== undefined
+        ? schema.example
+        : variant?.example;
   const generated = authored === undefined;
   let example = generated ? schemaExample(document, request[1].schema) : authored;
   const object = objectSchema(document, request[1].schema);
@@ -845,7 +851,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
       ? properties.filter(([name]) => required.has(name))
       : properties.slice(0, 1);
     const values = example as Record<string, unknown>;
-    example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
+    if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
