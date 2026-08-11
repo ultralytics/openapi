@@ -108,6 +108,7 @@ describe("Python generator", () => {
     expect(types).toContain('"displayName": str | None');
     expect(types).toContain('"metadata": NotRequired[WidgetsRetrieveResponseValueMetadata | None]');
     expect(types).toContain('"opaque": NotRequired[Any]');
+    expect(types).toContain('"exclusiveOpaque": NotRequired[Any | str | None]');
     expect(types).toContain("WidgetsRetrieveResponse = WidgetsRetrieveResponseValue | None");
     expect(types).toContain('"widget": NotRequired[WidgetsRetrieveResponseValue]');
     expect(types).toContain(
