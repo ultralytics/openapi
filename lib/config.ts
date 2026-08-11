@@ -4,12 +4,11 @@ import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 
 export interface OpenApiConfig {
-  apiKey: { environment: string; url?: string };
-  docs?: { basePath?: string; url?: string };
+  apiKey: { environment: string };
+  docs?: { basePath?: string };
   header?: string;
   license?: { file: string; id: string; url?: string };
   name: string;
-  homepage?: string;
   repository?: string;
   python: {
     client: string;
