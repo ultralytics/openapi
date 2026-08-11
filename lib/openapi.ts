@@ -79,6 +79,7 @@ interface OperationObject {
   servers?: OpenApiServer[];
   summary?: string;
   tags?: string[];
+  "x-codeSamples"?: Array<{ label: string; lang: string; source: string }>;
 }
 
 export interface OpenApiDocument {
@@ -124,6 +125,12 @@ export interface ApiOperation extends OperationObject {
   requestBody?: RequestBodyObject;
   responses?: Record<string, ResponseObject>;
   server?: OpenApiServer;
+}
+
+export interface PythonCodeSampleConfig {
+  client: string;
+  environment: string;
+  package: string;
 }
 
 const HTTP_METHODS = new Set<HttpMethod>(["delete", "get", "head", "options", "patch", "post", "put", "trace"]);
@@ -372,6 +379,78 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   }
 
   return operations;
+}
+
+function pythonLiteral(value: unknown): string {
+  if (value === null) return "None";
+  if (value === true) return "True";
+  if (value === false) return "False";
+  if (Array.isArray(value)) return `[${value.map(pythonLiteral).join(", ")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${JSON.stringify(key)}: ${pythonLiteral(item)}`)
+      .join(", ")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function pythonCodeSample(
+  document: OpenApiDocument,
+  operation: ApiOperation,
+  config: PythonCodeSampleConfig,
+  bodyValue?: unknown,
+): string {
+  const request = requestMedia(operation);
+  const bodySchema = objectSchema(document, request?.[1].schema);
+  const bodyProperties = Object.fromEntries(
+    Object.entries(bodySchema?.properties ?? {}).filter(([, schema]) => !resolveSchema(document, schema)?.readOnly),
+  );
+  const bodyValues =
+    bodyValue && typeof bodyValue === "object" && !Array.isArray(bodyValue)
+      ? (bodyValue as Record<string, unknown>)
+      : {};
+  const arguments_ = [
+    ...(operation.parameters ?? [])
+      .filter((parameter) => parameter.required)
+      .map((parameter) => ({
+        location: parameter.in,
+        name: parameter.name,
+        value: schemaExample(document, parameter.schema),
+      })),
+    ...(bodySchema?.required ?? [])
+      .filter((name) => bodyProperties[name])
+      .map((name) => ({
+        location: "body",
+        name,
+        value: bodyValues[name] ?? schemaExample(document, bodyProperties[name]),
+      })),
+    ...(!bodySchema?.properties && request?.[1].schema && operation.requestBody?.required
+      ? [{ location: "body", name: "body", value: bodyValue ?? schemaExample(document, request[1].schema) }]
+      : []),
+  ];
+  const names = allocateSdkIdentifiers(arguments_);
+  const values = arguments_.map((argument, index) => `${names[index]}=${pythonLiteral(argument.value)}`);
+  return [
+    `from ${config.package} import ${config.client}`,
+    "",
+    `client = ${config.client}()  # Reads ${config.environment}`,
+    values.length
+      ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${values.map((value) => `    ${value},`).join("\n")}\n)`
+      : `response = client.${operation.resource}.${operation.sdkMethod}()`,
+    "print(response)",
+  ].join("\n");
+}
+
+export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCodeSampleConfig): OpenApiDocument {
+  for (const operation of getOperations(document)) {
+    const target = document.paths[operation.path][operation.method];
+    if (!target) continue;
+    target["x-codeSamples"] = [
+      ...(target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK"),
+      { label: "Python SDK", lang: "Python", source: pythonCodeSample(document, operation, config) },
+    ];
+  }
+  return document;
 }
 
 function componentName(reference: string, section: string): string {

@@ -17,7 +17,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type ApiOperation,
-  allocateSdkIdentifiers,
   expandServerUrl,
   getAuthentication,
   getOperations,
@@ -25,6 +24,7 @@ import {
   type OpenApiDocument,
   objectSchema,
   type Parameter,
+  pythonCodeSample,
   requestMedia,
   resolveSchema,
   resolveServerUrl,
@@ -63,19 +63,6 @@ function requestBodyExample(document: OpenApiDocument, operation: ApiOperation) 
     }
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
-}
-
-function pythonLiteral(value: unknown): string {
-  if (value === null) return "None";
-  if (value === true) return "True";
-  if (value === false) return "False";
-  if (Array.isArray(value)) return `[${value.map(pythonLiteral).join(", ")}]`;
-  if (typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => `${JSON.stringify(key)}: ${pythonLiteral(item)}`)
-      .join(", ")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function parameterValue(document: OpenApiDocument, parameter: Parameter, value: string) {
@@ -200,38 +187,7 @@ function codeExamples(
   ]
     .filter(Boolean)
     .join(" \\\n");
-  const exampleArguments = [
-    ...(operation.parameters ?? [])
-      .filter((parameter) => parameter.required)
-      .map((parameter) => ({
-        location: parameter.in,
-        name: parameter.name,
-        value: schemaExample(document, parameter.schema),
-      })),
-    ...(bodySchema?.required ?? [])
-      .filter((name) => bodyProperties[name])
-      .map((name) => ({
-        location: "body",
-        name,
-        value: bodyValues[name] ?? schemaExample(document, bodyProperties[name]),
-      })),
-    ...(!bodySchema?.properties && request?.[1].schema && operation.requestBody?.required
-      ? [{ location: "body", name: "body", value: bodyValue }]
-      : []),
-  ];
-  const argumentNames = allocateSdkIdentifiers(exampleArguments);
-  const arguments_ = exampleArguments.map(
-    (argument, index) => `${argumentNames[index]}=${pythonLiteral(argument.value)}`,
-  );
-  const python = [
-    `from ${pythonConfig.package} import ${pythonConfig.client}`,
-    "",
-    `client = ${pythonConfig.client}()  # ${environment}`,
-    arguments_.length
-      ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${arguments_.map((argument) => `    ${argument},`).join("\n")}\n)`
-      : `response = client.${operation.resource}.${operation.sdkMethod}()`,
-    "print(response)",
-  ].join("\n");
+  const python = pythonCodeSample(document, operation, { ...pythonConfig, environment }, bodyValue);
   return { curl, python };
 }
 

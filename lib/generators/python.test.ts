@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import config from "../../openapi.config.json";
 import {
+  addPythonCodeSamples,
   getAuthentication,
   getOperations,
   type OpenApiDocument,
@@ -77,6 +78,18 @@ describe("Python generator", () => {
     expect(widgets).toContain("_path_parameter(widget_id");
     expect(widgets).toContain("Returns:\n");
     expect(widgets).toContain("Raises:\n");
+  });
+
+  test("adds Python SDK samples from the generated resource tree", () => {
+    const decorated = addPythonCodeSamples(structuredClone(document), {
+      client: config.python.client,
+      environment: config.apiKey.environment,
+      package: config.python.package,
+    });
+    const sample = decorated.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]?.[0];
+    expect(sample?.label).toBe("Python SDK");
+    expect(sample?.source).toContain("response = client.widgets.retrieve(");
+    expect(sample?.source).toContain('widget_id="widget_123"');
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {
