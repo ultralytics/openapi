@@ -112,23 +112,17 @@ describe("Python generator", () => {
   });
 
   test("builds safe live requests and valid multipart cURL", () => {
-    const list = getOperations(document).find((operation) => operation.method === "get");
+    const relative = getOperations(document).find((operation) => operation.server?.url === "/v2");
     const upload = getOperations(document).find((operation) => requestMedia(operation)?.[0] === "multipart/form-data");
-    expect(list).toBeDefined();
+    expect(relative).toBeDefined();
     expect(upload).toBeDefined();
-    if (!list || !upload) return;
-    const values = Object.fromEntries(
-      (list.parameters ?? [])
-        .filter((parameter) => parameter.required)
-        .map((parameter) => [`${parameter.in}:${parameter.name}`, String(schemaExample(document, parameter.schema))]),
-    );
+    if (!relative || !upload) return;
     expect(
-      buildApiRequest(document, list, {
+      buildApiRequest(document, relative, {
         origin: "https://preview.example.com",
-        serverUrl: "https://preview.example.com",
-        values,
+        serverOrigin: "https://preview.example.com",
       }).url,
-    ).toStartWith("https://preview.example.com/");
+    ).toStartWith("https://preview.example.com/v2/");
     const curl = curlCodeSample(document, upload, {
       body: requestBodyExample(document, upload),
       origin: "https://docs.example.com",

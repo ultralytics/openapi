@@ -957,14 +957,14 @@ export function buildApiRequest(
     body = "",
     files = {},
     origin,
-    serverUrl,
+    serverOrigin,
     values = {},
   }: {
     apiKey?: string;
     body?: string;
     files?: Record<string, File>;
     origin: string;
-    serverUrl?: string;
+    serverOrigin?: string;
     values?: Record<string, string>;
   },
 ): { body?: BodyInit; headers: Record<string, string>; url: string } {
@@ -999,7 +999,10 @@ export function buildApiRequest(
       ),
     )
     .join("&");
-  const baseUrl = serverUrl ?? resolveServerUrl(document, origin, operation);
+  const configuredBaseUrl = resolveServerUrl(document, origin, operation);
+  const baseUrl = serverOrigin
+    ? new URL(new URL(configuredBaseUrl).pathname, `${serverOrigin}/`).toString().replace(/\/$/, "")
+    : configuredBaseUrl;
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
   const success = successMedia(operation);

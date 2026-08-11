@@ -67,14 +67,6 @@ function codeExamples(
   pythonConfig: PythonExample,
   values: Record<string, string>,
 ) {
-  const examples = Object.fromEntries(
-    (operation.parameters ?? [])
-      .filter((parameter) => parameter.required)
-      .map((parameter) => [
-        `${parameter.in}:${parameter.name}`,
-        String(schemaExample(document, parameter.schema) ?? ""),
-      ]),
-  );
   const request = requestMedia(operation);
   let bodyValue: unknown = request ? schemaExample(document, request[1].schema) : undefined;
   try {
@@ -83,7 +75,7 @@ function codeExamples(
     if (!request?.[0].startsWith("text/")) bodyValue = undefined;
   }
   return {
-    curl: curlCodeSample(document, operation, { body, environment, files, origin, values: { ...examples, ...values } }),
+    curl: curlCodeSample(document, operation, { body, environment, files, origin, values }),
     python: pythonCodeSample(document, operation, { ...pythonConfig, environment }, bodyValue),
   };
 }
@@ -351,7 +343,7 @@ function OperationPanel({
   const [result, setResult] = useState("");
   const [status, setStatus] = useState<number>();
   const [sending, setSending] = useState(false);
-  const [origin, setOrigin] = useState("");
+  const [origin, setOrigin] = useState("http://localhost:3000");
   const parameters = operation.parameters ?? [];
   const hasCookieParameters = parameters.some((parameter) => parameter.in === "cookie");
   const request = requestMedia(operation);
@@ -387,7 +379,7 @@ function OperationPanel({
         body,
         files,
         origin: window.location.origin,
-        serverUrl: window.location.origin,
+        serverOrigin: window.location.origin,
         values,
       });
     } catch (error) {
