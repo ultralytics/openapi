@@ -11,19 +11,19 @@
 [![Ultralytics Forums](https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue)](https://community.ultralytics.com)
 [![Ultralytics Reddit](https://img.shields.io/reddit/subreddit-subscribers/ultralytics?style=flat&logo=reddit&logoColor=white&label=Reddit&color=blue)](https://reddit.com/r/ultralytics)
 
-Ultralytics OpenAPI turns any OpenAPI specification into runnable API documentation and typed SDKs. Point `openapi.config.json` at a local file or URL, configure the generated package name, and produce both outputs from the same contract. API keys stay in browser memory and never appear in copied examples.
+Ultralytics OpenAPI 可将任何 OpenAPI 规范转换为可运行的 API 文档和类型化 SDK。将 `openapi.config.json` 指向本地文件或 URL，配置生成的软件包名称，即可从同一份契约生成两种输出。API 密钥仅保存在浏览器内存中，绝不会出现在复制的示例中。
 
-| Output                        | Status      |
-| ----------------------------- | ----------- |
-| Interactive API documentation | Available   |
-| Python SDK                    | Available   |
-| TypeScript SDK                | Coming soon |
-| Go SDK                        | Coming soon |
-| Java SDK                      | Coming soon |
+| 输出 | 状态 |
+| --- | --- |
+| 交互式 API 文档 | 已可用 |
+| Python SDK | 已可用 |
+| TypeScript SDK | 即将推出 |
+| Go SDK | 即将推出 |
+| Java SDK | 即将推出 |
 
-## ⚙️ Configure
+## ⚙️ 配置
 
-Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and choose the generated Python names:
+编辑 `openapi.config.json`，使用本地或 HTTPS OpenAPI 规范并选择生成的 Python 名称：
 
 ```json
 {
@@ -42,19 +42,19 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
 }
 ```
 
-The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
-Set `OPENAPI_CONFIG` to use a configuration outside this repository, such as a product-specific consumer:
+第一个 OpenAPI 服务器将成为 SDK 的默认基础 URL。HTTP Bearer 认证和基于请求头的 API 密钥均派生自 `components.securitySchemes`。
+设置 `OPENAPI_CONFIG` 可使用此仓库之外的配置，例如产品专属的使用方配置：
 
 ```bash
 OPENAPI_CONFIG=../product/openapi.config.json bun run generate
 OPENAPI_CONFIG=../product/openapi.config.json bun run build
 ```
 
-Static documentation builds are deterministic for the same configuration and contract. Set `header` to add a consumer-owned source header to generated Python, JavaScript, CSS, HTML, and TOML files.
+对于相同的配置和契约，静态文档构建是确定性的。设置 `header` 可向生成的 Python、JavaScript、CSS、HTML 和 TOML 文件添加由使用方提供的源文件头。
 
 ## 🐍 Python
 
-Set the API-key environment variable from `openapi.config.json` (`EXAMPLE_API_KEY` in the included example), then use the synchronous or asynchronous client:
+设置 `openapi.config.json` 中指定的 API 密钥环境变量（附带示例中为 `EXAMPLE_API_KEY`），然后使用同步或异步客户端：
 
 ```python
 from example_api import Example
@@ -70,35 +70,35 @@ client = AsyncExample()
 widgets = await client.widgets.list()
 ```
 
-The generated package includes typed resources and `TypedDict` responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.11 or newer. Generated packages default to AGPL-3.0; set `license.id` and `license.file` to use another license.
+生成的软件包包含类型化资源和 `TypedDict` 响应、多部分上传、临时故障重试以及结构化 API 错误。它需要 Python 3.11 或更高版本。生成的软件包默认采用 AGPL-3.0；设置 `license.id` 和 `license.file` 可使用其他许可证。
 
-## 🧩 One Contract, Multiple Outputs
+## 🧩 一份契约，多种输出
 
-The source configured in `openapi.config.json` is the only API contract. `lib/openapi.ts` owns parsing and operation names shared by the documentation and every generator. Language implementations live under `lib/generators/`. SDKs are written to the ignored `generated/` directory and belong in package registries or separate repositories, not this repository.
+`openapi.config.json` 中配置的源文件是唯一的 API 契约。`lib/openapi.ts` 负责文档和所有生成器共享的解析及操作名称。各语言实现位于 `lib/generators/`。SDK 会写入被忽略的 `generated/` 目录，并应发布到软件包注册表或独立仓库，而非此仓库。
 
 ```text
 your-openapi.json
-    └── shared operations
-        ├── interactive docs
+    └── 共享操作
+        ├── 交互式文档
         ├── Python SDK
-        ├── TypeScript SDK (coming soon)
-        ├── Go SDK (coming soon)
-        └── Java SDK (coming soon)
+        ├── TypeScript SDK（即将推出）
+        ├── Go SDK（即将推出）
+        └── Java SDK（即将推出）
 ```
 
-## 🛠️ Development
+## 🛠️ 开发
 
-Install [Bun](https://bun.sh/) and [uv](https://docs.astral.sh/uv/), then clone the repository and update `openapi.config.json` with your specification and Python package names:
+安装 [Bun](https://bun.sh/) 和 [uv](https://docs.astral.sh/uv/)，然后克隆仓库，并使用您的规范和 Python 软件包名称更新 `openapi.config.json`：
 
 ```bash
 git clone https://github.com/ultralytics/openapi
 cd openapi
 bun install
-bun run dev      # interactive documentation
-bun run generate # Python SDK in generated/python
+bun run dev      # 交互式文档
+bun run generate # 在 generated/python 中生成 Python SDK
 ```
 
-Useful checks:
+常用检查：
 
 ```bash
 bun run typecheck
@@ -109,24 +109,24 @@ bun run build
 python3 -m compileall -q generated/python/src
 ```
 
-## 💡 Contribute
+## 💡 贡献
 
-Ultralytics thrives on community collaboration, and we deeply value your contributions! Please see our [Contributing Guide](https://docs.ultralytics.com/help/contributing) for details on how you can get involved. We also encourage you to share your feedback through our [Survey](https://www.ultralytics.com/survey?utm_source=github&utm_medium=social&utm_campaign=Survey). A huge thank you 🙏 to all our contributors!
+Ultralytics 因社区协作而蓬勃发展，我们非常重视您的贡献！请参阅[贡献指南](https://docs.ultralytics.com/zh/help/contributing)，了解参与方式。我们也欢迎您通过[问卷调查](https://www.ultralytics.com/survey?utm_source=github&utm_medium=social&utm_campaign=Survey)分享反馈。衷心感谢 🙏 所有贡献者！
 
-[![Ultralytics open-source contributors](https://raw.githubusercontent.com/ultralytics/assets/main/im/image-contributors.png)](https://github.com/ultralytics/openapi/graphs/contributors)
+[![Ultralytics 开源贡献者](https://raw.githubusercontent.com/ultralytics/assets/main/im/image-contributors.png)](https://github.com/ultralytics/openapi/graphs/contributors)
 
-## 📄 License
+## 📄 许可证
 
-Ultralytics offers two licensing options:
+Ultralytics 提供两种许可证选项：
 
-- **AGPL-3.0 License**: An [OSI-approved](https://opensource.org/license/agpl-3.0) open-source license ideal for students, researchers, and enthusiasts who value open collaboration. See the [LICENSE](LICENSE) file for details.
-- **Enterprise License**: Designed for commercial use, this license allows integrating Ultralytics software and AI models into commercial products without AGPL-3.0's open-source requirements. For enterprise solutions, contact [Ultralytics Licensing](https://www.ultralytics.com/license).
+- **AGPL-3.0 许可证**：经 [OSI 认证](https://opensource.org/license/agpl-3.0)的开源许可证，适合重视开放协作的学生、研究人员和爱好者。详情请参阅 [LICENSE](LICENSE) 文件。
+- **企业许可证**：专为商业用途设计，允许将 Ultralytics 软件和 AI 模型集成到商业产品中，而无需遵循 AGPL-3.0 的开源要求。如需企业解决方案，请联系 [Ultralytics Licensing](https://www.ultralytics.com/license)。
 
-Generated SDKs default to AGPL-3.0, and their licenses are configurable through `openapi.config.json`.
+生成的 SDK 默认采用 AGPL-3.0，其许可证可通过 `openapi.config.json` 配置。
 
-## 📫 Contact
+## 📫 联系我们
 
-For bug reports or feature suggestions related to Ultralytics OpenAPI, please submit an issue via [GitHub Issues](https://github.com/ultralytics/openapi/issues). Join our [Discord](https://discord.com/invite/ultralytics) community for discussions and support!
+如需报告与 Ultralytics OpenAPI 相关的错误或提出功能建议，请通过 [GitHub Issues](https://github.com/ultralytics/openapi/issues) 提交。欢迎加入我们的 [Discord](https://discord.com/invite/ultralytics) 社区参与讨论并获取支持！
 
 <br>
 <div align="center">
