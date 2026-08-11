@@ -940,7 +940,7 @@ export function curlCodeSample(
           .join(" \\\n")
       : "",
     request &&
-    body &&
+    (body || operation.requestBody?.required) &&
     !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
       ? `  --data ${shellQuote(body)}`
       : "",
