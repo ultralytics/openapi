@@ -764,6 +764,9 @@ export function buildApiRequest(
   const parameters = operation.parameters ?? [];
   const missing = parameters.find((parameter) => parameter.required && !values[`${parameter.in}:${parameter.name}`]);
   if (missing) throw new Error(`Enter ${missing.name} before sending the request.`);
+  if (parameters.some((parameter) => parameter.in === "cookie")) {
+    throw new Error("Browser requests cannot set cookie parameters. Use a generated code example.");
+  }
 
   let path = operation.path;
   for (const parameter of parameters.filter((item) => item.in === "path")) {
@@ -807,13 +810,24 @@ export function buildApiRequest(
   if (request?.[0] === "application/json" || request?.[0].endsWith("+json")) requestBody = body;
   if (request?.[0] === "application/x-www-form-urlencoded") {
     const form = new URLSearchParams();
-    for (const [name, value] of formEntries(JSON.parse(body))) form.append(name, String(value));
+    let bodyValues: Record<string, unknown>;
+    try {
+      bodyValues = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      throw new Error("Enter valid JSON request values before sending the request.");
+    }
+    for (const [name, value] of formEntries(bodyValues)) form.append(name, String(value));
     requestBody = form;
   }
   if (request?.[0] === "multipart/form-data") {
     const form = new FormData();
     const requestSchema = objectSchema(document, request[1].schema);
-    const bodyValues = JSON.parse(body) as Record<string, unknown>;
+    let bodyValues: Record<string, unknown>;
+    try {
+      bodyValues = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      throw new Error("Enter valid JSON request values before sending the request.");
+    }
     for (const [name, value] of Object.entries(bodyValues)) {
       if (
         resolveSchema(document, requestSchema?.properties?.[name])?.format === "binary" ||
