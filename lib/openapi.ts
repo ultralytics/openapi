@@ -734,7 +734,6 @@ export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undef
   if (!input) return "any";
   const schema = resolveSchema(document, input) ?? input;
   if (input.$ref) return input.$ref.split("/").at(-1) ?? "object";
-  if (schema.enum) return schema.enum.map(String).join(" | ");
   if (schema.oneOf || schema.anyOf)
     return (schema.oneOf ?? schema.anyOf ?? []).map((item) => schemaLabel(document, item)).join(" | ");
   if (Array.isArray(schema.type)) return schema.type.join(" | ");

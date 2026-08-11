@@ -15,7 +15,9 @@ import {
   requestBodyExample,
   requestMedia,
   resolveServerUrl,
+  schemaConstraints,
   schemaExample,
+  schemaLabel,
   serializeSimplePath,
 } from "../openapi";
 import { generatePython } from "./python";
@@ -158,6 +160,12 @@ describe("Python generator", () => {
         values: { "query:filter": "[" },
       }),
     ).not.toThrow();
+  });
+
+  test("keeps enum values out of schema type labels", () => {
+    const schema = { enum: ["detect", "segment"], type: "string" };
+    expect(schemaLabel(document, schema)).toBe("string");
+    expect(schemaConstraints(document, schema)).toEqual(["values: detect, segment"]);
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {
