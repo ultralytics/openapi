@@ -93,7 +93,8 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
   const nullable = isNullable(document, schema);
-  const result = (type: string) => (nullable && !type.split(" | ").includes("None") ? `${type} | None` : type);
+  const result = (type: string) =>
+    nullable && type !== "Any" && !type.split(" | ").includes("None") ? `${type} | None` : type;
   if (schema.const === null) return "None";
   if (schema.const !== undefined) return result(`Literal[${quote(schema.const)}]`);
   if (schema.enum?.length) return result(`Literal[${schema.enum.map(quote).join(", ")}]`);
@@ -108,6 +109,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
       );
     }
     const types = [...new Set(variants.flatMap((item) => pythonType(document, item, true).split(" | ")))];
+    if (schema.oneOf === undefined && schema.anyOf && types.includes("Any")) return "Any";
     return result([...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | "));
   }
   const type = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
@@ -483,7 +485,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     const union = objectUnion(schema);
     const effectiveNullable = nullable || (union?.nullable ?? false);
     const result = (type: string) =>
-      effectiveNullable && !type.split(" | ").includes("None") ? `${type} | None` : type;
+      effectiveNullable && type !== "Any" && !type.split(" | ").includes("None") ? `${type} | None` : type;
     const reference = input?.$ref ? references.get(input.$ref) : undefined;
     if (reference) return defined.has(reference) ? result(reference) : quote(result(reference));
     if (input?.$ref) references.set(input.$ref, name);

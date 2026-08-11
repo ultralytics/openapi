@@ -102,10 +102,13 @@ describe("Python generator", () => {
   test("generates typed dictionary responses with wire keys", async () => {
     const types = await Bun.file(join(output, "src/example_api/types.py")).text();
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
+    expect(types).not.toContain("Any | None");
     expect(types).toContain('WidgetsCreateResponse = TypedDict("WidgetsCreateResponse"');
     expect(types).toContain('"widgetId": str');
     expect(types).toContain('"displayName": str | None');
     expect(types).toContain('"metadata": NotRequired[WidgetsRetrieveResponseValueMetadata | None]');
+    expect(types).toContain('"opaque": NotRequired[Any]');
+    expect(types).toContain('"exclusiveOpaque": NotRequired[Any | str | None]');
     expect(types).toContain("WidgetsRetrieveResponse = WidgetsRetrieveResponseValue | None");
     expect(types).toContain('"widget": NotRequired[WidgetsRetrieveResponseValue]');
     expect(types).toContain(
