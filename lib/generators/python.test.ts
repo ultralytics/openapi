@@ -144,6 +144,20 @@ describe("Python generator", () => {
         origin: "https://docs.example.com",
       }),
     ).toContain("--form-string 'note=@/tmp/secret'");
+    const structuredDocument = structuredClone(document);
+    const structured = getOperations(structuredDocument).find((operation) => operation.method === "get");
+    expect(structured).toBeDefined();
+    if (!structured) return;
+    structured.parameters = [
+      ...(structured.parameters ?? []),
+      { in: "query", name: "filter", schema: { items: { type: "string" }, type: "array" } },
+    ];
+    expect(() =>
+      curlCodeSample(structuredDocument, structured, {
+        origin: "https://docs.example.com",
+        values: { "query:filter": "[" },
+      }),
+    ).not.toThrow();
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {

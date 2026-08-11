@@ -864,7 +864,12 @@ export function curlCodeSample(
 ): string {
   const parameterValueOrExample = (parameter: Parameter) => {
     const value = values[`${parameter.in}:${parameter.name}`];
-    return value ? parameterValue(document, parameter, value) : schemaExample(document, parameter.schema);
+    if (!value) return schemaExample(document, parameter.schema);
+    try {
+      return parameterValue(document, parameter, value);
+    } catch {
+      return value;
+    }
   };
   let path = operation.path;
   for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {

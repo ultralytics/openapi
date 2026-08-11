@@ -72,7 +72,7 @@ function codeExamples(
   try {
     bodyValue = JSON.parse(body);
   } catch {
-    if (!request?.[0].startsWith("text/")) bodyValue = undefined;
+    bodyValue = request?.[0].startsWith("text/") ? body : undefined;
   }
   return {
     curl: curlCodeSample(document, operation, { body, environment, files, origin, values }),
