@@ -839,6 +839,121 @@ export function formEntries(values: Record<string, unknown>): Array<[string, unk
   });
 }
 
+function shellQuote(value: unknown): string {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
+}
+
+export function curlCodeSample(
+  document: OpenApiDocument,
+  operation: ApiOperation,
+  {
+    apiKey = "YOUR_API_KEY",
+    body = "",
+    environment,
+    files = {},
+    origin,
+    values = {},
+  }: {
+    apiKey?: string;
+    body?: string;
+    environment?: string;
+    files?: Record<string, File>;
+    origin: string;
+    values?: Record<string, string>;
+  },
+): string {
+  const parameterValueOrExample = (parameter: Parameter) => {
+    const value = values[`${parameter.in}:${parameter.name}`];
+    if (!value) return schemaExample(document, parameter.schema);
+    try {
+      return parameterValue(document, parameter, value);
+    } catch {
+      return value;
+    }
+  };
+  let path = operation.path;
+  for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {
+    path = path.replace(
+      `{${parameter.name}}`,
+      serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved),
+    );
+  }
+  const query = (operation.parameters ?? [])
+    .filter((parameter) => parameter.in === "query" && (parameter.required || values[`query:${parameter.name}`]))
+    .map((parameter) =>
+      serializeQueryParameter(
+        parameter.name,
+        parameterValueOrExample(parameter),
+        parameter.style,
+        parameter.explode,
+        parameter.allowReserved,
+      ),
+    )
+    .join("&");
+  const baseUrl = resolveServerUrl(document, origin, operation);
+  const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
+  const request = requestMedia(operation);
+  const authentication = getAuthentication(document, operation);
+  const requestSchema = objectSchema(document, request?.[1].schema);
+  const properties = Object.fromEntries(
+    Object.entries(requestSchema?.properties ?? {}).filter(([, schema]) => !resolveSchema(document, schema)?.readOnly),
+  );
+  let bodyValues: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) bodyValues = parsed as Record<string, unknown>;
+  } catch {
+    // Non-JSON request bodies are emitted verbatim below.
+  }
+  const formatFormValue = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
+  return [
+    `curl --request ${operation.method.toUpperCase()}`,
+    `  --url ${shellQuote(url)}`,
+    authentication
+      ? `  --header ${shellQuote(`${authentication.header}: ${authentication.prefix}${environment ? "" : apiKey}`)}${environment ? `"$${environment}"` : ""}`
+      : "",
+    ...(operation.parameters ?? [])
+      .filter(
+        (parameter) =>
+          ["header", "cookie"].includes(parameter.in) &&
+          (parameter.required || values[`${parameter.in}:${parameter.name}`]),
+      )
+      .map((parameter) => {
+        const value = parameterValueOrExample(parameter);
+        return parameter.in === "cookie"
+          ? `  --cookie ${shellQuote(serializeQueryParameter(parameter.name, value, "form", parameter.explode).replaceAll("&", "; "))}`
+          : `  --header ${shellQuote(`${parameter.name}: ${serializeSimplePath(value, parameter.explode)}`)}`;
+      }),
+    request && request[0] !== "multipart/form-data" ? `  --header ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
+    request && (request[0] === "application/json" || request[0].endsWith("+json")) && body
+      ? `  --data ${shellQuote(body)}`
+      : "",
+    request?.[0] === "application/x-www-form-urlencoded"
+      ? formEntries(bodyValues)
+          .map(([name, value]) => `  --data-urlencode ${shellQuote(`${name}=${formatFormValue(value)}`)}`)
+          .join(" \\\n")
+      : "",
+    request &&
+    body &&
+    !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
+      ? `  --data ${shellQuote(body)}`
+      : "",
+    request?.[0] === "multipart/form-data"
+      ? Object.entries(properties)
+          .map(([name, schema]) => {
+            const binary = resolveSchema(document, schema)?.format === "binary";
+            const value = binary
+              ? `@${files[name]?.name ?? "path/to/file"}`
+              : formatFormValue(bodyValues[name] ?? schemaExample(document, schema));
+            return `  ${binary ? "--form" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
+          })
+          .join(" \\\n")
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" \\\n");
+}
+
 export function buildApiRequest(
   document: OpenApiDocument,
   operation: ApiOperation,
@@ -847,12 +962,14 @@ export function buildApiRequest(
     body = "",
     files = {},
     origin,
+    serverOrigin,
     values = {},
   }: {
     apiKey?: string;
     body?: string;
     files?: Record<string, File>;
     origin: string;
+    serverOrigin?: string;
     values?: Record<string, string>;
   },
 ): { body?: BodyInit; headers: Record<string, string>; url: string } {
@@ -887,7 +1004,10 @@ export function buildApiRequest(
       ),
     )
     .join("&");
-  const baseUrl = resolveServerUrl(document, origin, operation);
+  const configuredBaseUrl = resolveServerUrl(document, origin, operation);
+  const baseUrl = serverOrigin
+    ? new URL(new URL(configuredBaseUrl).pathname, `${serverOrigin}/`).toString().replace(/\/$/, "")
+    : configuredBaseUrl;
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
   const success = successMedia(operation);

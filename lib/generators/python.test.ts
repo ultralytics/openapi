@@ -7,9 +7,12 @@ import { join } from "node:path";
 import config from "../../openapi.config.json";
 import {
   addPythonCodeSamples,
+  buildApiRequest,
+  curlCodeSample,
   getAuthentication,
   getOperations,
   type OpenApiDocument,
+  requestBodyExample,
   requestMedia,
   resolveServerUrl,
   schemaExample,
@@ -106,6 +109,55 @@ describe("Python generator", () => {
     expect(createSample?.source).toContain("description=None");
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
+  });
+
+  test("builds safe live requests and valid multipart cURL", () => {
+    const relative = getOperations(document).find((operation) => operation.server?.url === "/v2");
+    const upload = getOperations(document).find((operation) => requestMedia(operation)?.[0] === "multipart/form-data");
+    expect(relative).toBeDefined();
+    expect(upload).toBeDefined();
+    if (!relative || !upload) return;
+    expect(
+      buildApiRequest(document, relative, {
+        origin: "https://preview.example.com",
+        serverOrigin: "https://preview.example.com",
+      }).url,
+    ).toStartWith("https://preview.example.com/v2/");
+    const curl = curlCodeSample(document, upload, {
+      body: requestBodyExample(document, upload),
+      origin: "https://docs.example.com",
+    });
+    expect(curl).toContain("--form 'file=@path/to/file'");
+    expect(curl).not.toContain("Content-Type: multipart/form-data");
+    expect(curl).not.toContain("--data '");
+    const multipartDocument = structuredClone(document);
+    const multipartUpload = getOperations(multipartDocument).find(
+      (operation) => requestMedia(operation)?.[0] === "multipart/form-data",
+    );
+    const media = multipartUpload && requestMedia(multipartUpload);
+    if (media?.[1].schema?.properties) media[1].schema.properties.note = { type: "string" };
+    expect(multipartUpload).toBeDefined();
+    if (!multipartUpload) return;
+    expect(
+      curlCodeSample(multipartDocument, multipartUpload, {
+        body: JSON.stringify({ note: "@/tmp/secret" }),
+        origin: "https://docs.example.com",
+      }),
+    ).toContain("--form-string 'note=@/tmp/secret'");
+    const structuredDocument = structuredClone(document);
+    const structured = getOperations(structuredDocument).find((operation) => operation.method === "get");
+    expect(structured).toBeDefined();
+    if (!structured) return;
+    structured.parameters = [
+      ...(structured.parameters ?? []),
+      { in: "query", name: "filter", schema: { items: { type: "string" }, type: "array" } },
+    ];
+    expect(() =>
+      curlCodeSample(structuredDocument, structured, {
+        origin: "https://docs.example.com",
+        values: { "query:filter": "[" },
+      }),
+    ).not.toThrow();
   });
 
   test("generates authentication, safe retries, errors, and multipart uploads", async () => {
