@@ -13,13 +13,13 @@
 
 Ultralytics OpenAPI 可将任何 OpenAPI 规范转换为可运行的 API 文档和类型化 SDK。将 `openapi.config.json` 指向本地文件或 URL，配置生成的软件包名称，即可从同一份契约生成两种输出。API 密钥仅保存在浏览器内存中，绝不会出现在复制的示例中。
 
-| 输出 | 状态 |
-| --- | --- |
-| 交互式 API 文档 | 已可用 |
-| Python SDK | 已可用 |
-| TypeScript SDK | 即将推出 |
-| Go SDK | 即将推出 |
-| Java SDK | 即将推出 |
+| 输出            | 状态     |
+| --------------- | -------- |
+| 交互式 API 文档 | 已可用   |
+| Python SDK      | 已可用   |
+| TypeScript SDK  | 即将推出 |
+| Go SDK          | 即将推出 |
+| Java SDK        | 即将推出 |
 
 ## ⚙️ 配置
 
