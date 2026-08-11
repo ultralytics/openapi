@@ -201,14 +201,22 @@ describe("Python generator", () => {
       type: "object",
     };
     expect(requestBodyExample(minimalDocument, create)).toContain('"undocumented": "preserved"');
+    createMedia[1].schema = { example: null, type: ["object", "null"] };
+    expect(requestBodyExample(minimalDocument, create)).toBe("null");
     const retrieve = getOperations(document).find((operation) => operation.path === "/widgets/{widgetId}");
     expect(retrieve).toBeDefined();
     if (!retrieve) return;
     const pathParameter = retrieve.parameters?.find((parameter) => parameter.in === "path");
-    if (pathParameter) pathParameter.schema = { type: "string" };
+    if (pathParameter) pathParameter.schema = { type: "integer" };
     const retrieveCurl = curlCodeSample(document, retrieve, { origin: "https://docs.example.com" });
     expect(retrieveCurl).toStartWith("curl -g ");
     expect(retrieveCurl).toContain("/widgets/{widgetId}");
+    expect(
+      curlCodeSample(document, retrieve, {
+        origin: "https://docs.example.com",
+        values: { "path:widgetId": "1" },
+      }),
+    ).toContain("/widgets/1");
     const session = getOperations(document).find((operation) => operation.path === "/sessions");
     expect(session).toBeDefined();
     if (!session) return;

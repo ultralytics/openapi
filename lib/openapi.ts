@@ -830,16 +830,17 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
 export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
   const request = requestMedia(operation);
   if (!request) return "";
-  const authored = request[1].example ?? resolveSchema(document, request[1].schema)?.example;
+  const schema = resolveSchema(document, request[1].schema);
+  const authored = request[1].example !== undefined ? request[1].example : schema?.example;
   const generated = authored === undefined;
   let example = generated ? schemaExample(document, request[1].schema) : authored;
-  const schema = objectSchema(document, request[1].schema);
+  const object = objectSchema(document, request[1].schema);
   if (generated && example && typeof example === "object" && !Array.isArray(example)) {
     example = { ...example };
-    const properties = Object.entries(schema?.properties ?? {}).filter(
+    const properties = Object.entries(object?.properties ?? {}).filter(
       ([, property]) => !resolveSchema(document, property)?.readOnly,
     );
-    const required = new Set(schema?.required ?? []);
+    const required = new Set(object?.required ?? []);
     const selected = properties.some(([name]) => required.has(name))
       ? properties.filter(([name]) => required.has(name))
       : properties.slice(0, 1);
@@ -903,14 +904,13 @@ export function curlCodeSample(
   let path = operation.path;
   for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {
     const schema = resolveSchema(document, parameter.schema);
-    const generated = schemaExample(document, parameter.schema);
     const supplied = values[`${parameter.in}:${parameter.name}`];
     const explicit =
       schema?.example !== undefined ||
       schema?.default !== undefined ||
       schema?.const !== undefined ||
       Boolean(schema?.enum?.length);
-    if (!explicit && (!supplied || supplied === String(generated ?? ""))) {
+    if (!explicit && supplied === undefined) {
       continue;
     }
     const value = serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved);
