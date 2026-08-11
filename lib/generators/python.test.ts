@@ -217,6 +217,12 @@ describe("Python generator", () => {
         values: { "path:widgetId": "1" },
       }),
     ).toContain("/widgets/1");
+    expect(
+      curlCodeSample(document, retrieve, {
+        origin: "https://docs.example.com",
+        values: { "path:widgetId": "" },
+      }),
+    ).toContain("/widgets/{widgetId}");
     const session = getOperations(document).find((operation) => operation.path === "/sessions");
     expect(session).toBeDefined();
     if (!session) return;
