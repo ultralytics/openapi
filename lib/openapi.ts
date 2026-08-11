@@ -12,12 +12,22 @@ export interface JsonSchema {
   description?: string;
   enum?: unknown[];
   example?: unknown;
+  exclusiveMaximum?: boolean | number;
+  exclusiveMinimum?: boolean | number;
   format?: string;
   items?: JsonSchema;
+  maxItems?: number;
+  maxLength?: number;
+  maximum?: number;
+  minItems?: number;
+  minLength?: number;
+  minimum?: number;
+  multipleOf?: number;
   nullable?: boolean;
   oneOf?: JsonSchema[];
   properties?: Record<string, JsonSchema>;
   propertyNames?: JsonSchema;
+  pattern?: string;
   readOnly?: boolean;
   required?: string[];
   title?: string;
@@ -112,6 +122,16 @@ export interface OpenApiDocument {
 export interface ApiAuthentication {
   header: string;
   prefix: string;
+}
+
+export type ApiAuthenticationMode = "none" | "optional" | "required";
+
+export interface SchemaField {
+  depth: number;
+  description?: string;
+  name: string;
+  required: boolean;
+  schema: JsonSchema;
 }
 
 export interface ApiOperation extends OperationObject {
@@ -580,6 +600,12 @@ export function getAuthentication(document: OpenApiDocument, operation?: ApiOper
   return unique[0];
 }
 
+export function getAuthenticationMode(document: OpenApiDocument, operation: ApiOperation): ApiAuthenticationMode {
+  const requirements = operation.security ?? document.security ?? [];
+  if (!getAuthentication(document, operation)) return "none";
+  return requirements.some((requirement) => Object.keys(requirement).length === 0) ? "optional" : "required";
+}
+
 export function resolveSchema(
   document: OpenApiDocument,
   schema: JsonSchema | undefined,
@@ -651,7 +677,7 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
 }
 
 export function schemaExample(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): unknown {
-  if (!input || depth > 5) return null;
+  if (!input || depth > 8) return null;
   const schema = resolveSchema(document, input) ?? input;
   if (schema.example !== undefined) return schema.example;
   if (schema.default !== undefined) return schema.default;
@@ -675,7 +701,18 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
   if (type === "array") return [schemaExample(document, schema.items, depth + 1)];
   if (type === "boolean") return false;
-  if (type === "integer" || type === "number") return 0;
+  if (type === "integer" || type === "number") {
+    const increment = type === "integer" ? 1 : Number.EPSILON;
+    const exclusiveMinimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : undefined;
+    const exclusiveMaximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : undefined;
+    let value = exclusiveMinimum !== undefined ? exclusiveMinimum + increment : (schema.minimum ?? 1);
+    if (schema.exclusiveMinimum === true && schema.minimum !== undefined) value = schema.minimum + increment;
+    if (exclusiveMaximum !== undefined && value >= exclusiveMaximum) value = exclusiveMaximum - increment;
+    else if (schema.maximum !== undefined && value > schema.maximum) value = schema.maximum;
+    if (schema.exclusiveMaximum === true && schema.maximum !== undefined && value >= schema.maximum)
+      value = schema.maximum - increment;
+    return value;
+  }
   if (type === "object" || schema.properties) {
     return Object.fromEntries(
       Object.entries(schema.properties ?? {}).map(([name, property]) => [
@@ -697,6 +734,58 @@ export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undef
   if (Array.isArray(schema.type)) return schema.type.join(" | ");
   if (schema.type === "array") return `${schemaLabel(document, schema.items)}[]`;
   return schema.type ?? (schema.properties ? "object" : "any");
+}
+
+export function schemaConstraints(document: OpenApiDocument, input: JsonSchema | undefined): string[] {
+  const schema = resolveSchema(document, input);
+  if (!schema) return [];
+  const constraints: string[] = [];
+  if (schema.enum?.length) constraints.push(`values: ${schema.enum.map(String).join(", ")}`);
+  if (typeof schema.exclusiveMinimum === "number") constraints.push(`greater than ${schema.exclusiveMinimum}`);
+  else if (schema.minimum !== undefined)
+    constraints.push(`${schema.exclusiveMinimum ? "greater than" : "minimum"} ${schema.minimum}`);
+  if (typeof schema.exclusiveMaximum === "number") constraints.push(`less than ${schema.exclusiveMaximum}`);
+  else if (schema.maximum !== undefined)
+    constraints.push(`${schema.exclusiveMaximum ? "less than" : "maximum"} ${schema.maximum}`);
+  if (schema.minLength !== undefined) constraints.push(`minimum length ${schema.minLength}`);
+  if (schema.maxLength !== undefined) constraints.push(`maximum length ${schema.maxLength}`);
+  if (schema.minItems !== undefined) constraints.push(`minimum items ${schema.minItems}`);
+  if (schema.maxItems !== undefined) constraints.push(`maximum items ${schema.maxItems}`);
+  if (schema.multipleOf !== undefined) constraints.push(`multiple of ${schema.multipleOf}`);
+  if (schema.pattern) constraints.push(`pattern ${schema.pattern}`);
+  if (schema.default !== undefined) constraints.push(`default ${String(schema.default)}`);
+  return constraints;
+}
+
+export function schemaFields(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  direction: "request" | "response",
+  depth = 0,
+  prefix = "",
+  references = new Set<string>(),
+): SchemaField[] {
+  if (!input || depth > 4 || (input.$ref && references.has(input.$ref))) return [];
+  const seen = input.$ref ? new Set([...references, input.$ref]) : references;
+  const schema = resolveSchema(document, input);
+  const item = Array.isArray(schema?.type)
+    ? schema.type.includes("array")
+      ? schema.items
+      : schema
+    : schema?.type === "array"
+      ? schema.items
+      : schema;
+  const object = objectSchema(document, item);
+  const required = new Set(object?.required ?? []);
+  return Object.entries(object?.properties ?? {}).flatMap(([name, field]) => {
+    const resolved = resolveSchema(document, field);
+    if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly)) return [];
+    const fieldName = `${prefix}${name}${resolved?.type === "array" ? "[]" : ""}`;
+    return [
+      { depth, description: resolved?.description, name: fieldName, required: required.has(name), schema: field },
+      ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
+    ];
+  });
 }
 
 export function requestMedia(operation: ApiOperation): [string, MediaType] | undefined {

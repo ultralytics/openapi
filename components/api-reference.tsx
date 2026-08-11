@@ -30,6 +30,7 @@ import {
   requestMedia,
   resolveSchema,
   schemaExample,
+  schemaFields,
   schemaLabel,
   serializeQueryParameter,
   serializeSimplePath,
@@ -259,45 +260,6 @@ function OperationNavigation({
       </ScrollArea>
     </div>
   );
-}
-
-interface SchemaField {
-  depth: number;
-  description?: string;
-  name: string;
-  required: boolean;
-  schema: JsonSchema;
-}
-
-function schemaFields(
-  document: OpenApiDocument,
-  input: JsonSchema | undefined,
-  direction: "request" | "response",
-  depth = 0,
-  prefix = "",
-  references = new Set<string>(),
-): SchemaField[] {
-  if (!input || depth > 4 || (input.$ref && references.has(input.$ref))) return [];
-  const seen = input.$ref ? new Set([...references, input.$ref]) : references;
-  const schema = resolveSchema(document, input);
-  const item = Array.isArray(schema?.type)
-    ? schema.type.includes("array")
-      ? schema.items
-      : schema
-    : schema?.type === "array"
-      ? schema.items
-      : schema;
-  const object = objectSchema(document, item);
-  const required = new Set(object?.required ?? []);
-  return Object.entries(object?.properties ?? {}).flatMap(([name, field]) => {
-    const resolved = resolveSchema(document, field);
-    if ((direction === "request" && resolved?.readOnly) || (direction === "response" && resolved?.writeOnly)) return [];
-    const fieldName = `${prefix}${name}${resolved?.type === "array" ? "[]" : ""}`;
-    return [
-      { depth, description: resolved?.description, name: fieldName, required: required.has(name), schema: field },
-      ...schemaFields(document, field, direction, depth + 1, `${fieldName}.`, seen),
-    ];
-  });
 }
 
 function SchemaFields({
