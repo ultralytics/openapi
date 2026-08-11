@@ -53,6 +53,7 @@ describe("Python generator", () => {
     expect(client).toContain('base_url: str = "https://api.example.com/v1"');
     expect(project).toContain('license = "AGPL-3.0-only"');
     expect(project).toContain('dependencies = ["httpx>=0.28,<1"]');
+    expect(project).toContain('Repository = "https://github.com/ultralytics/openapi"');
     expect(await Bun.file(join(output, "LICENSE")).text()).toBe(await Bun.file("LICENSE").text());
     expect(resolveServerUrl({ ...document, servers: [{ url: "/v2" }] })).toBe("http://localhost:3000/v2");
     expect(serializeSimplePath({ role: "admin/user" }, true)).toBe("role=admin%2Fuser");

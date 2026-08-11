@@ -1,6 +1,7 @@
 {
   "source": "examples/openapi.json",
   "name": "Example API",
+  "repository": "https://github.com/ultralytics/openapi",
   "apiKey": {
     "environment": "EXAMPLE_API_KEY"
   },
