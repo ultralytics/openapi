@@ -11,7 +11,7 @@
 [![Ultralytics Forums](https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue)](https://community.ultralytics.com)
 [![Ultralytics Reddit](https://img.shields.io/reddit/subreddit-subscribers/ultralytics?style=flat&logo=reddit&logoColor=white&label=Reddit&color=blue)](https://reddit.com/r/ultralytics)
 
-Ultralytics OpenAPI 可将任何 OpenAPI 规范转换为可运行的 API 文档和类型化 SDK。将 `openapi.config.json` 指向本地文件或 URL，配置生成的软件包名称，即可从同一份契约生成两种输出。API 密钥仅保存在浏览器内存中，绝不会出现在复制的示例中。
+Ultralytics OpenAPI 可将 OpenAPI 3.0 至 3.2.0 规范转换为可运行的 API 文档和类型化 SDK。将 `openapi.config.json` 指向本地文件或 URL，配置生成的软件包名称，即可从同一份契约生成两种输出。API 密钥仅保存在浏览器内存中，绝不会出现在复制的示例中。
 
 | 输出            | 状态     |
 | --------------- | -------- |
