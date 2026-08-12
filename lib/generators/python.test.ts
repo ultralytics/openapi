@@ -148,7 +148,9 @@ describe("Python generator", () => {
       environment: config.apiKey.environment,
       package: config.python.package,
     });
-    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]).toBeUndefined();
+    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]?.[0]?.source).toContain(
+      'widget_id_query="..."',
+    );
   });
 
   test("builds safe live requests and valid multipart cURL", () => {
@@ -374,6 +376,7 @@ describe("Python generator", () => {
 
   test("uses generic string examples", () => {
     expect(schemaExample(document, { type: "string" })).toBe("...");
+    expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
   });
 
   test("renders dictionary schemas", () => {

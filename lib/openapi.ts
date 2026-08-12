@@ -481,12 +481,6 @@ function pythonLiteral(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function hasPlaceholder(value: unknown): boolean {
-  if (value === "...") return true;
-  if (Array.isArray(value)) return value.some(hasPlaceholder);
-  return Boolean(value && typeof value === "object" && Object.values(value).some(hasPlaceholder));
-}
-
 export function pythonCodeSample(
   document: OpenApiDocument,
   operation: ApiOperation,
@@ -517,7 +511,6 @@ export function pythonCodeSample(
               : schemaExample(document, argument.schema);
       return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
     });
-  if (values.some(({ value }) => hasPlaceholder(value))) return "";
   return [
     `from ${config.package} import ${config.client}`,
     "",
@@ -535,11 +528,6 @@ export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCo
     if (!target) continue;
     const existing = (target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK");
     const source = pythonCodeSample(document, operation, config);
-    if (!source) {
-      if (existing.length) target["x-codeSamples"] = existing;
-      else delete target["x-codeSamples"];
-      continue;
-    }
     target["x-codeSamples"] = [...existing, { label: "Python SDK", lang: "Python", source }];
   }
   return document;
@@ -743,8 +731,10 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
     const minimumExclusive = typeof schema.exclusiveMinimum === "number" || schema.exclusiveMinimum === true;
     const maximumExclusive = typeof schema.exclusiveMaximum === "number" || schema.exclusiveMaximum === true;
-    let value = minimum ?? 1;
-    if (minimumExclusive) value += step;
+    let value = 1;
+    if (minimum !== undefined && (value < minimum || (minimumExclusive && value <= minimum))) {
+      value = minimum + (minimumExclusive ? step : 0);
+    }
     if (type === "integer") value = Math.ceil(value);
     if (multiple) value = Math.ceil(value / multiple) * multiple;
     if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) {
