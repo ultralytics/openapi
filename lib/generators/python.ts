@@ -820,8 +820,8 @@ export async function generatePython(
       )
       .join(", ");
   const projectMetadata = [
-    `description = ${JSON.stringify(config.python.description)}`,
-    `requires-python = ${JSON.stringify(config.python.requiresPython)}`,
+    `description = ${JSON.stringify(config.python.description ?? `Python client for ${config.name}`)}`,
+    `requires-python = ${JSON.stringify(config.python.requiresPython ?? ">=3.11")}`,
     config.python.authors?.length ? `authors = [${people(config.python.authors)}]` : "",
     config.python.maintainers?.length ? `maintainers = [${people(config.python.maintainers)}]` : "",
     config.python.keywords?.length ? `keywords = ${JSON.stringify(config.python.keywords)}` : "",

@@ -14,14 +14,14 @@ export interface OpenApiConfig {
     authors?: Array<{ email?: string; name: string }>;
     client: string;
     classifiers?: string[];
-    description: string;
+    description?: string;
     install: string;
     keywords?: string[];
     maintainers?: Array<{ email?: string; name: string }>;
     package: string;
     project: string;
     readme?: string;
-    requiresPython: string;
+    requiresPython?: string;
     version: string;
   };
   source: string;
