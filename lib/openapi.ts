@@ -739,7 +739,7 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     if (multiple) value = Math.ceil(value / multiple) * multiple;
     if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) {
       value = maximum - (maximumExclusive ? step : 0);
-      if (type === "integer") value = Math.floor(value);
+      if (type === "integer") value = maximumExclusive ? Math.ceil(maximum) - 1 : Math.floor(maximum);
       if (multiple) value = Math.floor(value / multiple) * multiple;
     }
     return value;

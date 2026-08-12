@@ -377,6 +377,15 @@ describe("Python generator", () => {
   test("uses generic string examples", () => {
     expect(schemaExample(document, { type: "string" })).toBe("...");
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
+    expect(
+      schemaExample(document, {
+        exclusiveMaximum: true,
+        exclusiveMinimum: true,
+        maximum: -0.5,
+        minimum: -2,
+        type: "integer",
+      }),
+    ).toBe(-1);
   });
 
   test("renders dictionary schemas", () => {
