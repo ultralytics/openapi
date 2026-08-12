@@ -107,13 +107,18 @@ describe("Python generator", () => {
       (operation) => operation.path === "/widgets" && operation.method === "post",
     );
     const media = createWidget && requestMedia(createWidget);
-    if (media) media[1].example = { description: null };
+    if (media) {
+      media[1].example = { description: null, name: "Widget", provider: "cloud", region: "us", settings: {} };
+    }
     const echo = getOperations(source).find((operation) => operation.path === "/echo");
     const echoMedia = echo && requestMedia(echo);
     if (echoMedia) {
       echoMedia[1].example = null;
       if (echoMedia[1].schema) echoMedia[1].schema.type = ["string", "null"];
     }
+    const widgetQuery = source.paths["/widgets/{widgetId}"]?.get?.parameters?.[0];
+    if (widgetQuery && "$ref" in widgetQuery) throw new Error("Expected inline widget query parameter");
+    if (widgetQuery?.schema) widgetQuery.schema.example = "widget_456";
     const decorated = addPythonCodeSamples(source, {
       client: config.python.client,
       environment: config.apiKey.environment,
@@ -127,6 +132,17 @@ describe("Python generator", () => {
     expect(createSample?.source).toContain("description=None");
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
+
+    const incomplete = structuredClone(source);
+    const incompleteQuery = incomplete.paths["/widgets/{widgetId}"]?.get?.parameters?.[0];
+    if (incompleteQuery && "$ref" in incompleteQuery) throw new Error("Expected inline widget query parameter");
+    if (incompleteQuery?.schema) delete incompleteQuery.schema.example;
+    const withoutPlaceholder = addPythonCodeSamples(incomplete, {
+      client: config.python.client,
+      environment: config.apiKey.environment,
+      package: config.python.package,
+    });
+    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]).toEqual([]);
   });
 
   test("builds safe live requests and valid multipart cURL", () => {

@@ -521,10 +521,13 @@ export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCo
   for (const operation of getOperations(document)) {
     const target = document.paths[operation.path][operation.method];
     if (!target) continue;
-    target["x-codeSamples"] = [
-      ...(target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK"),
-      { label: "Python SDK", lang: "Python", source: pythonCodeSample(document, operation, config) },
-    ];
+    const source = pythonCodeSample(document, operation, config);
+    const existing = (target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK");
+    if (source.includes('"..."')) {
+      target["x-codeSamples"] = existing;
+      continue;
+    }
+    target["x-codeSamples"] = [...existing, { label: "Python SDK", lang: "Python", source }];
   }
   return document;
 }
