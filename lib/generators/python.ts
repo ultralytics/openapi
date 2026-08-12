@@ -1,6 +1,7 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import { rm } from "node:fs/promises";
+import type { OpenApiConfig } from "../config";
 import type { ApiOperation, JsonSchema, MediaType, OpenApiDocument, SdkArgument } from "../openapi";
 import {
   allocateSdkIdentifiers,
@@ -17,14 +18,6 @@ import {
   successMediaEntries,
   successSchema,
 } from "../openapi";
-
-interface PythonConfig {
-  apiKey: { environment: string };
-  license?: { file: string; id: string; url?: string };
-  name: string;
-  repository?: string;
-  python: { client: string; install: string; package: string; project: string; readme?: string; version: string };
-}
 
 interface PythonOperation extends ApiOperation {
   arguments: SdkArgument[];
@@ -779,7 +772,7 @@ class APIConnectionError(Exception):
 `;
 
 function publicClientSource(
-  config: PythonConfig,
+  config: OpenApiConfig,
   resources: Map<string, PythonOperation[]>,
   async: boolean,
   baseUrl: string,
@@ -797,7 +790,11 @@ function publicClientSource(
   return `from __future__ import annotations\n\nimport os\n\nimport httpx\n\nfrom ._client import ${apiClient}\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float | httpx.Timeout = 60.0,\n        max_retries: int = 2,\n        http_client: ${httpClient} | None = None,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}.\n            base_url (str): API base URL.\n            timeout (float | httpx.Timeout): Request timeout.\n            max_retries (int): Retries for connection errors and retryable responses.\n            http_client (${httpClient}, optional): Custom HTTP client.\n        """\n        resolved_api_key = api_key or os.environ.get("${config.apiKey.environment}")\n        self._client = ${apiClient}(\n            api_key=resolved_api_key,\n            base_url=base_url,\n            timeout=timeout,\n            max_retries=max_retries,\n            http_client=http_client,\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n\n${enter}\n`;
 }
 
-export async function generatePython(document: OpenApiDocument, config: PythonConfig, output: string): Promise<number> {
+export async function generatePython(
+  document: OpenApiDocument,
+  config: OpenApiConfig,
+  output: string,
+): Promise<number> {
   const resources = prepare(document);
   const root = `${output}/src/${config.python.package}`;
   const baseUrl = resolveServerUrl(document);
@@ -816,11 +813,27 @@ export async function generatePython(document: OpenApiDocument, config: PythonCo
   const projectUrls = config.repository
     ? `\n\n[project.urls]\nRepository = "${config.repository}"\nIssues = "${config.repository}/issues"`
     : "";
+  const people = (values: Array<{ email?: string; name: string }> | undefined) =>
+    values
+      ?.map(
+        ({ email, name }) => `{ name = ${JSON.stringify(name)}${email ? `, email = ${JSON.stringify(email)}` : ""} }`,
+      )
+      .join(", ");
+  const projectMetadata = [
+    `description = ${JSON.stringify(config.python.description)}`,
+    `requires-python = ${JSON.stringify(config.python.requiresPython)}`,
+    config.python.authors?.length ? `authors = [${people(config.python.authors)}]` : "",
+    config.python.maintainers?.length ? `maintainers = [${people(config.python.maintainers)}]` : "",
+    config.python.keywords?.length ? `keywords = ${JSON.stringify(config.python.keywords)}` : "",
+    config.python.classifiers?.length ? `classifiers = ${JSON.stringify(config.python.classifiers, null, 4)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   await rm(output, { force: true, recursive: true });
   await Promise.all([
     Bun.write(
       `${output}/pyproject.toml`,
-      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\ndescription = "Python client for ${config.name}"\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\nrequires-python = ">=3.11"\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
+      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\n${projectMetadata}\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
     ),
     Bun.write(`${output}/README.md`, readme),
     Bun.write(`${output}/LICENSE`, licenseText),

@@ -11,10 +11,26 @@
     "url": "https://spdx.org/licenses/AGPL-3.0-only.html"
   },
   "python": {
+    "authors": [{ "name": "Ultralytics", "email": "hello@ultralytics.com" }],
     "client": "Example",
+    "classifiers": [
+      "Intended Audience :: Developers",
+      "Operating System :: OS Independent",
+      "Programming Language :: Python :: 3 :: Only",
+      "Programming Language :: Python :: 3.11",
+      "Programming Language :: Python :: 3.12",
+      "Programming Language :: Python :: 3.13",
+      "Programming Language :: Python :: 3.14",
+      "Topic :: Software Development :: Libraries :: Python Modules",
+      "Typing :: Typed"
+    ],
+    "description": "Typed Python SDK for Example API",
     "install": "pip install example-api-sdk",
+    "keywords": ["api-client", "openapi", "sdk"],
+    "maintainers": [{ "name": "Ultralytics", "email": "hello@ultralytics.com" }],
     "package": "example_api",
     "project": "example-api-sdk",
+    "requiresPython": ">=3.11",
     "version": "0.1.0"
   }
 }
