@@ -257,6 +257,7 @@ describe("Python generator", () => {
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     const unionCreate = structuredClone(create);
     unionCreate.requestBody = {
+      required: true,
       content: {
         "multipart/form-data": {
           schema: {
@@ -283,9 +284,7 @@ describe("Python generator", () => {
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
     expect(unionBody).toBe('{\n  "file": "..."\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
-      { name: "conf", required: false },
-      { name: "file", required: false },
-      { name: "source", required: false },
+      { name: "body", required: true, wholeBody: true },
     ]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
@@ -445,8 +444,9 @@ describe("Python generator", () => {
     try {
       await generatePython(source, config, directory);
       const uploads = await Bun.file(join(directory, "src/example_api/resources/uploads.py")).text();
-      expect(uploads).toContain('files={"file": file}');
-      expect(uploads).toContain('asset_type: Literal["datasets", "models", "images"]');
+      expect(uploads).toContain("body: dict[str, Any]");
+      expect(uploads).toContain('files={key: body[key] for key in ["file"] if key in body}');
+      expect(uploads).toContain('data={key: value for key, value in body.items() if key not in ["file"]}');
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

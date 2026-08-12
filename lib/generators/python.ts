@@ -250,6 +250,11 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const binary = body.filter((argument) => resolveSchema(document, argument.schema)?.format === "binary");
   const data = body.filter((argument) => resolveSchema(document, argument.schema)?.format !== "binary");
   const wholeBody = body.find((argument) => argument.wholeBody);
+  const multipartBody =
+    wholeBody && operation.contentType === "multipart/form-data" ? objectSchema(document, wholeBody.schema) : undefined;
+  const multipartBinary = Object.entries(multipartBody?.properties ?? {})
+    .filter(([, schema]) => resolveSchema(document, schema)?.format === "binary")
+    .map(([name]) => name);
   const json = operation.contentType === "application/json" || operation.contentType?.endsWith("+json");
   const authentication = getAuthentication(document, operation);
   const options = [
@@ -274,10 +279,17 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
         ].join(", ")}}`
       : "",
     cookies.length ? `cookies={${cookies.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
-    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType ?? "") && data.length
-      ? `data={${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType ?? "") &&
+    (data.length || multipartBody)
+      ? wholeBody
+        ? `data={key: value for key, value in ${wholeBody.pythonName}.items() if key not in ${JSON.stringify(multipartBinary)}}`
+        : `data={${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
       : "",
-    binary.length ? `files={${binary.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
+    binary.length || multipartBinary.length
+      ? wholeBody
+        ? `files={key: ${wholeBody.pythonName}[key] for key in ${JSON.stringify(multipartBinary)} if key in ${wholeBody.pythonName}}`
+        : `files={${binary.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+      : "",
     json && body.length
       ? wholeBody
         ? `json=${wholeBody.pythonName}`

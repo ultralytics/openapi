@@ -432,7 +432,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const bodySchema = resolveSchema(document, media?.[1].schema);
   const union = bodySchema?.oneOf ?? bodySchema?.anyOf;
   const body = structured ? objectSchema(document, bodySchema) : undefined;
-  const variants = json ? union?.map((variant) => objectSchema(document, variant)) : undefined;
+  const variants = union?.map((variant) => objectSchema(document, variant));
   const exclusiveBody =
     variants?.length &&
     variants.every((variant) => variant?.required?.length) &&
