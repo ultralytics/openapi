@@ -14,6 +14,8 @@ import {
   sdkArguments,
   sdkIdentifier as snake,
   successMedia,
+  successMediaEntries,
+  successSchema,
 } from "../openapi";
 
 interface PythonConfig {
@@ -149,6 +151,19 @@ function validateOperation(document: OpenApiDocument, operation: ApiOperation): 
   if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
     throw new Error(`Unsupported request body encoding: ${media[0]}`);
   }
+  const responseModes = new Set(
+    successMediaEntries(operation).map(([contentType, response]) => {
+      const schema = resolveSchema(document, response.schema);
+      const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+      return contentType !== "application/json" &&
+        !contentType.endsWith("+json") &&
+        schema?.format !== "binary" &&
+        (type === "string" || schema?.enum?.every((value) => typeof value === "string"))
+        ? "text"
+        : "structured";
+    }),
+  );
+  if (responseModes.size > 1) throw new Error("Unsupported mixed successful response media");
 }
 
 function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
@@ -156,8 +171,8 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   for (const operation of getOperations(document)) {
     validateOperation(document, operation);
     const media = successMedia(operation);
-    const responseSchema = media?.[1].schema;
-    const response = resolveSchema(document, responseSchema);
+    const responseSchema = successSchema(document, operation);
+    const response = resolveSchema(document, media?.[1].schema);
     const responseType = Array.isArray(response?.type) ? response.type.find((type) => type !== "null") : response?.type;
     const resource = operation.resource;
     const values = resources.get(resource) ?? [];

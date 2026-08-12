@@ -496,6 +496,69 @@ describe("Python generator", () => {
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");
   });
 
+  test("types every successful response", async () => {
+    const source = structuredClone(document);
+    const operation = source.paths["/widgets"]?.post;
+    expect(operation).toBeDefined();
+    if (!operation) return;
+    operation.responses = {
+      "200": {
+        description: "Accepted without a response body",
+      },
+      "201": {
+        content: {
+          "application/json": {
+            schema: {
+              properties: { status: { const: "ready", type: "string" } },
+              required: ["status"],
+              type: "object",
+            },
+          },
+        },
+        description: "Ready",
+      },
+      "202": {
+        content: {
+          "Application/JSON": {
+            schema: {
+              properties: { status: { const: "deploying", type: "string" } },
+              required: ["status"],
+              type: "object",
+            },
+          },
+        },
+        description: "Deploying",
+      },
+      "203": {
+        content: {
+          "application/hal+json": {
+            schema: {
+              description: "Same deploying response with annotation and different key order",
+              required: ["status"],
+              properties: { status: { type: "string", const: "deploying" } },
+              type: "object",
+            },
+          },
+        },
+        description: "Deploying",
+      },
+    };
+    const directory = await mkdtemp(join(tmpdir(), "openapi-success-responses-"));
+    try {
+      await generatePython(source, config, directory);
+      const types = await Bun.file(join(directory, "src/example_api/types.py")).text();
+      expect(types).toContain(
+        'WidgetsCreateResponseVariant1 = TypedDict("WidgetsCreateResponseVariant1", {"status": Literal["ready"]})',
+      );
+      expect(types).toContain(
+        'WidgetsCreateResponseVariant2 = TypedDict("WidgetsCreateResponseVariant2", {"status": Literal["deploying"]})',
+      );
+      expect(types).toContain("WidgetsCreateResponse = WidgetsCreateResponseVariant1 | WidgetsCreateResponseVariant2");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("merges composed request schemas without narrowing union fields", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
     expect(widgets).toContain('provider: Literal["cloud", "local"]');

@@ -647,7 +647,7 @@ export function resolveSchema(
   };
 }
 
-function schemasEqual(left: unknown, right: unknown): boolean {
+export function schemasEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
     return (
@@ -854,12 +854,47 @@ export function requestMedia(operation: ApiOperation): [string, MediaType] | und
   return preferredMedia(operation.requestBody?.content);
 }
 
-export function successMedia(operation: ApiOperation): [string, MediaType] | undefined {
+function successfulResponses(operation: ApiOperation): ResponseObject[] {
   const responses = Object.entries(operation.responses ?? {});
-  const response =
-    responses.find(([status]) => /^2\d\d$/.test(status))?.[1] ??
-    responses.find(([status]) => /^2xx$/i.test(status))?.[1];
-  return response ? preferredMedia(response.content) : undefined;
+  const exact = responses.filter(([status]) => /^2\d\d$/.test(status));
+  return (exact.length ? exact : responses.filter(([status]) => /^2xx$/i.test(status))).map(([, response]) => response);
+}
+
+export function successMediaEntries(operation: ApiOperation): Array<[string, MediaType]> {
+  return successfulResponses(operation).flatMap((response) => {
+    const media = preferredMedia(response.content);
+    return media ? [media] : [];
+  });
+}
+
+export function successMedia(operation: ApiOperation): [string, MediaType] | undefined {
+  return successMediaEntries(operation)[0];
+}
+
+function withoutSchemaDescriptions(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutSchemaDescriptions);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, item]) =>
+      key === "description" ? [] : [[key, withoutSchemaDescriptions(item)]],
+    ),
+  );
+}
+
+export function successSchema(document: OpenApiDocument, operation: ApiOperation): JsonSchema | undefined {
+  const schemas: JsonSchema[] = [];
+  for (const [, media] of successMediaEntries(operation)) {
+    if (!media.schema) continue;
+    const shape = withoutSchemaDescriptions(resolveSchema(document, media.schema) ?? media.schema);
+    if (
+      schemas.some((schema) =>
+        schemasEqual(withoutSchemaDescriptions(resolveSchema(document, schema) ?? schema), shape),
+      )
+    )
+      continue;
+    schemas.push(media.schema);
+  }
+  return schemas.length > 1 ? { oneOf: schemas } : schemas[0];
 }
 
 function authoredSchemaExample(
