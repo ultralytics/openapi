@@ -34,6 +34,7 @@ import {
   schemaFields,
   schemaLabel,
   successMedia,
+  successSchema,
 } from "@/lib/openapi";
 import { cn } from "@/lib/utils";
 
@@ -362,6 +363,7 @@ function OperationPanel({
     ([, schema]) => resolveSchema(document, schema)?.format === "binary",
   );
   const success = successMedia(operation);
+  const responseSchema = successSchema(document, operation);
   const examples = useMemo(
     () => codeExamples(document, operation, body, environment, files, origin, python, values),
     [body, document, environment, files, operation, origin, python, values],
@@ -518,10 +520,10 @@ function OperationPanel({
               <h2 className="font-heading text-xl font-semibold">Response</h2>
               <p className="text-sm text-muted-foreground">
                 {success
-                  ? `${success[0]} · ${schemaLabel(document, success[1].schema)}`
+                  ? `${success[0]} · ${schemaLabel(document, responseSchema)}`
                   : "See documented status codes below."}
               </p>
-              {success ? <SchemaConstraintList document={document} schema={success[1].schema} /> : null}
+              {success ? <SchemaConstraintList document={document} schema={responseSchema} /> : null}
             </div>
             <div className="divide-y rounded-xl border">
               {Object.entries(operation.responses ?? {}).map(([responseStatus, response]) => (
@@ -531,12 +533,10 @@ function OperationPanel({
                 </div>
               ))}
             </div>
-            {success?.[1].schema ? (
-              <SchemaFields direction="response" document={document} schema={success[1].schema} />
-            ) : null}
+            {responseSchema ? <SchemaFields direction="response" document={document} schema={responseSchema} /> : null}
             {success ? (
               <CodeBlock
-                code={JSON.stringify(success[1].example ?? schemaExample(document, success[1].schema), null, 2)}
+                code={JSON.stringify(success[1].example ?? schemaExample(document, responseSchema), null, 2)}
               />
             ) : null}
           </section>
@@ -564,12 +564,14 @@ function OperationPanel({
 
               <Tabs defaultValue="python">
                 <TabsList>
-                  <TabsTrigger value="python">Python</TabsTrigger>
+                  {examples.python ? <TabsTrigger value="python">Python</TabsTrigger> : null}
                   <TabsTrigger value="curl">cURL</TabsTrigger>
                 </TabsList>
-                <TabsContent value="python">
-                  <CodeBlock code={examples.python} />
-                </TabsContent>
+                {examples.python ? (
+                  <TabsContent value="python">
+                    <CodeBlock code={examples.python} />
+                  </TabsContent>
+                ) : null}
                 <TabsContent value="curl">
                   <CodeBlock code={examples.curl} />
                 </TabsContent>

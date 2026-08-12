@@ -427,12 +427,17 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     style: parameter.style,
   }));
   const media = requestMedia(operation);
-  const structured =
-    media?.[0] === "application/json" ||
-    media?.[0].endsWith("+json") ||
-    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
-  const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
-  if (body?.properties) {
+  const json = media?.[0] === "application/json" || media?.[0].endsWith("+json");
+  const structured = json || ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
+  const bodySchema = resolveSchema(document, media?.[1].schema);
+  const union = bodySchema?.oneOf ?? bodySchema?.anyOf;
+  const body = structured ? objectSchema(document, bodySchema) : undefined;
+  const variants = union?.map((variant) => objectSchema(document, variant));
+  const exclusiveBody =
+    variants?.length &&
+    variants.every((variant) => variant?.required?.length) &&
+    variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name)));
+  if (body?.properties && !exclusiveBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
       if (property.readOnly) continue;
@@ -476,6 +481,12 @@ function pythonLiteral(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function hasPlaceholder(value: unknown): boolean {
+  if (value === "...") return true;
+  if (Array.isArray(value)) return value.some(hasPlaceholder);
+  return Boolean(value && typeof value === "object" && Object.values(value).some(hasPlaceholder));
+}
+
 export function pythonCodeSample(
   document: OpenApiDocument,
   operation: ApiOperation,
@@ -504,14 +515,15 @@ export function pythonCodeSample(
             : bodyValues[argument.name] !== undefined
               ? bodyValues[argument.name]
               : schemaExample(document, argument.schema);
-      return `${argument.pythonName}=${pythonLiteral(value)}`;
+      return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
     });
+  if (values.some(({ value }) => hasPlaceholder(value))) return "";
   return [
     `from ${config.package} import ${config.client}`,
     "",
     `client = ${config.client}()  # Reads ${config.environment}`,
     values.length
-      ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${values.map((value) => `    ${value},`).join("\n")}\n)`
+      ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${values.map(({ source }) => `    ${source},`).join("\n")}\n)`
       : `response = client.${operation.resource}.${operation.sdkMethod}()`,
     "print(response)",
   ].join("\n");
@@ -521,10 +533,14 @@ export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCo
   for (const operation of getOperations(document)) {
     const target = document.paths[operation.path][operation.method];
     if (!target) continue;
-    target["x-codeSamples"] = [
-      ...(target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK"),
-      { label: "Python SDK", lang: "Python", source: pythonCodeSample(document, operation, config) },
-    ];
+    const existing = (target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK");
+    const source = pythonCodeSample(document, operation, config);
+    if (!source) {
+      if (existing.length) target["x-codeSamples"] = existing;
+      else delete target["x-codeSamples"];
+      continue;
+    }
+    target["x-codeSamples"] = [...existing, { label: "Python SDK", lang: "Python", source }];
   }
   return document;
 }
@@ -631,7 +647,7 @@ export function resolveSchema(
   };
 }
 
-function schemasEqual(left: unknown, right: unknown): boolean {
+export function schemasEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
     return (
@@ -838,12 +854,62 @@ export function requestMedia(operation: ApiOperation): [string, MediaType] | und
   return preferredMedia(operation.requestBody?.content);
 }
 
-export function successMedia(operation: ApiOperation): [string, MediaType] | undefined {
+function successfulResponses(operation: ApiOperation): ResponseObject[] {
   const responses = Object.entries(operation.responses ?? {});
-  const response =
-    responses.find(([status]) => /^2\d\d$/.test(status))?.[1] ??
-    responses.find(([status]) => /^2xx$/i.test(status))?.[1];
-  return response ? preferredMedia(response.content) : undefined;
+  const exact = responses.filter(([status]) => /^2\d\d$/.test(status));
+  return (exact.length ? exact : responses.filter(([status]) => /^2xx$/i.test(status))).map(([, response]) => response);
+}
+
+export function successMediaEntries(operation: ApiOperation): Array<[string, MediaType]> {
+  return successfulResponses(operation).flatMap((response) => {
+    const media = preferredMedia(response.content);
+    return media ? [media] : [];
+  });
+}
+
+export function successMedia(operation: ApiOperation): [string, MediaType] | undefined {
+  return successMediaEntries(operation)[0];
+}
+
+function withoutSchemaDescriptions(value: JsonSchema): JsonSchema {
+  const schema = { ...value };
+  delete schema.description;
+  if (schema.properties) {
+    schema.properties = Object.fromEntries(
+      Object.entries(schema.properties).map(([name, item]) => [name, withoutSchemaDescriptions(item)]),
+    );
+  }
+  if (schema.items) schema.items = withoutSchemaDescriptions(schema.items);
+  if (schema.oneOf) schema.oneOf = schema.oneOf.map(withoutSchemaDescriptions);
+  if (schema.anyOf) schema.anyOf = schema.anyOf.map(withoutSchemaDescriptions);
+  if (schema.allOf) schema.allOf = schema.allOf.map(withoutSchemaDescriptions);
+  if (typeof schema.additionalProperties === "object") {
+    schema.additionalProperties = withoutSchemaDescriptions(schema.additionalProperties);
+  }
+  return schema;
+}
+
+export function successSchema(document: OpenApiDocument, operation: ApiOperation): JsonSchema | undefined {
+  const schemas: JsonSchema[] = [];
+  const shapes: JsonSchema[] = [];
+  for (const response of successfulResponses(operation)) {
+    const preferred = preferredMedia(response.content);
+    if (!preferred) {
+      const schema = { type: "null" } satisfies JsonSchema;
+      if (!shapes.some((existing) => schemasEqual(existing, schema))) {
+        schemas.push(schema);
+        shapes.push(schema);
+      }
+      continue;
+    }
+    const [, media] = preferred;
+    if (!media.schema) continue;
+    const shape = withoutSchemaDescriptions(resolveSchema(document, media.schema) ?? media.schema);
+    if (shapes.some((existing) => schemasEqual(existing, shape))) continue;
+    schemas.push(media.schema);
+    shapes.push(shape);
+  }
+  return schemas.length > 1 ? { oneOf: schemas } : schemas[0];
 }
 
 function authoredSchemaExample(

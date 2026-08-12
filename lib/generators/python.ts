@@ -1,7 +1,7 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import { rm } from "node:fs/promises";
-import type { ApiOperation, JsonSchema, OpenApiDocument, SdkArgument } from "../openapi";
+import type { ApiOperation, JsonSchema, MediaType, OpenApiDocument, SdkArgument } from "../openapi";
 import {
   allocateSdkIdentifiers,
   expandServerUrl,
@@ -14,6 +14,8 @@ import {
   sdkArguments,
   sdkIdentifier as snake,
   successMedia,
+  successMediaEntries,
+  successSchema,
 } from "../openapi";
 
 interface PythonConfig {
@@ -78,6 +80,17 @@ function isNullable(document: OpenApiDocument, schema: JsonSchema, depth = 0): b
   );
 }
 
+function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0): unknown[] | undefined {
+  if (depth > 10) return undefined;
+  const schema = resolveSchema(document, input) ?? input;
+  if (schema.const !== undefined) return [schema.const];
+  if (schema.enum?.length) return schema.enum;
+  const variants = schema.oneOf ?? schema.anyOf;
+  if (!variants?.length) return undefined;
+  const values = variants.map((variant) => literalValues(document, variant, depth + 1));
+  return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
+}
+
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
@@ -90,8 +103,9 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   const variants = schema.oneOf ?? schema.anyOf;
   if (variants?.length) {
     if (variants.every((item) => objectSchema(document, item)?.properties)) return result("dict[str, Any]");
-    if (variants.every((item) => item.const !== undefined)) {
-      const values = variants.map((item) => item.const);
+    const literalVariants = literalValues(document, schema);
+    if (literalVariants) {
+      const values = [...new Set(literalVariants)];
       const nonNull = values.filter((value) => value !== null);
       return result(
         `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
@@ -111,6 +125,20 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   if (type === "array") return result(`list[${pythonType(document, schema.items, true)}]`);
   if (type === "object" || schema.properties) return result(nested ? "dict[str, Any]" : "dict[str, Any]");
   return result("Any");
+}
+
+function isTextResponse(document: OpenApiDocument, media: [string, MediaType] | undefined): boolean {
+  if (!media || media[0] === "application/json" || media[0].endsWith("+json")) return false;
+  const schema = resolveSchema(document, media[1].schema);
+  if (schema?.format === "binary") return false;
+  if (media[0].startsWith("text/")) return true;
+  const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+  return Boolean(type === "string" || schema?.enum?.every((value) => typeof value === "string"));
+}
+
+function responseMode(document: OpenApiDocument, media: [string, MediaType]): "binary" | "json" | "text" {
+  if (media[0] === "application/json" || media[0].endsWith("+json")) return "json";
+  return isTextResponse(document, media) ? "text" : "binary";
 }
 
 function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
@@ -137,6 +165,10 @@ function validateOperation(document: OpenApiDocument, operation: ApiOperation): 
   if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
     throw new Error(`Unsupported request body encoding: ${media[0]}`);
   }
+  const responseModes = new Set(successMediaEntries(operation).map((item) => responseMode(document, item)));
+  if (responseModes.size > 1) {
+    throw new Error(`Unsupported mixed successful response media: ${operation.method.toUpperCase()} ${operation.path}`);
+  }
 }
 
 function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
@@ -144,9 +176,7 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   for (const operation of getOperations(document)) {
     validateOperation(document, operation);
     const media = successMedia(operation);
-    const responseSchema = media?.[1].schema;
-    const response = resolveSchema(document, responseSchema);
-    const responseType = Array.isArray(response?.type) ? response.type.find((type) => type !== "null") : response?.type;
+    const responseSchema = successSchema(document, operation);
     const resource = operation.resource;
     const values = resources.get(resource) ?? [];
     const name = operation.sdkMethod;
@@ -157,12 +187,7 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       name,
       responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
       responseSchema,
-      responseText:
-        !!media &&
-        media[0] !== "application/json" &&
-        !media[0].endsWith("+json") &&
-        response?.format !== "binary" &&
-        (responseType === "string" || response?.enum?.every((value) => typeof value === "string")),
+      responseText: isTextResponse(document, media),
     });
     resources.set(resource, values);
   }
@@ -230,6 +255,11 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const binary = body.filter((argument) => resolveSchema(document, argument.schema)?.format === "binary");
   const data = body.filter((argument) => resolveSchema(document, argument.schema)?.format !== "binary");
   const wholeBody = body.find((argument) => argument.wholeBody);
+  const multipartBody =
+    wholeBody && operation.contentType === "multipart/form-data" ? objectSchema(document, wholeBody.schema) : undefined;
+  const multipartBinary = Object.entries(multipartBody?.properties ?? {})
+    .filter(([, schema]) => resolveSchema(document, schema)?.format === "binary")
+    .map(([name]) => name);
   const json = operation.contentType === "application/json" || operation.contentType?.endsWith("+json");
   const authentication = getAuthentication(document, operation);
   const options = [
@@ -254,10 +284,17 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
         ].join(", ")}}`
       : "",
     cookies.length ? `cookies={${cookies.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
-    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType ?? "") && data.length
-      ? `data={${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType ?? "") &&
+    (data.length || multipartBody)
+      ? wholeBody
+        ? `data={key: value for key, value in ${wholeBody.pythonName}.items() if key not in ${JSON.stringify(multipartBinary)}}`
+        : `data={${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
       : "",
-    binary.length ? `files={${binary.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
+    binary.length || multipartBinary.length
+      ? wholeBody
+        ? `files={key: ${wholeBody.pythonName}[key] for key in ${JSON.stringify(multipartBinary)} if key in ${wholeBody.pythonName}}`
+        : `files={${binary.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+      : "",
     json && body.length
       ? wholeBody
         ? `json=${wholeBody.pythonName}`

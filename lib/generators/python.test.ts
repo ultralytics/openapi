@@ -19,6 +19,7 @@ import {
   schemaExample,
   schemaFields,
   schemaLabel,
+  sdkArguments,
   serializeSimplePath,
 } from "../openapi";
 import { generatePython } from "./python";
@@ -107,13 +108,18 @@ describe("Python generator", () => {
       (operation) => operation.path === "/widgets" && operation.method === "post",
     );
     const media = createWidget && requestMedia(createWidget);
-    if (media) media[1].example = { description: null };
+    if (media) {
+      media[1].example = { description: null, name: "Widget", provider: "cloud", region: "us", settings: {} };
+    }
     const echo = getOperations(source).find((operation) => operation.path === "/echo");
     const echoMedia = echo && requestMedia(echo);
     if (echoMedia) {
       echoMedia[1].example = null;
       if (echoMedia[1].schema) echoMedia[1].schema.type = ["string", "null"];
     }
+    const widgetQuery = source.paths["/widgets/{widgetId}"]?.get?.parameters?.[0];
+    if (widgetQuery && "$ref" in widgetQuery) throw new Error("Expected inline widget query parameter");
+    if (widgetQuery?.schema) widgetQuery.schema.example = "widget_456";
     const decorated = addPythonCodeSamples(source, {
       client: config.python.client,
       environment: config.apiKey.environment,
@@ -127,6 +133,17 @@ describe("Python generator", () => {
     expect(createSample?.source).toContain("description=None");
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
+
+    const incomplete = structuredClone(source);
+    const incompleteQuery = incomplete.paths["/widgets/{widgetId}"]?.get?.parameters?.[0];
+    if (incompleteQuery && "$ref" in incompleteQuery) throw new Error("Expected inline widget query parameter");
+    if (incompleteQuery?.schema) delete incompleteQuery.schema.example;
+    const withoutPlaceholder = addPythonCodeSamples(incomplete, {
+      client: config.python.client,
+      environment: config.apiKey.environment,
+      package: config.python.package,
+    });
+    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]).toBeUndefined();
   });
 
   test("builds safe live requests and valid multipart cURL", () => {
@@ -240,6 +257,7 @@ describe("Python generator", () => {
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     const unionCreate = structuredClone(create);
     unionCreate.requestBody = {
+      required: true,
       content: {
         "multipart/form-data": {
           schema: {
@@ -265,12 +283,25 @@ describe("Python generator", () => {
     };
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
     expect(unionBody).toBe('{\n  "file": "..."\n}');
+    expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
+      { name: "body", required: true, wholeBody: true },
+    ]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
         body: unionBody,
         origin: "https://docs.example.com",
       }),
     ).toContain("-F 'file=@path/to/file'");
+    const jsonUnionCreate = structuredClone(unionCreate);
+    const unionMedia = requestMedia(unionCreate);
+    expect(unionMedia).toBeDefined();
+    if (!unionMedia) return;
+    jsonUnionCreate.requestBody = {
+      content: { "application/json": unionMedia[1] },
+    };
+    expect(sdkArguments(minimalDocument, jsonUnionCreate)).toMatchObject([
+      { name: "body", required: false, wholeBody: true },
+    ]);
     createMedia[1].schema = { example: null, type: ["object", "null"] };
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     createMedia[1].schema = { additionalProperties: { type: "string" }, type: "object" };
@@ -389,16 +420,22 @@ describe("Python generator", () => {
     media[1].schema = {
       anyOf: [
         {
-          properties: { file: { description: "File", format: "binary", type: "string" } },
-          required: ["file"],
+          properties: {
+            assetType: {
+              anyOf: [{ enum: ["datasets"] }, { anyOf: [{ const: "models" }, { enum: ["images"] }] }],
+            },
+            file: { description: "File", format: "binary", type: "string" },
+          },
+          required: ["assetType", "file"],
           type: "object",
         },
         {
           properties: {
+            assetType: { anyOf: [{ enum: ["datasets"] }, { enum: ["models", "images"] }] },
             file: { type: "string", format: "binary", description: "File" },
             source: { type: "string" },
           },
-          required: ["source"],
+          required: ["assetType", "source"],
           type: "object",
         },
       ],
@@ -407,7 +444,9 @@ describe("Python generator", () => {
     try {
       await generatePython(source, config, directory);
       const uploads = await Bun.file(join(directory, "src/example_api/resources/uploads.py")).text();
-      expect(uploads).toContain('files={"file": file}');
+      expect(uploads).toContain("body: dict[str, Any]");
+      expect(uploads).toContain('files={key: body[key] for key in ["file"] if key in body}');
+      expect(uploads).toContain('data={key: value for key, value in body.items() if key not in ["file"]}');
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
@@ -455,6 +494,131 @@ describe("Python generator", () => {
     expect(widgets).toContain("description: str | None");
     expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");
+  });
+
+  test("types every successful response", async () => {
+    const source = structuredClone(document);
+    const operation = source.paths["/widgets"]?.post;
+    expect(operation).toBeDefined();
+    if (!operation) return;
+    operation.responses = {
+      "200": {
+        description: "Accepted without a response body",
+      },
+      "201": {
+        content: {
+          "application/json": {
+            schema: {
+              properties: { status: { const: "ready", type: "string" } },
+              required: ["status"],
+              type: "object",
+            },
+          },
+        },
+        description: "Ready",
+      },
+      "202": {
+        content: {
+          "Application/JSON": {
+            schema: {
+              properties: { status: { const: "deploying", type: "string" } },
+              required: ["status"],
+              type: "object",
+            },
+          },
+        },
+        description: "Deploying",
+      },
+      "203": {
+        content: {
+          "application/hal+json": {
+            schema: {
+              description: "Same deploying response with annotation and different key order",
+              required: ["status"],
+              properties: { status: { type: "string", const: "deploying" } },
+              type: "object",
+            },
+          },
+        },
+        description: "Deploying",
+      },
+    };
+    const directory = await mkdtemp(join(tmpdir(), "openapi-success-responses-"));
+    try {
+      await generatePython(source, config, directory);
+      const types = await Bun.file(join(directory, "src/example_api/types.py")).text();
+      expect(types).toContain(
+        'WidgetsCreateResponseVariant1 = TypedDict("WidgetsCreateResponseVariant1", {"status": Literal["ready"]})',
+      );
+      expect(types).toContain(
+        'WidgetsCreateResponseVariant2 = TypedDict("WidgetsCreateResponseVariant2", {"status": Literal["deploying"]})',
+      );
+      expect(types).toContain(
+        "WidgetsCreateResponseValue = WidgetsCreateResponseVariant1 | WidgetsCreateResponseVariant2",
+      );
+      expect(types).toContain("WidgetsCreateResponse = WidgetsCreateResponseValue | None");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("preserves response fields and rejects only mixed parse modes", async () => {
+    const source = structuredClone(document);
+    const operation = source.paths["/widgets"]?.post;
+    expect(operation).toBeDefined();
+    if (!operation) return;
+    operation.responses = {
+      "200": {
+        content: {
+          "application/json": {
+            schema: { properties: { id: { type: "string" } }, required: ["id"], type: "object" },
+          },
+        },
+        description: "Created",
+      },
+      "202": {
+        content: {
+          "application/json": {
+            schema: {
+              properties: { id: { type: "string" }, description: { type: "string" } },
+              required: ["id"],
+              type: "object",
+            },
+          },
+        },
+        description: "Accepted",
+      },
+    };
+    const directory = await mkdtemp(join(tmpdir(), "openapi-success-fields-"));
+    try {
+      await generatePython(source, config, directory);
+      const types = await Bun.file(join(directory, "src/example_api/types.py")).text();
+      expect(types).toContain('"description": NotRequired[str]');
+
+      operation.responses = {
+        "200": { content: { "text/plain": { schema: { type: "string" } } }, description: "Ready" },
+        "202": { content: { "text/plain": {} }, description: "Accepted" },
+      };
+      await expect(generatePython(source, config, directory)).resolves.toBe(8);
+
+      operation.responses["202"] = {
+        content: { "application/json": { schema: { type: "object" } } },
+        description: "Accepted",
+      };
+      await expect(generatePython(source, config, directory)).rejects.toThrow(
+        "Unsupported mixed successful response media: POST /widgets",
+      );
+
+      operation.responses["202"] = {
+        content: { "application/octet-stream": {} },
+        description: "Accepted",
+      };
+      await expect(generatePython(source, config, directory)).rejects.toThrow(
+        "Unsupported mixed successful response media: POST /widgets",
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   test("merges composed request schemas without narrowing union fields", async () => {
