@@ -390,7 +390,9 @@ describe("Python generator", () => {
       anyOf: [
         {
           properties: {
-            assetType: { anyOf: [{ enum: ["datasets"] }, { enum: ["models", "images"] }] },
+            assetType: {
+              anyOf: [{ enum: ["datasets"] }, { anyOf: [{ const: "models" }, { enum: ["images"] }] }],
+            },
             file: { description: "File", format: "binary", type: "string" },
           },
           required: ["assetType", "file"],

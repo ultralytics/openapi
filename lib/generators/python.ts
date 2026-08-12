@@ -78,6 +78,17 @@ function isNullable(document: OpenApiDocument, schema: JsonSchema, depth = 0): b
   );
 }
 
+function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0): unknown[] | undefined {
+  if (depth > 10) return undefined;
+  const schema = resolveSchema(document, input) ?? input;
+  if (schema.const !== undefined) return [schema.const];
+  if (schema.enum?.length) return schema.enum;
+  const variants = schema.oneOf ?? schema.anyOf;
+  if (!variants?.length) return undefined;
+  const values = variants.map((variant) => literalValues(document, variant, depth + 1));
+  return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
+}
+
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
@@ -90,11 +101,9 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   const variants = schema.oneOf ?? schema.anyOf;
   if (variants?.length) {
     if (variants.every((item) => objectSchema(document, item)?.properties)) return result("dict[str, Any]");
-    const literalVariants = variants.map((item) => resolveSchema(document, item) ?? item);
-    if (literalVariants.every((item) => item.const !== undefined || item.enum?.length)) {
-      const values = [
-        ...new Set(literalVariants.flatMap((item) => (item.const !== undefined ? [item.const] : (item.enum ?? [])))),
-      ];
+    const literalVariants = literalValues(document, schema);
+    if (literalVariants) {
+      const values = [...new Set(literalVariants)];
       const nonNull = values.filter((value) => value !== null);
       return result(
         `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
