@@ -11,7 +11,7 @@
 [![Ultralytics Forums](https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue)](https://community.ultralytics.com)
 [![Ultralytics Reddit](https://img.shields.io/reddit/subreddit-subscribers/ultralytics?style=flat&logo=reddit&logoColor=white&label=Reddit&color=blue)](https://reddit.com/r/ultralytics)
 
-Ultralytics OpenAPI turns OpenAPI specifications from 3.0 through 3.2.0 into runnable API documentation and typed SDKs. Point `openapi.config.json` at a local file or URL, configure the generated package name, and produce both outputs from the same contract. API keys stay in browser memory and never appear in copied examples.
+Ultralytics OpenAPI accepts specifications declaring OpenAPI 3.0 through 3.2.0 for standard HTTP operations and turns them into runnable API documentation and typed SDKs. Point `openapi.config.json` at a local file or URL, configure the generated package name, and produce both outputs from the same contract. API keys stay in browser memory and never appear in copied examples.
 
 | Output                        | Status      |
 | ----------------------------- | ----------- |
