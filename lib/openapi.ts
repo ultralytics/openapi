@@ -481,12 +481,6 @@ function pythonLiteral(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function hasPlaceholder(value: unknown): boolean {
-  if (value === "...") return true;
-  if (Array.isArray(value)) return value.some(hasPlaceholder);
-  return Boolean(value && typeof value === "object" && Object.values(value).some(hasPlaceholder));
-}
-
 export function pythonCodeSample(
   document: OpenApiDocument,
   operation: ApiOperation,
@@ -517,7 +511,6 @@ export function pythonCodeSample(
               : schemaExample(document, argument.schema);
       return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
     });
-  if (values.some(({ value }) => hasPlaceholder(value))) return "";
   return [
     `from ${config.package} import ${config.client}`,
     "",
@@ -535,11 +528,6 @@ export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCo
     if (!target) continue;
     const existing = (target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK");
     const source = pythonCodeSample(document, operation, config);
-    if (!source) {
-      if (existing.length) target["x-codeSamples"] = existing;
-      else delete target["x-codeSamples"];
-      continue;
-    }
     target["x-codeSamples"] = [...existing, { label: "Python SDK", lang: "Python", source }];
   }
   return document;
@@ -743,13 +731,15 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
     const minimumExclusive = typeof schema.exclusiveMinimum === "number" || schema.exclusiveMinimum === true;
     const maximumExclusive = typeof schema.exclusiveMaximum === "number" || schema.exclusiveMaximum === true;
-    let value = minimum ?? 1;
-    if (minimumExclusive) value += step;
+    let value = 1;
+    if (minimum !== undefined && (value < minimum || (minimumExclusive && value <= minimum))) {
+      value = minimum + (minimumExclusive ? step : 0);
+    }
     if (type === "integer") value = Math.ceil(value);
     if (multiple) value = Math.ceil(value / multiple) * multiple;
     if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) {
       value = maximum - (maximumExclusive ? step : 0);
-      if (type === "integer") value = Math.floor(value);
+      if (type === "integer") value = maximumExclusive ? Math.ceil(maximum) - 1 : Math.floor(maximum);
       if (multiple) value = Math.floor(value / multiple) * multiple;
     }
     return value;
@@ -765,6 +755,17 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     return { key: schemaExample(document, schema.additionalProperties, depth + 1) };
   }
   return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "...";
+}
+
+function isBinarySchema(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): boolean {
+  if (!input || depth > 8) return false;
+  const schema = resolveSchema(document, input) ?? input;
+  return (
+    schema.format === "binary" ||
+    [...(schema.allOf ?? []), ...(schema.anyOf ?? []), ...(schema.oneOf ?? [])].some((item) =>
+      isBinarySchema(document, item, depth + 1),
+    )
+  );
 }
 
 export function schemaLabel(document: OpenApiDocument, input: JsonSchema | undefined): string {
@@ -1071,7 +1072,7 @@ export function curlCodeSample(
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
   const authentication = getAuthentication(document, operation);
-  const requestSchema = exampleObjectSchema(document, request?.[1].schema);
+  const requestSchema = objectSchema(document, request?.[1].schema);
   const properties = Object.fromEntries(
     Object.entries(requestSchema?.properties ?? {}).filter(([, schema]) => !resolveSchema(document, schema)?.readOnly),
   );
@@ -1088,7 +1089,7 @@ export function curlCodeSample(
   const multipart =
     contentType === "multipart/form-data"
       ? [...new Set([...Object.keys(bodyValues), ...Object.keys(files)])].map((name) => {
-          const binary = files[name] || resolveSchema(document, properties[name])?.format === "binary";
+          const binary = files[name] || isBinarySchema(document, properties[name]);
           const bodyFile = bodyValues[name];
           const value = binary
             ? `@${files[name]?.name ?? (typeof bodyFile === "string" && bodyFile !== "..." ? bodyFile.replace(/^@/, "") : "path/to/file")}`
@@ -1244,18 +1245,13 @@ export function buildApiRequest(
       throw new Error("Enter valid JSON request values before sending the request.");
     }
     for (const [name, value] of Object.entries(bodyValues)) {
-      if (
-        resolveSchema(document, requestSchema?.properties?.[name])?.format === "binary" ||
-        value === null ||
-        value === undefined
-      )
+      if (isBinarySchema(document, requestSchema?.properties?.[name]) || value === null || value === undefined)
         continue;
       form.append(name, typeof value === "string" ? value : JSON.stringify(value));
     }
     for (const [name, file] of Object.entries(files)) form.append(name, file);
     const missingFile = Object.entries(requestSchema?.properties ?? {}).find(
-      ([name, schema]) =>
-        resolveSchema(document, schema)?.format === "binary" && requestSchema?.required?.includes(name) && !files[name],
+      ([name, schema]) => isBinarySchema(document, schema) && requestSchema?.required?.includes(name) && !files[name],
     );
     if (missingFile) throw new Error(`Choose ${missingFile[0]} before sending the request.`);
     requestBody = form;

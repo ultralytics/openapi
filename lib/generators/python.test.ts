@@ -148,7 +148,9 @@ describe("Python generator", () => {
       environment: config.apiKey.environment,
       package: config.python.package,
     });
-    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]).toBeUndefined();
+    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]?.[0]?.source).toContain(
+      'widget_id_query="..."',
+    );
   });
 
   test("builds safe live requests and valid multipart cURL", () => {
@@ -297,6 +299,15 @@ describe("Python generator", () => {
         origin: "https://docs.example.com",
       }),
     ).toContain("-F 'file=@path/to/file'");
+    const laterBinary = structuredClone(unionCreate);
+    const laterMedia = requestMedia(laterBinary);
+    if (laterMedia?.[1].schema?.oneOf?.[0]?.properties) delete laterMedia[1].schema.oneOf[0].properties.file;
+    expect(
+      curlCodeSample(minimalDocument, laterBinary, {
+        body: JSON.stringify({ file: "later.bin", source: "upload" }),
+        origin: "https://docs.example.com",
+      }),
+    ).toContain("-F 'file=@later.bin'");
     const jsonUnionCreate = structuredClone(unionCreate);
     const unionMedia = requestMedia(unionCreate);
     expect(unionMedia).toBeDefined();
@@ -374,6 +385,16 @@ describe("Python generator", () => {
 
   test("uses generic string examples", () => {
     expect(schemaExample(document, { type: "string" })).toBe("...");
+    expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
+    expect(
+      schemaExample(document, {
+        exclusiveMaximum: true,
+        exclusiveMinimum: true,
+        maximum: -0.5,
+        minimum: -2,
+        type: "integer",
+      }),
+    ).toBe(-1);
   });
 
   test("renders dictionary schemas", () => {
