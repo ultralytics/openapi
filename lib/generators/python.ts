@@ -1,7 +1,7 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import { rm } from "node:fs/promises";
-import type { ApiOperation, JsonSchema, OpenApiDocument, SdkArgument } from "../openapi";
+import type { ApiOperation, JsonSchema, MediaType, OpenApiDocument, SdkArgument } from "../openapi";
 import {
   allocateSdkIdentifiers,
   expandServerUrl,
@@ -127,13 +127,13 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   return result("Any");
 }
 
-function isTextResponse(document: OpenApiDocument, media: [string, { schema?: JsonSchema }] | undefined): boolean {
+function isTextResponse(document: OpenApiDocument, media: [string, MediaType] | undefined): boolean {
   if (!media || media[0] === "application/json" || media[0].endsWith("+json")) return false;
   const schema = resolveSchema(document, media[1].schema);
+  if (schema?.format === "binary") return false;
+  if (media[0].startsWith("text/")) return true;
   const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
-  return Boolean(
-    schema?.format !== "binary" && (type === "string" || schema?.enum?.every((value) => typeof value === "string")),
-  );
+  return Boolean(type === "string" || schema?.enum?.every((value) => typeof value === "string"));
 }
 
 function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
@@ -161,7 +161,9 @@ function validateOperation(document: OpenApiDocument, operation: ApiOperation): 
     throw new Error(`Unsupported request body encoding: ${media[0]}`);
   }
   const responseModes = new Set(successMediaEntries(operation).map((item) => isTextResponse(document, item)));
-  if (responseModes.size > 1) throw new Error("Unsupported mixed successful response media");
+  if (responseModes.size > 1) {
+    throw new Error(`Unsupported mixed successful response media: ${operation.method.toUpperCase()} ${operation.path}`);
+  }
 }
 
 function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {

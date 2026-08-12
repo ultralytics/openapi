@@ -871,28 +871,33 @@ export function successMedia(operation: ApiOperation): [string, MediaType] | und
   return successMediaEntries(operation)[0];
 }
 
-function withoutSchemaDescriptions(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withoutSchemaDescriptions);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([key, item]) =>
-      key === "description" ? [] : [[key, withoutSchemaDescriptions(item)]],
-    ),
-  );
+function withoutSchemaDescriptions(value: JsonSchema): JsonSchema {
+  const schema = { ...value };
+  delete schema.description;
+  if (schema.properties) {
+    schema.properties = Object.fromEntries(
+      Object.entries(schema.properties).map(([name, item]) => [name, withoutSchemaDescriptions(item)]),
+    );
+  }
+  if (schema.items) schema.items = withoutSchemaDescriptions(schema.items);
+  if (schema.oneOf) schema.oneOf = schema.oneOf.map(withoutSchemaDescriptions);
+  if (schema.anyOf) schema.anyOf = schema.anyOf.map(withoutSchemaDescriptions);
+  if (schema.allOf) schema.allOf = schema.allOf.map(withoutSchemaDescriptions);
+  if (typeof schema.additionalProperties === "object") {
+    schema.additionalProperties = withoutSchemaDescriptions(schema.additionalProperties);
+  }
+  return schema;
 }
 
 export function successSchema(document: OpenApiDocument, operation: ApiOperation): JsonSchema | undefined {
   const schemas: JsonSchema[] = [];
+  const shapes: JsonSchema[] = [];
   for (const [, media] of successMediaEntries(operation)) {
     if (!media.schema) continue;
     const shape = withoutSchemaDescriptions(resolveSchema(document, media.schema) ?? media.schema);
-    if (
-      schemas.some((schema) =>
-        schemasEqual(withoutSchemaDescriptions(resolveSchema(document, schema) ?? schema), shape),
-      )
-    )
-      continue;
+    if (shapes.some((existing) => schemasEqual(existing, shape))) continue;
     schemas.push(media.schema);
+    shapes.push(shape);
   }
   return schemas.length > 1 ? { oneOf: schemas } : schemas[0];
 }

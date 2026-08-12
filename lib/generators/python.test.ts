@@ -559,6 +559,57 @@ describe("Python generator", () => {
     }
   });
 
+  test("preserves response fields and rejects only mixed parse modes", async () => {
+    const source = structuredClone(document);
+    const operation = source.paths["/widgets"]?.post;
+    expect(operation).toBeDefined();
+    if (!operation) return;
+    operation.responses = {
+      "200": {
+        content: {
+          "application/json": {
+            schema: { properties: { id: { type: "string" } }, required: ["id"], type: "object" },
+          },
+        },
+        description: "Created",
+      },
+      "202": {
+        content: {
+          "application/json": {
+            schema: {
+              properties: { id: { type: "string" }, description: { type: "string" } },
+              required: ["id"],
+              type: "object",
+            },
+          },
+        },
+        description: "Accepted",
+      },
+    };
+    const directory = await mkdtemp(join(tmpdir(), "openapi-success-fields-"));
+    try {
+      await generatePython(source, config, directory);
+      const types = await Bun.file(join(directory, "src/example_api/types.py")).text();
+      expect(types).toContain('"description": NotRequired[str]');
+
+      operation.responses = {
+        "200": { content: { "text/plain": { schema: { type: "string" } } }, description: "Ready" },
+        "202": { content: { "text/plain": {} }, description: "Accepted" },
+      };
+      await expect(generatePython(source, config, directory)).resolves.toBe(8);
+
+      operation.responses["202"] = {
+        content: { "application/json": { schema: { type: "object" } } },
+        description: "Accepted",
+      };
+      await expect(generatePython(source, config, directory)).rejects.toThrow(
+        "Unsupported mixed successful response media: POST /widgets",
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("merges composed request schemas without narrowing union fields", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
     expect(widgets).toContain('provider: Literal["cloud", "local"]');
