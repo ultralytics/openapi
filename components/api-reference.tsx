@@ -562,7 +562,7 @@ function OperationPanel({
                 Send request
               </Button>
 
-              <Tabs defaultValue={examples.python ? "python" : "curl"}>
+              <Tabs defaultValue="python">
                 <TabsList>
                   {examples.python ? <TabsTrigger value="python">Python</TabsTrigger> : null}
                   <TabsTrigger value="curl">cURL</TabsTrigger>
