@@ -143,7 +143,7 @@ describe("Python generator", () => {
       environment: config.apiKey.environment,
       package: config.python.package,
     });
-    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]).toEqual([]);
+    expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]).toBeUndefined();
   });
 
   test("builds safe live requests and valid multipart cURL", () => {
@@ -283,7 +283,9 @@ describe("Python generator", () => {
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
     expect(unionBody).toBe('{\n  "file": "..."\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
-      { name: "body", required: false, wholeBody: true },
+      { name: "conf", required: false },
+      { name: "file", required: false },
+      { name: "source", required: false },
     ]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
@@ -291,6 +293,16 @@ describe("Python generator", () => {
         origin: "https://docs.example.com",
       }),
     ).toContain("-F 'file=@path/to/file'");
+    const jsonUnionCreate = structuredClone(unionCreate);
+    const unionMedia = requestMedia(unionCreate);
+    expect(unionMedia).toBeDefined();
+    if (!unionMedia) return;
+    jsonUnionCreate.requestBody = {
+      content: { "application/json": unionMedia[1] },
+    };
+    expect(sdkArguments(minimalDocument, jsonUnionCreate)).toMatchObject([
+      { name: "body", required: false, wholeBody: true },
+    ]);
     createMedia[1].schema = { example: null, type: ["object", "null"] };
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     createMedia[1].schema = { additionalProperties: { type: "string" }, type: "object" };

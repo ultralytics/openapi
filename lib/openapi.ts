@@ -427,17 +427,16 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     style: parameter.style,
   }));
   const media = requestMedia(operation);
-  const structured =
-    media?.[0] === "application/json" ||
-    media?.[0].endsWith("+json") ||
-    ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
+  const json = media?.[0] === "application/json" || media?.[0].endsWith("+json");
+  const structured = json || ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
   const bodySchema = resolveSchema(document, media?.[1].schema);
   const union = bodySchema?.oneOf ?? bodySchema?.anyOf;
   const body = structured ? objectSchema(document, bodySchema) : undefined;
+  const variants = json ? union?.map((variant) => objectSchema(document, variant)) : undefined;
   const exclusiveBody =
-    union?.length &&
-    !body?.required?.length &&
-    union.every((variant) => objectSchema(document, variant)?.required?.length);
+    variants?.length &&
+    variants.every((variant) => variant?.required?.length) &&
+    variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name)));
   if (body?.properties && !exclusiveBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
@@ -482,6 +481,12 @@ function pythonLiteral(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function hasPlaceholder(value: unknown): boolean {
+  if (value === "...") return true;
+  if (Array.isArray(value)) return value.some(hasPlaceholder);
+  return Boolean(value && typeof value === "object" && Object.values(value).some(hasPlaceholder));
+}
+
 export function pythonCodeSample(
   document: OpenApiDocument,
   operation: ApiOperation,
@@ -510,14 +515,15 @@ export function pythonCodeSample(
             : bodyValues[argument.name] !== undefined
               ? bodyValues[argument.name]
               : schemaExample(document, argument.schema);
-      return `${argument.pythonName}=${pythonLiteral(value)}`;
+      return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
     });
+  if (values.some(({ value }) => hasPlaceholder(value))) return "";
   return [
     `from ${config.package} import ${config.client}`,
     "",
     `client = ${config.client}()  # Reads ${config.environment}`,
     values.length
-      ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${values.map((value) => `    ${value},`).join("\n")}\n)`
+      ? `response = client.${operation.resource}.${operation.sdkMethod}(\n${values.map(({ source }) => `    ${source},`).join("\n")}\n)`
       : `response = client.${operation.resource}.${operation.sdkMethod}()`,
     "print(response)",
   ].join("\n");
@@ -527,10 +533,11 @@ export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCo
   for (const operation of getOperations(document)) {
     const target = document.paths[operation.path][operation.method];
     if (!target) continue;
-    const source = pythonCodeSample(document, operation, config);
     const existing = (target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK");
-    if (source.includes('"..."')) {
-      target["x-codeSamples"] = existing;
+    const source = pythonCodeSample(document, operation, config);
+    if (!source) {
+      if (existing.length) target["x-codeSamples"] = existing;
+      else delete target["x-codeSamples"];
       continue;
     }
     target["x-codeSamples"] = [...existing, { label: "Python SDK", lang: "Python", source }];
