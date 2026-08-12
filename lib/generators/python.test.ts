@@ -299,6 +299,15 @@ describe("Python generator", () => {
         origin: "https://docs.example.com",
       }),
     ).toContain("-F 'file=@path/to/file'");
+    const laterBinary = structuredClone(unionCreate);
+    const laterMedia = requestMedia(laterBinary);
+    if (laterMedia?.[1].schema?.oneOf?.[0]?.properties) delete laterMedia[1].schema.oneOf[0].properties.file;
+    expect(
+      curlCodeSample(minimalDocument, laterBinary, {
+        body: JSON.stringify({ file: "later.bin", source: "upload" }),
+        origin: "https://docs.example.com",
+      }),
+    ).toContain("-F 'file=@later.bin'");
     const jsonUnionCreate = structuredClone(unionCreate);
     const unionMedia = requestMedia(unionCreate);
     expect(unionMedia).toBeDefined();
