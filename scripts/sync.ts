@@ -15,6 +15,7 @@ const document = config.source.startsWith("https://")
 if (!document.openapi || !document.info || !document.paths) {
   throw new Error(`${config.source} is not an OpenAPI document`);
 }
+
 await mkdir("public", { recursive: true });
 await Bun.write("public/openapi.json", `${JSON.stringify(document, null, 2)}\n`);
 console.log(`Synced OpenAPI ${document.openapi} with ${Object.keys(document.paths).length} paths`);
