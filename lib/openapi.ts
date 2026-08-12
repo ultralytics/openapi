@@ -892,7 +892,17 @@ function withoutSchemaDescriptions(value: JsonSchema): JsonSchema {
 export function successSchema(document: OpenApiDocument, operation: ApiOperation): JsonSchema | undefined {
   const schemas: JsonSchema[] = [];
   const shapes: JsonSchema[] = [];
-  for (const [, media] of successMediaEntries(operation)) {
+  for (const response of successfulResponses(operation)) {
+    const preferred = preferredMedia(response.content);
+    if (!preferred) {
+      const schema = { type: "null" } satisfies JsonSchema;
+      if (!shapes.some((existing) => schemasEqual(existing, schema))) {
+        schemas.push(schema);
+        shapes.push(schema);
+      }
+      continue;
+    }
+    const [, media] = preferred;
     if (!media.schema) continue;
     const shape = withoutSchemaDescriptions(resolveSchema(document, media.schema) ?? media.schema);
     if (shapes.some((existing) => schemasEqual(existing, shape))) continue;

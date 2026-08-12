@@ -553,7 +553,10 @@ describe("Python generator", () => {
       expect(types).toContain(
         'WidgetsCreateResponseVariant2 = TypedDict("WidgetsCreateResponseVariant2", {"status": Literal["deploying"]})',
       );
-      expect(types).toContain("WidgetsCreateResponse = WidgetsCreateResponseVariant1 | WidgetsCreateResponseVariant2");
+      expect(types).toContain(
+        "WidgetsCreateResponseValue = WidgetsCreateResponseVariant1 | WidgetsCreateResponseVariant2",
+      );
+      expect(types).toContain("WidgetsCreateResponse = WidgetsCreateResponseValue | None");
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
