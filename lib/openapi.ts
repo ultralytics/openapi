@@ -431,8 +431,14 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     media?.[0] === "application/json" ||
     media?.[0].endsWith("+json") ||
     ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
-  const body = structured ? objectSchema(document, media?.[1].schema) : undefined;
-  if (body?.properties) {
+  const bodySchema = resolveSchema(document, media?.[1].schema);
+  const union = bodySchema?.oneOf ?? bodySchema?.anyOf;
+  const body = structured ? objectSchema(document, bodySchema) : undefined;
+  const exclusiveBody =
+    union?.length &&
+    !body?.required?.length &&
+    union.every((variant) => objectSchema(document, variant)?.required?.length);
+  if (body?.properties && !exclusiveBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
       if (property.readOnly) continue;

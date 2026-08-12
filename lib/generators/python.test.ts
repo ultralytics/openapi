@@ -19,6 +19,7 @@ import {
   schemaExample,
   schemaFields,
   schemaLabel,
+  sdkArguments,
   serializeSimplePath,
 } from "../openapi";
 import { generatePython } from "./python";
@@ -281,6 +282,9 @@ describe("Python generator", () => {
     };
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
     expect(unionBody).toBe('{\n  "file": "..."\n}');
+    expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
+      { name: "body", required: false, wholeBody: true },
+    ]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
         body: unionBody,
