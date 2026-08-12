@@ -156,8 +156,23 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   for (const operation of getOperations(document)) {
     validateOperation(document, operation);
     const media = successMedia(operation);
-    const responseSchema = media?.[1].schema;
-    const response = resolveSchema(document, responseSchema);
+    const successful = Object.entries(operation.responses ?? {}).filter(([status]) => /^2\d\d$/.test(status));
+    const responses = successful.length
+      ? successful
+      : Object.entries(operation.responses ?? {}).filter(([status]) => /^2xx$/i.test(status));
+    const responseSchemas = responses.flatMap(([, response]) => {
+      if (!media || "$ref" in response) return [];
+      const schema = response.content?.[media[0]]?.schema;
+      return schema ? [schema] : [];
+    });
+    const uniqueResponseSchemas = [
+      ...new Map(responseSchemas.map((schema) => [JSON.stringify(schema), schema])).values(),
+    ];
+    const responseSchema =
+      uniqueResponseSchemas.length > 1
+        ? { oneOf: uniqueResponseSchemas }
+        : (uniqueResponseSchemas[0] ?? media?.[1].schema);
+    const response = resolveSchema(document, media?.[1].schema);
     const responseType = Array.isArray(response?.type) ? response.type.find((type) => type !== "null") : response?.type;
     const resource = operation.resource;
     const values = resources.get(resource) ?? [];
