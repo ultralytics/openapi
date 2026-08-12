@@ -389,16 +389,20 @@ describe("Python generator", () => {
     media[1].schema = {
       anyOf: [
         {
-          properties: { file: { description: "File", format: "binary", type: "string" } },
-          required: ["file"],
+          properties: {
+            assetType: { anyOf: [{ enum: ["datasets"] }, { enum: ["models", "images"] }] },
+            file: { description: "File", format: "binary", type: "string" },
+          },
+          required: ["assetType", "file"],
           type: "object",
         },
         {
           properties: {
+            assetType: { anyOf: [{ enum: ["datasets"] }, { enum: ["models", "images"] }] },
             file: { type: "string", format: "binary", description: "File" },
             source: { type: "string" },
           },
-          required: ["source"],
+          required: ["assetType", "source"],
           type: "object",
         },
       ],
@@ -408,6 +412,7 @@ describe("Python generator", () => {
       await generatePython(source, config, directory);
       const uploads = await Bun.file(join(directory, "src/example_api/resources/uploads.py")).text();
       expect(uploads).toContain('files={"file": file}');
+      expect(uploads).toContain('asset_type: Literal["datasets", "models", "images"]');
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

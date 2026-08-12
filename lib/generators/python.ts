@@ -90,8 +90,11 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   const variants = schema.oneOf ?? schema.anyOf;
   if (variants?.length) {
     if (variants.every((item) => objectSchema(document, item)?.properties)) return result("dict[str, Any]");
-    if (variants.every((item) => item.const !== undefined)) {
-      const values = variants.map((item) => item.const);
+    const literalVariants = variants.map((item) => resolveSchema(document, item) ?? item);
+    if (literalVariants.every((item) => item.const !== undefined || item.enum?.length)) {
+      const values = [
+        ...new Set(literalVariants.flatMap((item) => (item.const !== undefined ? [item.const] : (item.enum ?? [])))),
+      ];
       const nonNull = values.filter((value) => value !== null);
       return result(
         `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
