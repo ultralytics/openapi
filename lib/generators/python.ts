@@ -127,6 +127,15 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   return result("Any");
 }
 
+function isTextResponse(document: OpenApiDocument, media: [string, { schema?: JsonSchema }] | undefined): boolean {
+  if (!media || media[0] === "application/json" || media[0].endsWith("+json")) return false;
+  const schema = resolveSchema(document, media[1].schema);
+  const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
+  return Boolean(
+    schema?.format !== "binary" && (type === "string" || schema?.enum?.every((value) => typeof value === "string")),
+  );
+}
+
 function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
   const unsupported = (operation.parameters ?? []).find(
     (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
@@ -151,18 +160,7 @@ function validateOperation(document: OpenApiDocument, operation: ApiOperation): 
   if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
     throw new Error(`Unsupported request body encoding: ${media[0]}`);
   }
-  const responseModes = new Set(
-    successMediaEntries(operation).map(([contentType, response]) => {
-      const schema = resolveSchema(document, response.schema);
-      const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
-      return contentType !== "application/json" &&
-        !contentType.endsWith("+json") &&
-        schema?.format !== "binary" &&
-        (type === "string" || schema?.enum?.every((value) => typeof value === "string"))
-        ? "text"
-        : "structured";
-    }),
-  );
+  const responseModes = new Set(successMediaEntries(operation).map((item) => isTextResponse(document, item)));
   if (responseModes.size > 1) throw new Error("Unsupported mixed successful response media");
 }
 
@@ -172,8 +170,6 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
     validateOperation(document, operation);
     const media = successMedia(operation);
     const responseSchema = successSchema(document, operation);
-    const response = resolveSchema(document, media?.[1].schema);
-    const responseType = Array.isArray(response?.type) ? response.type.find((type) => type !== "null") : response?.type;
     const resource = operation.resource;
     const values = resources.get(resource) ?? [];
     const name = operation.sdkMethod;
@@ -184,12 +180,7 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       name,
       responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
       responseSchema,
-      responseText:
-        !!media &&
-        media[0] !== "application/json" &&
-        !media[0].endsWith("+json") &&
-        response?.format !== "binary" &&
-        (responseType === "string" || response?.enum?.every((value) => typeof value === "string")),
+      responseText: isTextResponse(document, media),
     });
     resources.set(resource, values);
   }
