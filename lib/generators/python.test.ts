@@ -608,6 +608,14 @@ describe("Python generator", () => {
       await expect(generatePython(source, config, directory)).rejects.toThrow(
         "Unsupported mixed successful response media: POST /widgets",
       );
+
+      operation.responses["202"] = {
+        content: { "application/octet-stream": {} },
+        description: "Accepted",
+      };
+      await expect(generatePython(source, config, directory)).rejects.toThrow(
+        "Unsupported mixed successful response media: POST /widgets",
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

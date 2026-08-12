@@ -136,6 +136,11 @@ function isTextResponse(document: OpenApiDocument, media: [string, MediaType] | 
   return Boolean(type === "string" || schema?.enum?.every((value) => typeof value === "string"));
 }
 
+function responseMode(document: OpenApiDocument, media: [string, MediaType]): "binary" | "json" | "text" {
+  if (media[0] === "application/json" || media[0].endsWith("+json")) return "json";
+  return isTextResponse(document, media) ? "text" : "binary";
+}
+
 function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
   const unsupported = (operation.parameters ?? []).find(
     (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
@@ -160,7 +165,7 @@ function validateOperation(document: OpenApiDocument, operation: ApiOperation): 
   if (media?.[1].encoding && Object.keys(media[1].encoding).length) {
     throw new Error(`Unsupported request body encoding: ${media[0]}`);
   }
-  const responseModes = new Set(successMediaEntries(operation).map((item) => isTextResponse(document, item)));
+  const responseModes = new Set(successMediaEntries(operation).map((item) => responseMode(document, item)));
   if (responseModes.size > 1) {
     throw new Error(`Unsupported mixed successful response media: ${operation.method.toUpperCase()} ${operation.path}`);
   }
