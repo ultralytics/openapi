@@ -54,6 +54,11 @@ describe("Python generator", () => {
     expect(source).toContain("from .async_client import AsyncExample");
     expect(client).toContain('base_url: str = "https://api.example.com/v1"');
     expect(project).toContain('license = "AGPL-3.0-only"');
+    expect(project).toContain('description = "Typed Python SDK for Example API"');
+    expect(project).toContain('authors = [{ name = "Ultralytics", email = "hello@ultralytics.com" }]');
+    expect(project).toContain('keywords = ["api-client","openapi","sdk"]');
+    expect(project).toContain('"Programming Language :: Python :: 3.11"');
+    expect(project).toContain('"Programming Language :: Python :: 3.14"');
     expect(project).toContain('dependencies = ["httpx>=0.28,<1"]');
     expect(project).toContain('Repository = "https://github.com/ultralytics/openapi"');
     expect(readme).toContain("https://spdx.org/licenses/AGPL-3.0-only.html");
