@@ -791,6 +791,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}[A-Z]{2}$", type: "string" })).toBe("00AA");
+    expect(schemaExample(document, { pattern: "^[\\w-]{2}-\\d$", type: "string" })).toBe("aa-0");
     expect(schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" })).toBe(
       "AA.AA.0",
     );
@@ -1056,6 +1057,14 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ foo00bar: "example-foo00bar", foo01bar: "example-foo01bar" });
+    const fixedWidthKeys = schemaExample(document, {
+      additionalProperties: { type: "string" },
+      minProperties: 27,
+      propertyNames: { pattern: "^[A-Z]{2}$", type: "string" },
+      type: "object",
+    });
+    expect(Object.keys(fixedWidthKeys as object)).toHaveLength(27);
+    expect(fixedWidthKeys).toHaveProperty("BA");
     expect(
       schemaExample(document, {
         anyOf: [

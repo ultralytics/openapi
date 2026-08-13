@@ -1043,7 +1043,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
                 (match, index) =>
                   match[6] ??
                   match[7] ??
-                  (match[1] === "\\d" || match[2]?.startsWith("\\d") ? "0" : match[2]?.[0])?.repeat(counts[index]),
+                  (match[1] === "\\d" || match[2]?.startsWith("\\d")
+                    ? "0"
+                    : match[2]?.startsWith("\\w")
+                      ? "a"
+                      : match[2]?.startsWith("\\s")
+                        ? " "
+                        : match[2]?.[0]
+                  )?.repeat(counts[index]),
               )
               .join(""),
           ];
@@ -1618,12 +1625,27 @@ export function schemaExample(
                     `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
                   ]
                 : []),
+              ...(/^[A-Z]+$/.test(key)
+                ? [
+                    Array.from({ length: key.length }, (_, position) =>
+                      String.fromCharCode(65 + (Math.floor(index / 26 ** (key.length - position - 1)) % 26)),
+                    ).join(""),
+                  ]
+                : []),
+              ...(/^[a-z]+$/.test(key)
+                ? [
+                    Array.from({ length: key.length }, (_, position) =>
+                      String.fromCharCode(97 + (Math.floor(index / 26 ** (key.length - position - 1)) % 26)),
+                    ).join(""),
+                  ]
+                : []),
             ];
       const property = candidates.find(
-        (candidate) => !schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames),
+        (candidate) =>
+          !values.has(candidate) && (!schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames)),
       );
       if (!property) break;
-      if (!values.has(property)) values.set(property, schemaExample(document, additional, depth + 1, property));
+      values.set(property, schemaExample(document, additional, depth + 1, property));
     }
     return Object.fromEntries(values);
   }
