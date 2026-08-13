@@ -963,7 +963,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         ? [`2026-01-01T00:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 22) - 21))}Z`]
         : []),
       ...(schema.format === "time" ? [`12:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 11) - 10))}Z`] : []),
-      ...(schema.format === "uri" || schema.format === "url" ? ["http://x", "https://x.co"] : []),
+      ...(schema.format === "duration" ? [`P${"1".repeat(Math.max(1, (schema.minLength ?? 3) - 2))}D`] : []),
+      ...(schema.format === "uri" || schema.format === "url" ? ["http:x", "http://x", "https://x.co"] : []),
       ...(schema.format === "ipv4" ? ["1.1.1.1"] : []),
       ...(schema.format === "ipv6" ? ["::1"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),

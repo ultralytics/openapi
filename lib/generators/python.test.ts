@@ -709,7 +709,9 @@ describe("Python generator", () => {
     );
     expect(schemaExample(document, { format: "time", minLength: 10, type: "string" })).toBe("12:00:00.0Z");
     expect(schemaExample(document, { format: "ipv6", maxLength: 3, type: "string" })).toBe("::1");
-    expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http://x");
+    expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http:x");
+    expect(schemaExample(document, { format: "uri", maxLength: 7, type: "string" })).toBe("http:x");
+    expect(schemaExample(document, { format: "duration", minLength: 4, type: "string" })).toBe("P11D");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");
