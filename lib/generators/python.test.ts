@@ -690,6 +690,14 @@ describe("Python generator", () => {
       schemaExample(document, {
         additionalProperties: { type: "string" },
         minProperties: 2,
+        propertyNames: { pattern: "^(ab|cd)$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ ab: "example-ab", cd: "example-cd" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
         propertyNames: { pattern: "^[a-z]{3}$", type: "string" },
         type: "object",
       }),
@@ -746,6 +754,13 @@ describe("Python generator", () => {
         ],
       })?.properties,
     ).toEqual({ a: { type: "integer" } });
+    expect(
+      objectSchema(document, {
+        additionalProperties: false,
+        allOf: [{ properties: { a: { type: "integer" } }, type: "object" }],
+        type: "object",
+      })?.properties,
+    ).toEqual({});
     expect(
       objectSchema(document, {
         allOf: [

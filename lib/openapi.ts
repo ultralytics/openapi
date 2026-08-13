@@ -706,7 +706,7 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
               : property;
         }
       }
-      const closed = objects.filter((item) => item.additionalProperties === false);
+      const closed = composed.filter((item) => item.additionalProperties === false);
       if (closed.length) {
         for (const property of Object.keys(properties)) {
           if (closed.some((item) => !Object.hasOwn(item.properties ?? {}, property))) delete properties[property];
@@ -1407,11 +1407,16 @@ export function schemaExample(
       const alternatives = (schema.propertyNames?.enum ?? []).filter(
         (candidate): candidate is string => typeof candidate === "string" && !values.has(candidate),
       );
+      const patternAlternatives = schema.propertyNames?.pattern
+        ?.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1]
+        ?.split("|")
+        .filter((candidate) => !values.has(candidate));
       const candidates =
         index === 1
-          ? [key, ...alternatives]
+          ? [key, ...alternatives, ...(patternAlternatives ?? [])]
           : [
               ...alternatives,
+              ...(patternAlternatives ?? []),
               `${key}${index}`,
               `${key}${"X".repeat(index - 1)}`,
               `${key}${"x".repeat(index - 1)}`,
