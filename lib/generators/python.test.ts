@@ -752,6 +752,8 @@ describe("Python generator", () => {
     );
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d{2,4}$", type: "string" })).toBe("AA00");
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
+    expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
+    expect(schemaExample(document, { pattern: "^\\d+[A-Z]+$", type: "string" })).toBe("0A");
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );
@@ -1036,6 +1038,9 @@ describe("Python generator", () => {
       }),
     ).toEqual({ AAAAAAAA: "example-aaaaaaaa" });
     expect(schemaExample(document, { exclusiveMinimum: 1, minimum: 5, type: "number" })).toBe(5);
+    expect(schemaExample(document, { minimum: Number.MAX_SAFE_INTEGER, multipleOf: 1, type: "integer" })).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
     expect(
       schemaExample(document, {
         allOf: [

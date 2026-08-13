@@ -979,6 +979,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           );
           return [`${prefix}${"0".repeat(count)}`];
         }
+        const variableMixed = pattern.match(
+          /^\^(?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\\d\+|\\d\+\[([A-Za-z0-9])-[A-Za-z0-9]\]\+)\$$/,
+        );
+        if (variableMixed) return [variableMixed[1] ? `${variableMixed[1]}0` : `0${variableMixed[2]}`];
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
         const ranges = sequence
           ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)(?:,(\d*))?\})/g)]
@@ -1460,7 +1464,8 @@ export function schemaExample(
     ];
     const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
     const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
-    const round = (candidate: number) => Number(candidate.toPrecision(15));
+    const round = (candidate: number) =>
+      Number.isSafeInteger(candidate) ? candidate : Number(candidate.toPrecision(15));
     if (type === "number" && !multiple && minimum?.exclusive && maximum?.exclusive && !scalarMatches(1, schema)) {
       return round((minimum.value + maximum.value) / 2);
     }
