@@ -930,7 +930,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           /^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\](?:\{(\d+)(?:,\d*)?\}|[+*])\$$/,
         );
         if (multiRange?.[1]) return [multiRange[1].repeat(Math.max(Number(multiRange[2] ?? 1), schema.minLength ?? 1))];
-        const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
+        const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\][*+]\$$/);
         if (suffixed?.[1] && suffixed[2]) {
           return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
         }
@@ -951,6 +951,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         });
       }),
       ...(schema.format === "email" ? ["a@b.co"] : []),
+      ...(schema.format === "date-time" ? ["2026-01-01T00:00:00.0Z"] : []),
       ...(schema.format === "uri" || schema.format === "url" ? ["https://x.co"] : []),
       ...(schema.format === "ipv4" ? ["1.1.1.1"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),

@@ -692,6 +692,10 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^a+$", type: "string" })).toBe("a");
     expect(schemaExample(document, { pattern: "^a{3}$", type: "string" })).toBe("aaa");
+    expect(schemaExample(document, { pattern: "^v[0-9]+$", type: "string" })).toBe("v0");
+    expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
+      "2026-01-01T00:00:00.0Z",
+    );
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");
@@ -722,6 +726,14 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ a: "example-a", aa: "example-aa" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^v[0-9]+$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ v0: "example-v0", v02: "example-v02" });
     expect(
       schemaExample(document, {
         additionalProperties: { type: "string" },
