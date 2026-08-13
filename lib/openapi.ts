@@ -848,6 +848,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...(patterns.some((pattern) => pattern.includes("[A-Z]+")) ? ["KEY"] : []),
       "example",
       ...patterns.flatMap((pattern) => {
+        const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
+        if (suffixed?.[1] && suffixed[2]) {
+          return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
+        }
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+\}))+?)\$$/)?.[1];
@@ -1157,7 +1161,11 @@ export function schemaExample(
           ...alternative,
           anyOf: undefined,
           oneOf: undefined,
-          properties: Object.fromEntries(Object.entries(properties).filter(([property]) => required.has(property))),
+          properties: Object.fromEntries(
+            Object.entries(properties).filter(
+              ([property]) => required.has(property) || Object.hasOwn(alternative.properties ?? {}, property),
+            ),
+          ),
           required: [...required],
         };
         const candidate = schemaExample(
@@ -1174,7 +1182,20 @@ export function schemaExample(
     }
     const object = objectSchema(document, schema);
     if (object?.properties) {
-      const selected = schemaExample(document, { ...object, allOf: undefined }, depth + 1, name);
+      const names = schema.allOf.flatMap((item) => {
+        const branch = resolveSchema(document, item) ?? item;
+        return branch.propertyNames ? [branch.propertyNames] : [];
+      });
+      const selected = schemaExample(
+        document,
+        {
+          ...object,
+          allOf: undefined,
+          ...(names.length ? { propertyNames: names.length === 1 ? names[0] : { allOf: names } } : {}),
+        },
+        depth + 1,
+        name,
+      );
       if (schemaMatches(document, selected, schema)) return selected;
       for (const item of schema.allOf) {
         const candidate = schemaExample(document, item, depth + 1, name);
@@ -1547,7 +1568,11 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     const minimum = object?.minProperties ?? 0;
     if (selected.length < minimum) {
       const names = new Set(selected.map(([name]) => name));
-      selected.push(...properties.filter(([name]) => !names.has(name)).slice(0, minimum - selected.length));
+      selected.push(
+        ...properties
+          .filter(([name]) => Object.hasOwn(values, name) && !names.has(name))
+          .slice(0, minimum - selected.length),
+      );
     }
     const selectedNames = new Set(selected.map(([name]) => name));
     for (const name of required) {

@@ -338,6 +338,14 @@ describe("Python generator", () => {
     };
     expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "example-key"\n}');
     createMedia[1].schema = {
+      additionalProperties: { type: "string" },
+      minProperties: 2,
+      properties: { a: { type: "integer" } },
+      propertyNames: { pattern: "^key[0-9]*$", type: "string" },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "example-key",\n  "key2": "example-key2"\n}');
+    createMedia[1].schema = {
       allOf: [{ properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" }, { required: ["b"] }],
     };
     expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
@@ -636,6 +644,7 @@ describe("Python generator", () => {
     ).toEqual({ a: 1 });
     expect(schemaExample(document, { minLength: 3, pattern: "^[0-9]+$", type: "string" })).toBe("000");
     expect(schemaExample(document, { pattern: "^[0-9]+$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { pattern: "^b[0-9]*$", type: "string" })).toBe("b0");
     expect(
       schemaExample(document, {
         additionalProperties: false,
@@ -665,6 +674,29 @@ describe("Python generator", () => {
         ],
       }),
     ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            oneOf: [{ additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" }],
+          },
+          { minProperties: 1, type: "object" },
+        ],
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            additionalProperties: { type: "string" },
+            minProperties: 2,
+            properties: { b: { type: "integer" } },
+            type: "object",
+          },
+          { propertyNames: { pattern: "^b[0-9]*$", type: "string" } },
+        ],
+      }),
+    ).toEqual({ b: 1, b0: "example-b0" });
     expect(schemaExample(document, { enum: ["a", "b"], pattern: "^b$", type: "string" })).toBe("b");
     expect(
       schemaExample(document, { maxProperties: 0, properties: { id: { type: "integer" } }, type: "object" }),
