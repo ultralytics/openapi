@@ -1183,6 +1183,9 @@ export function schemaExample(
     const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
     const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
     const round = (candidate: number) => Number(candidate.toPrecision(15));
+    if (type === "number" && !multiple && minimum?.exclusive && maximum?.exclusive && !scalarMatches(1, schema)) {
+      return round((minimum.value + maximum.value) / 2);
+    }
     let value = 1;
     if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
       value = minimum.value;
@@ -1238,10 +1241,14 @@ export function schemaExample(
         ? "key"
         : String(schemaExample(document, schema.propertyNames, depth + 1, "key"));
     for (let index = 1; values.size < target; index += 1) {
+      const alternatives = (schema.propertyNames?.enum ?? []).filter(
+        (candidate): candidate is string => typeof candidate === "string" && !values.has(candidate),
+      );
       const candidates =
         index === 1
-          ? [key]
+          ? [key, ...alternatives]
           : [
+              ...alternatives,
               `${key}${index}`,
               `${key}${"X".repeat(index - 1)}`,
               `${key}${"x".repeat(index - 1)}`,

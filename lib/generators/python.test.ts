@@ -599,6 +599,15 @@ describe("Python generator", () => {
         ],
       }),
     ).toEqual({ error: "example-error", failureId: "resource-id" });
+    expect(schemaExample(document, { exclusiveMaximum: 0.6, exclusiveMinimum: 0.5, type: "number" })).toBe(0.55);
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { enum: ["a", "b"], type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ a: "example-a", b: "example-b" });
     expect(schemaExample(document, { enum: ["a", "b"], pattern: "^b$", type: "string" })).toBe("b");
     expect(
       schemaExample(document, { maxProperties: 0, properties: { id: { type: "integer" } }, type: "object" }),
