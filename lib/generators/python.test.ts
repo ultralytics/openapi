@@ -316,6 +316,13 @@ describe("Python generator", () => {
       type: "object",
     };
     expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "a": 1,\n  "b": 1\n}');
+    createMedia[1].schema = {
+      additionalProperties: { type: "string" },
+      minProperties: 2,
+      properties: { a: { type: "integer" } },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "a": 1,\n  "key": "example-key"\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
       {
         description: "Upload a file Or Use a source URL",
@@ -569,7 +576,7 @@ describe("Python generator", () => {
     ).toEqual({});
     expect(
       schemaExample(document, { additionalProperties: { type: "string" }, minProperties: 2, type: "object" }),
-    ).toEqual({ key: "example-key", key2: "example-key" });
+    ).toEqual({ key: "example-key", key2: "example-key2" });
     expect(
       schemaExample(document, {
         anyOf: [
@@ -585,6 +592,30 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ b: "example-b" });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { properties: { a: { type: "integer" } }, type: "object" },
+          { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+        ],
+      }),
+    ).toEqual({ b: 1 });
+    expect(schemaExample(document, { anyOf: [{ type: ["string", "number"] }], pattern: "^a$" })).toBe("a");
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        properties: { a: { type: "integer" } },
+        type: "object",
+      }),
+    ).toEqual({ a: 1, key: "example-key" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        required: ["foo"],
+        type: "object",
+      }),
+    ).toEqual({ foo: "example-foo" });
     expect(
       schemaExample(document, {
         allOf: [

@@ -819,8 +819,17 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
 
 function scalarMatches(value: unknown, schema: JsonSchema): boolean {
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
-  if (types.includes("string") && typeof value !== "string") return false;
-  if ((types.includes("number") || types.includes("integer")) && typeof value !== "number") return false;
+  if (
+    types.length &&
+    !types.some(
+      (type) =>
+        (type === "null" && value === null) ||
+        (type === "integer" && typeof value === "number" && Number.isInteger(value)) ||
+        (type === "number" && typeof value === "number") ||
+        type === typeof value,
+    )
+  )
+    return false;
   if (typeof value === "string") {
     if (!stringFormatMatches(value, schema.format)) return false;
     if (schema.minLength !== undefined && value.length < schema.minLength) return false;
@@ -1064,7 +1073,15 @@ export function schemaExample(
       }
     }
     const object = objectSchema(document, schema);
-    if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1, name);
+    if (object?.properties) {
+      const selected = schemaExample(document, { ...object, allOf: undefined }, depth + 1, name);
+      if (schemaMatches(document, selected, schema)) return selected;
+      for (const item of schema.allOf) {
+        const candidate = schemaExample(document, item, depth + 1, name);
+        if (schemaMatches(document, candidate, schema)) return candidate;
+      }
+      return selected;
+    }
     return schemaExample(document, mergeScalarSchemas(document, [schema, ...schema.allOf], name), depth + 1, name);
   }
 
@@ -1111,17 +1128,23 @@ export function schemaExample(
       const names = new Set(selected.map(([property]) => property));
       selected.push(...properties.filter(([property]) => !names.has(property)).slice(0, minimum - selected.length));
     }
-    const example = Object.fromEntries(
+    const values = new Map(
       selected.map(([name, property]) => [name, schemaExample(document, property, depth + 1, name)]),
     );
-    if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
-    const count = schema.maxProperties === 0 ? 0 : Math.max(1, schema.minProperties ?? 0);
-    return Object.fromEntries(
-      Array.from({ length: count }, (_, index) => [
-        index ? `key${index + 1}` : "key",
-        schemaExample(document, schema.additionalProperties as JsonSchema, depth + 1, "key"),
-      ]),
-    );
+    const additional =
+      typeof schema.additionalProperties === "object" ? schema.additionalProperties : { type: "string" };
+    for (const property of required) {
+      if (!values.has(property)) values.set(property, schemaExample(document, additional, depth + 1, property));
+    }
+    const target =
+      schema.maxProperties === 0
+        ? 0
+        : Math.max(schema.minProperties ?? 0, values.size || (typeof schema.additionalProperties === "object" ? 1 : 0));
+    for (let index = 1; values.size < target; index += 1) {
+      const property = index === 1 ? "key" : `key${index}`;
+      if (!values.has(property)) values.set(property, schemaExample(document, additional, depth + 1, property));
+    }
+    return Object.fromEntries(values);
   }
   return stringExample(schema, name);
 }
@@ -1349,6 +1372,17 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
       selected.push(...properties.filter(([name]) => !names.has(name)).slice(0, minimum - selected.length));
     }
     const values = example as Record<string, unknown>;
+    const selectedNames = new Set(selected.map(([name]) => name));
+    for (const name of required) {
+      if (Object.hasOwn(values, name) && !selectedNames.has(name)) {
+        selected.push([name, {}]);
+        selectedNames.add(name);
+      }
+    }
+    for (const name of Object.keys(values)) {
+      if (selected.length >= (object?.minProperties ?? 0)) break;
+      if (!selectedNames.has(name)) selected.push([name, {}]);
+    }
     if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
     else if (named.length) example = {};
   }
