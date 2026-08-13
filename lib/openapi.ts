@@ -803,6 +803,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...(key === "model" ? ["yolo26n", "yolo26"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
+      ...(patterns.some((pattern) => pattern.includes("[A-Z]+")) ? ["KEY"] : []),
       "example",
     ].map(constrainLength);
     return (
@@ -870,16 +871,18 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   delete result.allOf;
   delete result.anyOf;
   delete result.oneOf;
-  const types = schemas.flatMap((schema) => {
-    const values = Array.isArray(schema.type) ? schema.type : [schema.type];
-    return values.filter((value): value is string => Boolean(value) && value !== "null");
+  const typeSets = schemas.flatMap((schema) => {
+    const values = (Array.isArray(schema.type) ? schema.type : [schema.type]).filter(
+      (value): value is string => Boolean(value) && value !== "null",
+    );
+    return values.length
+      ? [new Set(values.flatMap((value) => (value === "number" ? ["integer", "number"] : [value])))]
+      : [];
   });
-  if (types.length) {
-    const unique = new Set(types);
-    result.type =
-      unique.has("integer") && [...unique].every((value) => value === "integer" || value === "number")
-        ? "integer"
-        : types[0];
+  if (typeSets.length) {
+    const types = [...typeSets[0]].filter((value) => typeSets.every((items) => items.has(value)));
+    if (types.includes("number") && types.includes("integer")) types.splice(types.indexOf("integer"), 1);
+    result.type = types.length === 1 ? types[0] : types;
   }
   const minimumLengths = schemas.flatMap((schema) => (schema.minLength === undefined ? [] : [schema.minLength]));
   const maximumLengths = schemas.flatMap((schema) => (schema.maxLength === undefined ? [] : [schema.maxLength]));
@@ -985,6 +988,11 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
     if (schema.minProperties !== undefined && Object.keys(record).length < schema.minProperties) return false;
     if (schema.maxProperties !== undefined && Object.keys(record).length > schema.maxProperties) return false;
     if (schema.required?.some((name) => !Object.hasOwn(record, name))) return false;
+    if (
+      schema.propertyNames &&
+      Object.keys(record).some((name) => !schemaMatches(document, name, schema.propertyNames as JsonSchema, depth + 1))
+    )
+      return false;
     if (
       schema.additionalProperties === false &&
       Object.keys(record).some((name) => !Object.hasOwn(schema.properties ?? {}, name))
@@ -1140,8 +1148,17 @@ export function schemaExample(
       schema.maxProperties === 0
         ? 0
         : Math.max(schema.minProperties ?? 0, values.size || (typeof schema.additionalProperties === "object" ? 1 : 0));
+    const key =
+      !schema.propertyNames || schemaMatches(document, "key", schema.propertyNames)
+        ? "key"
+        : String(schemaExample(document, schema.propertyNames, depth + 1, "key"));
     for (let index = 1; values.size < target; index += 1) {
-      const property = index === 1 ? "key" : `key${index}`;
+      const property =
+        index === 1
+          ? key
+          : ([`${key}${index}`, `${key}${"X".repeat(index - 1)}`, `${key}${"x".repeat(index - 1)}`].find(
+              (candidate) => !schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames),
+            ) ?? `${key}${index}`);
       if (!values.has(property)) values.set(property, schemaExample(document, additional, depth + 1, property));
     }
     return Object.fromEntries(values);
@@ -1374,15 +1391,24 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     const values = example as Record<string, unknown>;
     const selectedNames = new Set(selected.map(([name]) => name));
     for (const name of required) {
-      if (Object.hasOwn(values, name) && !selectedNames.has(name)) {
+      const property = object?.properties?.[name];
+      if (
+        Object.hasOwn(values, name) &&
+        !selectedNames.has(name) &&
+        (!property || !resolveSchema(document, property)?.readOnly)
+      ) {
         selected.push([name, {}]);
         selectedNames.add(name);
       }
     }
     for (const name of Object.keys(values)) {
       if (selected.length >= (object?.minProperties ?? 0)) break;
-      if (!selectedNames.has(name)) selected.push([name, {}]);
+      const property = object?.properties?.[name];
+      if (!selectedNames.has(name) && (!property || !resolveSchema(document, property)?.readOnly)) {
+        selected.push([name, {}]);
+      }
     }
+    if (object?.maxProperties !== undefined) selected.splice(object.maxProperties);
     if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
     else if (named.length) example = {};
   }
