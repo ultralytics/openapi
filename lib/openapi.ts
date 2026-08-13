@@ -666,15 +666,14 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
   if (schema.allOf?.length) {
     const objects = schema.allOf
       .map((item) => objectSchema(document, item))
-      .filter((item): item is JsonSchema =>
-        Boolean(
-          item &&
-          (item.type === "object" ||
-            item.properties ||
-            item.minProperties !== undefined ||
-            item.maxProperties !== undefined ||
-            item.additionalProperties !== undefined),
-        ),
+      .filter(
+        (item): item is JsonSchema =>
+          Boolean(item) &&
+          (item?.type === "object" ||
+            item?.properties !== undefined ||
+            item?.minProperties !== undefined ||
+            item?.maxProperties !== undefined ||
+            item?.additionalProperties !== undefined),
       );
     if (objects.length) {
       const composed = [schema, ...objects];
