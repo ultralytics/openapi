@@ -892,16 +892,18 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         if (pattern === "^$") return [""];
         const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,\d*)?\}|[+*])\$$/);
         if (digits) return ["0".repeat(digits[1] ? Number(digits[1]) : Math.max(1, schema.minLength ?? 1))];
-        const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,\d*)?\}|[+*])\$$/);
+        const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedRange?.[1]) {
-          return [
-            repeatedRange[1].repeat(repeatedRange[2] ? Number(repeatedRange[2]) : Math.max(1, schema.minLength ?? 1)),
-          ];
+          const count = Math.min(
+            Math.max(Number(repeatedRange[2] ?? 1), schema.minLength ?? 1),
+            repeatedRange[3] ? Number(repeatedRange[3]) : Number.POSITIVE_INFINITY,
+          );
+          return [repeatedRange[1].repeat(count)];
         }
         const multiRange = pattern.match(
-          /^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\]\{(\d+)(?:,\d*)?\}\$$/,
+          /^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\](?:\{(\d+)(?:,\d*)?\}|[+*])\$$/,
         );
-        if (multiRange?.[1] && multiRange[2]) return [multiRange[1].repeat(Number(multiRange[2]))];
+        if (multiRange?.[1]) return [multiRange[1].repeat(Math.max(Number(multiRange[2] ?? 1), schema.minLength ?? 1))];
         const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
         if (suffixed?.[1] && suffixed[2]) {
           return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
@@ -924,6 +926,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       }),
       ...(schema.format === "email" ? ["a@b.co"] : []),
       ...(schema.format === "uri" || schema.format === "url" ? ["https://x.co"] : []),
+      ...(schema.format === "ipv4" ? ["1.1.1.1"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
     ].map(constrainLength);
@@ -1408,6 +1411,9 @@ export function schemaExample(
               `${key}${"x".repeat(index - 1)}`,
               `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
               ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
+              ...(/^[a-z]+$/.test(key)
+                ? [`${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 96) % 26))}`]
+                : []),
             ];
       const property = candidates.find(
         (candidate) => !schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames),
