@@ -462,22 +462,14 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const constrainedComposedBody = Boolean(
     bodySchema?.allOf?.some((item) => typeof objectSchema(document, item)?.additionalProperties === "object"),
   );
-  const containsExclusiveUnion = (input: JsonSchema | undefined, depth = 0): boolean => {
+  const containsUnion = (input: JsonSchema | undefined, depth = 0): boolean => {
     const schema = resolveSchema(document, input);
     if (!schema || depth >= 20) return false;
-    const variants = schema.oneOf ?? schema.anyOf;
-    if (variants?.length) {
-      const shapes = variants.map((item) => {
-        const object = objectSchema(document, item);
-        return `${Object.keys(object?.properties ?? {})
-          .sort()
-          .join("\0")}:${[...(object?.required ?? [])].sort().join("\0")}`;
-      });
-      if (new Set(shapes).size > 1) return true;
-    }
-    return schema.allOf?.some((item) => containsExclusiveUnion(item, depth + 1)) ?? false;
+    return Boolean(
+      schema.oneOf?.length || schema.anyOf?.length || schema.allOf?.some((item) => containsUnion(item, depth + 1)),
+    );
   };
-  const exclusiveBody = Boolean(union?.length || containsExclusiveUnion(bodySchema));
+  const exclusiveBody = containsUnion(bodySchema);
   if (
     body?.properties &&
     Object.keys(body.properties).length &&
@@ -986,60 +978,34 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           return [`${wrappedDigits[1]}${"0".repeat(Number(wrappedDigits[2]))}${wrappedDigits[3]}`];
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
-        const mixedSequence = pattern.match(
-          /^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)(?:,\d*)?\}\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/,
-        );
-        if (mixedSequence?.[1]) {
-          const prefix = mixedSequence[1].repeat(Number(mixedSequence[2]));
-          const count = Math.min(
-            Math.max(Number(mixedSequence[3] ?? 1), (schema.minLength ?? 0) - prefix.length, 1),
-            mixedSequence[4] ? Number(mixedSequence[4]) : Number.POSITIVE_INFINITY,
-          );
-          return [`${prefix}${"0".repeat(count)}`];
-        }
         const repeatedGroup = pattern.match(
           /^\^\(\?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\\.\)\{(\d+)(?:,(\d*))?\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\$$/,
         );
         if (repeatedGroup?.[1] && repeatedGroup[5]) {
-          return [
-            `${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(Number(repeatedGroup[3]))}${repeatedGroup[5]}`,
-          ];
+          const width = Number(repeatedGroup[2]) + 1;
+          const count = Math.min(
+            Math.max(Number(repeatedGroup[3]), Math.ceil(((schema.minLength ?? 1) - 1) / width)),
+            repeatedGroup[4] ? Number(repeatedGroup[4]) : Number.POSITIVE_INFINITY,
+          );
+          return [`${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(count)}${repeatedGroup[5]}`];
         }
-        const variableMixed = pattern.match(
-          /^\^(?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\\d\+|\\d\+\[([A-Za-z0-9])-[A-Za-z0-9]\]\+)\$$/,
-        );
-        if (variableMixed) return [variableMixed[1] ? `${variableMixed[1]}0` : `0${variableMixed[2]}`];
-        const rangeThenDigits = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\\d\{(\d+)\}\$$/);
-        if (rangeThenDigits?.[1]) return [`${rangeThenDigits[1]}${"0".repeat(Number(rangeThenDigits[2]))}`];
-        const boundedRangeThenDigits = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)(?:,(\d*))?\}\\d\+\$$/);
-        if (boundedRangeThenDigits?.[1]) {
-          return [`${boundedRangeThenDigits[1].repeat(Number(boundedRangeThenDigits[2]))}0`];
-        }
-        const digitsThenRange = pattern.match(/^\^\\d\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\$$/);
-        if (digitsThenRange?.[2]) return [`${"0".repeat(Number(digitsThenRange[1]))}${digitsThenRange[2]}`];
-        const digitsThenBoundedRange = pattern.match(
-          /^\^\\d\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)(?:,(\d*))?\}\$$/,
-        );
-        if (digitsThenBoundedRange?.[2]) {
-          return [
-            `${"0".repeat(Number(digitsThenBoundedRange[1]))}${digitsThenBoundedRange[2].repeat(Number(digitsThenBoundedRange[3]))}`,
-          ];
-        }
-        const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
-        const ranges = sequence
-          ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)(?:,(\d*))?\})/g)]
-          : [];
-        if (sequence?.includes("{") || ranges.length > 1 || sequence?.endsWith("+")) {
-          const counts = ranges.map((match) => (match[3] ? Number(match[3]) : 1));
+        const sequence = pattern.match(/^\^((?:(?:\[[^\]]+\]|\\d)(?:[+*]|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
+        const tokens = sequence ? [...sequence.matchAll(/(\[([^\]]+)\]|\\d)([+*]|\{(\d+)(?:,(\d*))?\})/g)] : [];
+        if (tokens.length) {
+          const counts = tokens.map((match) => Number(match[4] ?? (match[3] === "*" ? 0 : 1)));
           let extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
-          for (const [index, match] of ranges.entries()) {
+          for (const [index, match] of tokens.entries()) {
             const maximum =
-              match[2] === "+" || match[4] === "" ? Number.POSITIVE_INFINITY : Number(match[4] ?? match[3]);
+              match[3] === "+" || match[3] === "*" || match[5] === ""
+                ? Number.POSITIVE_INFINITY
+                : Number(match[5] ?? match[4]);
             const added = Math.min(extra, maximum - counts[index]);
             counts[index] += added;
             extra -= added;
           }
-          return [ranges.map((match, index) => match[1]?.repeat(counts[index])).join("")];
+          return [
+            tokens.map((match, index) => (match[1] === "\\d" ? "0" : match[2]?.[0])?.repeat(counts[index])).join(""),
+          ];
         }
         return pattern.split("|").flatMap((alternative) => {
           const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);

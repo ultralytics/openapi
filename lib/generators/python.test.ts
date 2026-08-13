@@ -136,7 +136,7 @@ describe("Python generator", () => {
     expect(sample?.source).toContain("response = client.widgets.retrieve(");
     expect(sample?.source).toContain('widget_id="widget_123"');
     const createSample = decorated.paths["/widgets"]?.post?.["x-codeSamples"]?.[0];
-    expect(createSample?.source).toContain("description=None");
+    expect(createSample?.source).toContain('body={"description": None');
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
 
@@ -770,6 +770,14 @@ describe("Python generator", () => {
       "AA.AA.0",
     );
     expect(schemaExample(document, { pattern: "^(?:[A-Z]{2}\\.){2,3}[0-9]$", type: "string" })).toBe("AA.AA.0");
+    expect(
+      schemaExample(document, {
+        maxLength: 10,
+        minLength: 10,
+        pattern: "^(?:[A-Z]{2}\\.){2,3}[0-9]$",
+        type: "string",
+      }),
+    ).toBe("AA.AA.AA.0");
     expect(schemaExample(document, { pattern: "^\\d{0}$", type: "string" })).toBe("");
     expect(schemaExample(document, { pattern: "^[A-Z]{0}$", type: "string" })).toBe("");
     expect(schemaExample(document, { pattern: "^a{0}$", type: "string" })).toBe("");
@@ -788,6 +796,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d{2,4}$", type: "string" })).toBe("AA00");
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
     expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
+    expect(schemaExample(document, { maxLength: 5, minLength: 5, pattern: "^[A-Z]+\\d+$", type: "string" })).toBe(
+      "AAAA0",
+    );
     expect(schemaExample(document, { pattern: "^\\d+[A-Z]+$", type: "string" })).toBe("0A");
     expect(schemaExample(document, { pattern: "^[A-Z]+\\d{2}$", type: "string" })).toBe("A00");
     expect(schemaExample(document, { pattern: "^[A-Z]{2,4}\\d+$", type: "string" })).toBe("AA0");
@@ -1359,8 +1370,7 @@ describe("Python generator", () => {
     expect(types).toContain(
       '"primaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure], "secondaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure]',
     );
-    expect(widgets).toContain("description: str | None");
-    expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
+    expect(widgets).toContain("def create(self, *, body: dict[str, Any])");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");
   });
 
@@ -1489,13 +1499,10 @@ describe("Python generator", () => {
     }
   });
 
-  test("merges composed request schemas without narrowing union fields", async () => {
+  test("retains composed request unions as a whole body", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
-    expect(widgets).toContain('provider: Literal["cloud", "local"]');
-    expect(widgets).toContain("settings: dict[str, Any]");
-    expect(widgets).toContain("name: str");
-    expect(widgets).toContain("region: str");
-    expect(widgets).toContain("description: str | None");
+    expect(widgets).toContain("def create(self, *, body: dict[str, Any])");
+    expect(widgets).toContain("json=body");
     const createWidget = getOperations(document).find((operation) => operation.operationId === "create_widget");
     expect(createWidget && schemaExample(document, requestMedia(createWidget)?.[1].schema)).toMatchObject({
       provider: "cloud",
