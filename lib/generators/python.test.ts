@@ -387,7 +387,7 @@ describe("Python generator", () => {
         minimum: -Number.MAX_SAFE_INTEGER,
         type: "integer",
       }),
-    ).toEqual([]);
+    ).toEqual([`minimum ${-Number.MAX_SAFE_INTEGER}`, `maximum ${Number.MAX_SAFE_INTEGER}`]);
     expect(
       schemaConstraints(document, {
         allOf: [{ enum: ["obb"], type: "string" }],
@@ -401,6 +401,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { type: "string" })).toBe("example");
     expect(schemaExample(document, { format: "email", type: "string" })).toBe("jane@example.com");
     expect(schemaExample(document, { type: "string" }, 0, "project")).toBe("example-project");
+    expect(schemaExample(document, { maxLength: 2, type: "string" }, 0, "iconLetter")).toBe("ex");
+    expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("<pattern value>");
+    expect(schemaExample(document, { pattern: "^[a-z0-9]+$", type: "string" }, 0, "model")).toBe("yolo26n");
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {

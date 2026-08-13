@@ -703,28 +703,42 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
 }
 
 function stringExample(schema: JsonSchema, name?: string): string {
-  if (schema.format === "date") return "2026-01-01";
-  if (schema.format === "date-time") return "2026-01-01T00:00:00Z";
-  if (schema.format === "email") return "jane@example.com";
-  if (schema.format === "uri" || schema.format === "url") return "https://example.com";
-  if (schema.format === "uuid") return "123e4567-e89b-12d3-a456-426614174000";
-  if (schema.format === "binary") return "path/to/file";
   const key = name?.toLowerCase() ?? "";
-  if (key.includes("apikey") || key.includes("api_key")) return "your-api-key";
-  if (key === "owner" || key === "username") return "jane-doe";
-  if (key === "project" || key.endsWith("projectslug")) return "example-project";
-  if (key === "dataset") return "coco8";
-  if (key === "model" || key === "basemodel") return "yolo26n";
-  if (key === "deployment") return "example-deployment";
-  if (key === "id" || key === "_id" || name?.endsWith("Id") || name?.endsWith("_id")) return "resource-id";
-  if (key.includes("url")) return "https://example.com";
-  if (key.includes("filename")) return "image.jpg";
-  if (key.includes("description")) return "Example description";
-  if (key === "name" || key.endsWith("name")) return "Example name";
-  if (key.includes("message")) return "Operation completed";
-  if (key.includes("hash")) return "a1b2c3d4";
-  if (key.includes("color")) return "#4f46e5";
-  return name ? `example-${name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}` : "example";
+  let value = name ? `example-${name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}` : "example";
+  if (key === "sourceurl") value = "https://example.com/dataset.zip";
+  else if (key === "region") value = "us-east-1";
+  else if (key === "model" || key === "basemodel") value = "yolo26n.pt";
+  else if (key === "data") value = "ul://jane-doe/datasets/coco8";
+  else if (schema.format === "date") value = "2026-01-01";
+  else if (schema.format === "date-time") value = "2026-01-01T00:00:00Z";
+  else if (schema.format === "email" || key === "client_email") value = "jane@example.com";
+  else if (schema.format === "uri" || schema.format === "url") value = "https://example.com";
+  else if (schema.format === "uuid") value = "123e4567-e89b-12d3-a456-426614174000";
+  else if (schema.format === "binary") value = "path/to/file";
+  else if (key.includes("apikey") || key.includes("api_key")) value = "your-api-key";
+  else if (key === "owner" || key === "username") value = "jane-doe";
+  else if (key === "project" || key.endsWith("projectslug")) value = "example-project";
+  else if (key === "dataset") value = "coco8";
+  else if (key === "deployment") value = "example-deployment";
+  else if (key === "id" || key === "_id" || name?.endsWith("Id") || name?.endsWith("_id")) value = "resource-id";
+  else if (key.includes("url")) value = "https://example.com";
+  else if (key.includes("filename")) value = "image.jpg";
+  else if (key.includes("description")) value = "Example description";
+  else if (key === "name" || key.endsWith("name")) value = "Example name";
+  else if (key.includes("message")) value = "Operation completed";
+  else if (key.includes("hash")) value = "a1b2c3d4";
+  else if (key.includes("color")) value = "#4f46e5";
+  if (schema.maxLength !== undefined) value = value.slice(0, schema.maxLength);
+  if (schema.minLength !== undefined) value = value.padEnd(schema.minLength, "x");
+  try {
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) {
+      if (key === "model" && new RegExp(schema.pattern).test("yolo26n")) return "yolo26n";
+      return "<pattern value>";
+    }
+  } catch {
+    return "<pattern value>";
+  }
+  return value;
 }
 
 export function schemaExample(
@@ -819,10 +833,10 @@ export function schemaConstraints(document: OpenApiDocument, input: JsonSchema |
   const constraints: string[] = [];
   if (schema.enum?.length) constraints.push(`values: ${schema.enum.map(String).join(", ")}`);
   if (typeof schema.exclusiveMinimum === "number") constraints.push(`greater than ${schema.exclusiveMinimum}`);
-  else if (schema.minimum !== undefined && schema.minimum !== -Number.MAX_SAFE_INTEGER)
+  else if (schema.minimum !== undefined)
     constraints.push(`${schema.exclusiveMinimum ? "greater than" : "minimum"} ${schema.minimum}`);
   if (typeof schema.exclusiveMaximum === "number") constraints.push(`less than ${schema.exclusiveMaximum}`);
-  else if (schema.maximum !== undefined && schema.maximum !== Number.MAX_SAFE_INTEGER)
+  else if (schema.maximum !== undefined)
     constraints.push(`${schema.exclusiveMaximum ? "less than" : "maximum"} ${schema.maximum}`);
   if (schema.minLength !== undefined) constraints.push(`minimum length ${schema.minLength}`);
   if (schema.maxLength !== undefined) constraints.push(`maximum length ${schema.maxLength}`);
