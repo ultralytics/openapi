@@ -627,6 +627,36 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ a: 1 });
+    expect(schemaExample(document, { minLength: 3, pattern: "^[0-9]+$", type: "string" })).toBe("000");
+    expect(
+      schemaExample(document, {
+        additionalProperties: false,
+        properties: { a: { type: "integer" }, b: { type: "integer" } },
+        propertyNames: { pattern: "^a$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        anyOf: [{ additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" }],
+        minProperties: 1,
+        properties: { a: { type: "integer" }, b: { type: "integer" } },
+        type: "object",
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            properties: { a: { type: "integer" }, b: { type: "integer" } },
+            propertyNames: { pattern: "^[a-z]+$", type: "string" },
+            required: ["a"],
+            type: "object",
+          },
+          { propertyNames: { pattern: "^a$", type: "string" } },
+        ],
+      }),
+    ).toEqual({ a: 1 });
     expect(schemaExample(document, { enum: ["a", "b"], pattern: "^b$", type: "string" })).toBe("b");
     expect(
       schemaExample(document, { maxProperties: 0, properties: { id: { type: "integer" } }, type: "object" }),

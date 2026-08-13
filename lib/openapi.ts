@@ -849,8 +849,12 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         if (grouped) return grouped.split("|");
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+\}))+?)\$$/)?.[1];
         const ranges = sequence ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)\})/g)] : [];
-        if (sequence?.includes("{") || ranges.length > 1) {
-          return [ranges.map((match) => match[1]?.repeat(match[3] ? Number(match[3]) : 1)).join("")];
+        if (sequence?.includes("{") || ranges.length > 1 || (sequence?.endsWith("+") && schema.minLength)) {
+          return [
+            ranges
+              .map((match) => match[1]?.repeat(match[3] ? Number(match[3]) : Math.max(1, schema.minLength ?? 1)))
+              .join(""),
+          ];
         }
         return pattern.split("|").flatMap((alternative) => {
           const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
@@ -1113,13 +1117,20 @@ export function schemaExample(
       ) {
         const combined = objectSchema(document, { allOf: [siblings, variant] });
         const required = new Set([...(siblings.required ?? []), ...(variant.required ?? [])]);
+        const narrow = variant.required || variant.additionalProperties === false || variant.propertyNames;
         const narrowed =
-          combined && variant.required
+          combined && narrow
             ? {
                 ...combined,
                 allOf: undefined,
                 properties: Object.fromEntries(
-                  Object.entries(combined.properties ?? {}).filter(([property]) => required.has(property)),
+                  Object.entries(combined.properties ?? {}).filter(
+                    ([property]) =>
+                      required.has(property) ||
+                      (!variant.required &&
+                        (variant.additionalProperties !== false || Object.hasOwn(variant.properties ?? {}, property)) &&
+                        (!variant.propertyNames || schemaMatches(document, property, variant.propertyNames))),
+                  ),
                 ),
               }
             : combined;
@@ -1174,9 +1185,15 @@ export function schemaExample(
         const branch = objectSchema(document, item);
         return branch?.additionalProperties === false ? [new Set(Object.keys(branch.properties ?? {}))] : [];
       });
+      const propertyNames = schema.allOf.flatMap((item) => {
+        const branch = objectSchema(document, item);
+        return branch?.propertyNames ? [branch.propertyNames] : [];
+      });
       const common = Object.fromEntries(
         Object.entries(selected as Record<string, unknown>).filter(
-          ([property]) => required.has(property) || closed.every((properties) => properties.has(property)),
+          ([property]) =>
+            (required.has(property) || closed.every((properties) => properties.has(property))) &&
+            propertyNames.every((constraint) => schemaMatches(document, property, constraint)),
         ),
       );
       if (schemaMatches(document, common, schema)) return common;
@@ -1246,7 +1263,9 @@ export function schemaExample(
     return value;
   }
   if (type === "object" || schema.properties) {
-    const properties = Object.entries(schema.properties ?? {});
+    const properties = Object.entries(schema.properties ?? {}).filter(
+      ([property]) => !schema.propertyNames || schemaMatches(document, property, schema.propertyNames),
+    );
     const required = new Set(schema.required ?? []);
     const selected =
       schema.maxProperties === undefined
