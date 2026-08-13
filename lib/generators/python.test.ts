@@ -754,9 +754,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
-    expect(
-      schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" }),
-    ).toHaveLength(7);
+    expect(schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" })).toBe(
+      "AA.AA.0",
+    );
     expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
       "000A",
     );
@@ -1072,6 +1072,13 @@ describe("Python generator", () => {
         type: "integer",
       }),
     ).toBe(Number.MAX_SAFE_INTEGER + 1);
+    expect(
+      schemaExample(document, {
+        exclusiveMaximum: 100000000000001,
+        exclusiveMinimum: 100000000000000,
+        type: "number",
+      }),
+    ).toBe(100000000000000.5);
     expect(
       schemaExample(document, {
         allOf: [

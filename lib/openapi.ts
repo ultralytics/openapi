@@ -972,7 +972,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
         const mixedSequence = pattern.match(
-          /^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/,
+          /^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)(?:,\d*)?\}\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/,
         );
         if (mixedSequence?.[1]) {
           const prefix = mixedSequence[1].repeat(Number(mixedSequence[2]));
@@ -981,6 +981,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             mixedSequence[4] ? Number(mixedSequence[4]) : Number.POSITIVE_INFINITY,
           );
           return [`${prefix}${"0".repeat(count)}`];
+        }
+        const repeatedGroup = pattern.match(
+          /^\^\(\?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\\.\)\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\$$/,
+        );
+        if (repeatedGroup?.[1] && repeatedGroup[4]) {
+          return [
+            `${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(Number(repeatedGroup[3]))}${repeatedGroup[4]}`,
+          ];
         }
         const variableMixed = pattern.match(
           /^\^(?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\\d\+|\\d\+\[([A-Za-z0-9])-[A-Za-z0-9]\]\+)\$$/,
@@ -1486,7 +1494,8 @@ export function schemaExample(
     const round = (candidate: number) =>
       type === "integer" && Number.isInteger(candidate) ? candidate : Number(candidate.toPrecision(15));
     if (type === "number" && !multiple && minimum?.exclusive && maximum?.exclusive && !scalarMatches(1, schema)) {
-      return round((minimum.value + maximum.value) / 2);
+      const midpoint = (minimum.value + maximum.value) / 2;
+      return scalarMatches(midpoint, schema) ? midpoint : round(midpoint);
     }
     let value = 1;
     if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
