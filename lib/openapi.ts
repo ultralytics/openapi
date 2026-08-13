@@ -669,11 +669,11 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
       .filter((item): item is JsonSchema =>
         Boolean(
           item &&
-            (item.type === "object" ||
-              item.properties ||
-              item.minProperties !== undefined ||
-              item.maxProperties !== undefined ||
-              item.additionalProperties !== undefined),
+          (item.type === "object" ||
+            item.properties ||
+            item.minProperties !== undefined ||
+            item.maxProperties !== undefined ||
+            item.additionalProperties !== undefined),
         ),
       );
     if (objects.length) {
