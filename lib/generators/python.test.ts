@@ -408,6 +408,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "ipv4", type: "string" })).toBe("192.0.2.1");
     expect(schemaExample(document, { format: "custom", type: "string" })).toBe("<custom value>");
     expect(schemaExample(document, { format: "date", type: "string" }, 0, "data")).toBe("2026-01-01");
+    expect(schemaExample(document, { format: "date-time", maxLength: 10, type: "string" })).toBe("<date-time value>");
     expect(schemaExample(document, { format: "uuid", type: "string" }, 0, "model")).toBe(
       "123e4567-e89b-12d3-a456-426614174000",
     );
@@ -461,6 +462,41 @@ describe("Python generator", () => {
         pattern: "^b$",
       }),
     ).toEqual({ id: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            anyOf: [
+              { pattern: "^a$", type: "string" },
+              { pattern: "^b$", type: "string" },
+            ],
+          },
+          { pattern: "^b$" },
+        ],
+      }),
+    ).toBe("b");
+    expect(
+      schemaExample(document, {
+        anyOf: [{ type: "null" }, { properties: { id: { type: "integer" } }, type: "object" }],
+        type: "object",
+      }),
+    ).toEqual({ id: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { items: { type: "string" }, type: "array" },
+          { minItems: 2, type: "array" },
+        ],
+      }),
+    ).toEqual(["example", "example"]);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { items: { type: "string" }, type: "array" },
+          { maxItems: 0, type: "array" },
+        ],
+      }),
+    ).toEqual([]);
     expect(
       schemaExample(document, {
         allOf: [

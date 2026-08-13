@@ -705,7 +705,7 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
 
 function stringFormatMatches(value: string, format?: string): boolean {
   if (format === "date") return /^\d{4}-\d{2}-\d{2}$/.test(value);
-  if (format === "date-time") return !Number.isNaN(Date.parse(value));
+  if (format === "date-time") return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value);
   if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
   if (format === "uri" || format === "url") return URL.canParse(value);
   if (format === "hostname")
@@ -826,12 +826,7 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   const flatten = (input: JsonSchema, depth = 0): JsonSchema[] => {
     const schema = resolveSchema(document, input) ?? input;
     if (depth > 8) return [schema];
-    const union = schema.oneOf ?? schema.anyOf;
-    return [
-      schema,
-      ...(schema.allOf ?? []).flatMap((item) => flatten(item, depth + 1)),
-      ...(union?.length ? flatten(union[0], depth + 1) : []),
-    ];
+    return [schema, ...(schema.allOf ?? []).flatMap((item) => flatten(item, depth + 1))];
   };
   const schemas = inputs.flatMap((schema) => flatten(schema));
   const result = Object.assign({}, ...schemas);
@@ -854,6 +849,12 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   const maximumLengths = schemas.flatMap((schema) => (schema.maxLength === undefined ? [] : [schema.maxLength]));
   if (minimumLengths.length) result.minLength = Math.max(...minimumLengths);
   if (maximumLengths.length) result.maxLength = Math.min(...maximumLengths);
+  const minimumItems = schemas.flatMap((schema) => (schema.minItems === undefined ? [] : [schema.minItems]));
+  const maximumItems = schemas.flatMap((schema) => (schema.maxItems === undefined ? [] : [schema.maxItems]));
+  if (minimumItems.length) result.minItems = Math.max(...minimumItems);
+  if (maximumItems.length) result.maxItems = Math.min(...maximumItems);
+  const items = schemas.flatMap((schema) => (schema.items ? [schema.items] : []));
+  if (items.length) result.items = items.length === 1 ? items[0] : { allOf: items };
   const minimums = schemas.flatMap((schema) =>
     typeof schema.exclusiveMinimum === "number"
       ? [{ exclusive: true, value: schema.exclusiveMinimum }]
@@ -911,6 +912,47 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   return result;
 }
 
+function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSchema, depth = 0): boolean {
+  if (depth > 8) return true;
+  const schema = resolveSchema(document, input) ?? input;
+  if (schema.const !== undefined && value !== schema.const) return false;
+  if (schema.enum?.length && !schema.enum.includes(value)) return false;
+  if (schema.allOf?.some((item) => !schemaMatches(document, value, item, depth + 1))) return false;
+  const union = schema.oneOf ?? schema.anyOf;
+  if (union?.length && !union.some((item) => schemaMatches(document, value, item, depth + 1))) return false;
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+  if (
+    types.length &&
+    !types.some((type) => {
+      if (type === "null") return value === null;
+      if (type === "array") return Array.isArray(value);
+      if (type === "object") return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+      if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+      return typeof value === type;
+    })
+  )
+    return false;
+  if ((typeof value === "string" || typeof value === "number") && !scalarMatches(value, schema)) return false;
+  if (Array.isArray(value)) {
+    if (schema.minItems !== undefined && value.length < schema.minItems) return false;
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) return false;
+    if (schema.items && value.some((item) => !schemaMatches(document, item, schema.items as JsonSchema, depth + 1)))
+      return false;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (schema.required?.some((name) => !Object.hasOwn(record, name))) return false;
+    if (
+      Object.entries(schema.properties ?? {}).some(
+        ([name, property]) =>
+          Object.hasOwn(record, name) && !schemaMatches(document, record[name], property, depth + 1),
+      )
+    )
+      return false;
+  }
+  return true;
+}
+
 export function schemaExample(
   document: OpenApiDocument,
   input: JsonSchema | undefined,
@@ -930,24 +972,41 @@ export function schemaExample(
     for (const item of union) {
       const variant = resolveSchema(document, item) ?? item;
       const type = Array.isArray(variant.type) ? variant.type.find((value) => value !== "null") : variant.type;
-      if (variant.type === "null" || (Array.isArray(variant.type) && variant.type.every((value) => value === "null")))
-        return null;
+      if (variant.type === "null" || (Array.isArray(variant.type) && variant.type.every((value) => value === "null"))) {
+        if (schemaMatches(document, null, schema)) return null;
+        continue;
+      }
       if (type === "object" || variant.properties) {
-        const selected = schemaExample(document, variant, depth + 1, name);
-        if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
-          const enclosing = schemaExample(document, siblings, depth + 1, name);
-          if (enclosing && typeof enclosing === "object" && !Array.isArray(enclosing))
-            return { ...enclosing, ...selected };
-        }
-        return selected;
+        const combined = objectSchema(document, { allOf: [siblings, variant] });
+        const selected = schemaExample(document, combined ?? variant, depth + 1, name);
+        if (schemaMatches(document, selected, schema)) return selected;
+        continue;
       }
       const merged = mergeScalarSchemas(document, [variant, siblings], name);
       const selected = schemaExample(document, merged, depth + 1, name);
-      if (scalarMatches(selected, merged)) return selected;
+      if (schemaMatches(document, selected, schema)) return selected;
     }
     return schemaExample(document, union[0], depth + 1, name);
   }
   if (schema.allOf?.length) {
+    for (const [index, item] of schema.allOf.entries()) {
+      const nested = resolveSchema(document, item) ?? item;
+      const alternatives = nested.oneOf ?? nested.anyOf;
+      if (!alternatives?.length) continue;
+      for (const alternative of alternatives) {
+        const replacement = { ...nested, anyOf: undefined, oneOf: undefined, allOf: [alternative] };
+        const candidate = schemaExample(
+          document,
+          {
+            ...schema,
+            allOf: schema.allOf.map((entry, entryIndex) => (entryIndex === index ? replacement : entry)),
+          },
+          depth + 1,
+          name,
+        );
+        if (schemaMatches(document, candidate, schema)) return candidate;
+      }
+    }
     const object = objectSchema(document, schema);
     if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1, name);
     return schemaExample(document, mergeScalarSchemas(document, [schema, ...schema.allOf], name), depth + 1, name);
@@ -956,7 +1015,10 @@ export function schemaExample(
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
   if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.every((value) => value === "null")))
     return null;
-  if (type === "array") return [schemaExample(document, schema.items, depth + 1, name)];
+  if (type === "array") {
+    const length = schema.maxItems === 0 ? 0 : Math.max(1, schema.minItems ?? 0);
+    return Array.from({ length }, () => schemaExample(document, schema.items, depth + 1, name));
+  }
   if (type === "boolean") return false;
   if (type === "integer" || type === "number") {
     const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
