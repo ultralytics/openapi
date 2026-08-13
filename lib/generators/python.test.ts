@@ -400,6 +400,25 @@ describe("Python generator", () => {
       delete optionalClosedAnyOfMedia[1].schema.oneOf;
     }
     expect(sdkArguments(minimalDocument, optionalClosedAnyOf)).toMatchObject([{ name: "body", wholeBody: true }]);
+    const correlatedAnyOf = structuredClone(optionalClosedAnyOf);
+    const correlatedMedia = requestMedia(correlatedAnyOf);
+    if (correlatedMedia) {
+      correlatedMedia[1].schema = {
+        anyOf: [
+          {
+            additionalProperties: false,
+            properties: { kind: { const: "a" }, value: { type: "integer" } },
+            type: "object",
+          },
+          {
+            additionalProperties: false,
+            properties: { kind: { const: "b" }, value: { type: "string" } },
+            type: "object",
+          },
+        ],
+      };
+    }
+    expect(sdkArguments(minimalDocument, correlatedAnyOf)).toMatchObject([{ name: "body", wholeBody: true }]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
         body: unionBody,
@@ -702,6 +721,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^key[0-9]{2}$", type: "string" })).toBe("key00");
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
+      "0AAA",
+    );
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );
@@ -713,7 +735,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http:x");
     expect(schemaExample(document, { format: "uri", maxLength: 7, type: "string" })).toBe("http:x");
     expect(schemaExample(document, { format: "duration", minLength: 4, type: "string" })).toBe("P11D");
-    expect(schemaExample(document, { format: "ipv4", minLength: 12, type: "string" })).toBe("111.111.111.111");
+    expect(schemaExample(document, { format: "ipv4", minLength: 12, type: "string" })).toBe("1.11.111.111");
+    expect(schemaExample(document, { format: "ipv4", maxLength: 8, minLength: 8, type: "string" })).toBe("1.1.1.11");
+    expect(schemaExample(document, { format: "ipv6", maxLength: 10, minLength: 4, type: "string" })).toBe("2001:db8::");
     expect(schemaExample(document, { format: "ipv6", minLength: 20, type: "string" })).toBe(
       "2001:0db8:0000:0000:0000:0000:0000:0001",
     );

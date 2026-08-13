@@ -458,9 +458,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
         ]
       : [],
   );
-  const incompatibleClosedBody = Boolean(
-    (closed?.length && new Set(closed).size > 1) || (closedVariants.length > 1 && new Set(closedVariants).size > 1),
-  );
+  const incompatibleClosedBody = Boolean((closed?.length && new Set(closed).size > 1) || closedVariants.length);
   const exclusiveBody =
     Boolean(bodySchema?.oneOf?.length) ||
     (variants.length > 0 &&
@@ -953,11 +951,9 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+\}))+?)\$$/)?.[1];
         const ranges = sequence ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)\})/g)] : [];
         if (sequence?.includes("{") || ranges.length > 1 || sequence?.endsWith("+")) {
-          return [
-            ranges
-              .map((match) => match[1]?.repeat(match[3] ? Number(match[3]) : Math.max(1, schema.minLength ?? 1)))
-              .join(""),
-          ];
+          const counts = ranges.map((match) => (match[3] ? Number(match[3]) : 1));
+          const extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
+          return [ranges.map((match, index) => match[1]?.repeat(counts[index] + (index ? extra : 0))).join("")];
         }
         return pattern.split("|").flatMap((alternative) => {
           const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
@@ -971,9 +967,20 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...(schema.format === "time" ? [`12:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 11) - 10))}Z`] : []),
       ...(schema.format === "duration" ? [`P${"1".repeat(Math.max(1, (schema.minLength ?? 3) - 2))}D`] : []),
       ...(schema.format === "uri" || schema.format === "url" ? ["http:x", "http://x", "https://x.co"] : []),
-      ...(schema.format === "ipv4" ? ["1.1.1.1"] : []),
-      ...(schema.format === "ipv4" ? ["111.111.111.111"] : []),
-      ...(schema.format === "ipv6" ? ["::1", "2001:0db8:0000:0000:0000:0000:0000:0001"] : []),
+      ...(schema.format === "ipv4"
+        ? ["1", "11", "111"].flatMap((a) =>
+            ["1", "11", "111"].flatMap((b) =>
+              ["1", "11", "111"].flatMap((c) => ["1", "11", "111"].map((d) => `${a}.${b}.${c}.${d}`)),
+            ),
+          )
+        : []),
+      ...(schema.format === "ipv6"
+        ? [
+            "::1",
+            ...Array.from({ length: 7 }, (_, index) => `${"0:".repeat(index + 1)}:`),
+            "2001:0db8:0000:0000:0000:0000:0000:0001",
+          ]
+        : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
     ].map(constrainLength);
