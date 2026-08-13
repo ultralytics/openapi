@@ -974,15 +974,22 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           );
           return [`${digitSuffix[1]}${"0".repeat(count)}`];
         }
-        const wrappedRange = pattern.match(
-          /^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}([A-Za-z0-9._-]+)\$$/,
+        const wrappedToken = pattern.match(
+          /^\^([A-Za-z0-9._-]+)(\[([^\]]+)\]|\\d)(?:([+*])|\{(\d+)(?:,(\d*))?\})?([A-Za-z0-9._-]+)\$$/,
         );
-        if (wrappedRange?.[1] && wrappedRange[2]) {
-          return [`${wrappedRange[1]}${wrappedRange[2].repeat(Number(wrappedRange[3]))}${wrappedRange[4]}`];
+        if (wrappedToken?.[1] && wrappedToken[7]) {
+          const minimum = Number(wrappedToken[5] ?? (wrappedToken[4] === "*" ? 0 : 1));
+          const maximum =
+            wrappedToken[4] || wrappedToken[6] === ""
+              ? Number.POSITIVE_INFINITY
+              : Number(wrappedToken[6] ?? wrappedToken[5] ?? 1);
+          const count = Math.min(
+            Math.max(minimum, (schema.minLength ?? 0) - wrappedToken[1].length - wrappedToken[7].length),
+            maximum,
+          );
+          const member = wrappedToken[2] === "\\d" || wrappedToken[3]?.startsWith("\\d") ? "0" : wrappedToken[3]?.[0];
+          return [`${wrappedToken[1]}${member?.repeat(count)}${wrappedToken[7]}`];
         }
-        const wrappedDigits = pattern.match(/^\^([A-Za-z0-9._-]+)\\d\{(\d+)\}([A-Za-z0-9._-]+)\$$/);
-        if (wrappedDigits?.[1])
-          return [`${wrappedDigits[1]}${"0".repeat(Number(wrappedDigits[2]))}${wrappedDigits[3]}`];
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
         const repeatedGroup = pattern.match(
@@ -996,14 +1003,15 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           );
           return [`${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(count)}${repeatedGroup[5]}`];
         }
-        const sequence = pattern.match(/^\^((?:(?:\[[^\]]+\]|\\d)(?:[+*]|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
-        const tokens = sequence ? [...sequence.matchAll(/(\[([^\]]+)\]|\\d)([+*]|\{(\d+)(?:,(\d*))?\})/g)] : [];
+        const sequence = pattern.match(/^\^((?:(?:\[[^\]]+\]|\\d)(?:[+*]|\{\d+(?:,\d*)?\})?)+?)\$$/)?.[1];
+        const tokens = sequence ? [...sequence.matchAll(/(\[([^\]]+)\]|\\d)([+*]|\{(\d+)(?:,(\d*))?\})?/g)] : [];
         if (tokens.length) {
           const counts = tokens.map((match) => Number(match[4] ?? (match[3] === "*" ? 0 : 1)));
           let extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
           for (const [index, match] of tokens.entries()) {
-            const maximum =
-              match[3] === "+" || match[3] === "*" || match[5] === ""
+            const maximum = !match[3]
+              ? 1
+              : match[3] === "+" || match[3] === "*" || match[5] === ""
                 ? Number.POSITIVE_INFINITY
                 : Number(match[5] ?? match[4]);
             const added = Math.min(extra, maximum - counts[index]);

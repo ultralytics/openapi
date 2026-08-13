@@ -773,6 +773,8 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^item-\\d+$", type: "string" })).toBe("item-0");
     expect(schemaExample(document, { pattern: "^foo[0-9]{2}bar$", type: "string" })).toBe("foo00bar");
     expect(schemaExample(document, { pattern: "^foo\\d{2}bar$", type: "string" })).toBe("foo00bar");
+    expect(schemaExample(document, { pattern: "^foo\\d+bar$", type: "string" })).toBe("foo0bar");
+    expect(schemaExample(document, { pattern: "^foo[0-9]bar$", type: "string" })).toBe("foo0bar");
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
@@ -804,6 +806,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[A-Z]{2}\\d{2}$", type: "string" })).toBe(
       "AA00",
     );
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}[0-9]$", type: "string" })).toBe("AA0");
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d{2,4}$", type: "string" })).toBe("AA00");
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
     expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
