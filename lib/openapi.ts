@@ -938,9 +938,15 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           /^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\](?:\{(\d+)(?:,\d*)?\}|[+*])\$$/,
         );
         if (multiRange?.[1]) return [multiRange[1].repeat(Math.max(Number(multiRange[2] ?? 1), schema.minLength ?? 1))];
-        const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\][*+]\$$/);
+        const suffixed = pattern.match(
+          /^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[*+])\$$/,
+        );
         if (suffixed?.[1] && suffixed[2]) {
-          return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
+          const count = Math.min(
+            Math.max(Number(suffixed[3] ?? 1), (schema.minLength ?? 0) - suffixed[1].length, 1),
+            suffixed[4] ? Number(suffixed[4]) : Number.POSITIVE_INFINITY,
+          );
+          return [`${suffixed[1]}${suffixed[2].repeat(count)}`];
         }
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
@@ -966,7 +972,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...(schema.format === "duration" ? [`P${"1".repeat(Math.max(1, (schema.minLength ?? 3) - 2))}D`] : []),
       ...(schema.format === "uri" || schema.format === "url" ? ["http:x", "http://x", "https://x.co"] : []),
       ...(schema.format === "ipv4" ? ["1.1.1.1"] : []),
-      ...(schema.format === "ipv6" ? ["::1"] : []),
+      ...(schema.format === "ipv4" ? ["111.111.111.111"] : []),
+      ...(schema.format === "ipv6" ? ["::1", "2001:0db8:0000:0000:0000:0000:0000:0001"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
     ].map(constrainLength);

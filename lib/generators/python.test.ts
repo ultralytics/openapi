@@ -699,6 +699,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^a+$", type: "string" })).toBe("a");
     expect(schemaExample(document, { pattern: "^a{3}$", type: "string" })).toBe("aaa");
     expect(schemaExample(document, { pattern: "^v[0-9]+$", type: "string" })).toBe("v0");
+    expect(schemaExample(document, { pattern: "^key[0-9]{2}$", type: "string" })).toBe("key00");
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
@@ -712,6 +713,10 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http:x");
     expect(schemaExample(document, { format: "uri", maxLength: 7, type: "string" })).toBe("http:x");
     expect(schemaExample(document, { format: "duration", minLength: 4, type: "string" })).toBe("P11D");
+    expect(schemaExample(document, { format: "ipv4", minLength: 12, type: "string" })).toBe("111.111.111.111");
+    expect(schemaExample(document, { format: "ipv6", minLength: 20, type: "string" })).toBe(
+      "2001:0db8:0000:0000:0000:0000:0000:0001",
+    );
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");
