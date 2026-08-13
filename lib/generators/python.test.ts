@@ -404,6 +404,7 @@ describe("Python generator", () => {
   test("uses generic string examples", () => {
     expect(schemaExample(document, { type: "string" })).toBe("example");
     expect(schemaExample(document, { format: "email", type: "string" })).toBe("jane@example.com");
+    expect(schemaExample(document, { format: "email", maxLength: 10, type: "string" })).toBe("a@b.co");
     expect(schemaExample(document, { format: "date", type: "string" }, 0, "data")).toBe("2026-01-01");
     expect(schemaExample(document, { format: "uuid", type: "string" }, 0, "model")).toBe(
       "123e4567-e89b-12d3-a456-426614174000",
@@ -441,6 +442,22 @@ describe("Python generator", () => {
         ],
       }),
     ).toBe(1);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { enum: ["a", "b"], type: "string" },
+          { enum: ["c", "b"], type: "string" },
+        ],
+      }),
+    ).toBe("b");
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { multipleOf: 0.2, type: "number" },
+          { multipleOf: 0.3, type: "number" },
+        ],
+      }),
+    ).toBe(1.2);
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {

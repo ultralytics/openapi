@@ -736,13 +736,26 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     const expressions = patterns.map((pattern) => new RegExp(pattern));
     const candidates = [
       value,
+      ...(schema.format === "email" ? ["a@b.co"] : []),
+      ...(schema.format === "uri" || schema.format === "url" ? ["https://x.co"] : []),
       ...(key === "model" ? ["yolo26n", "yolo26"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
       "example",
     ].map(constrainLength);
+    const formatValid = (candidate: string) => {
+      if (schema.format === "date") return /^\d{4}-\d{2}-\d{2}$/.test(candidate);
+      if (schema.format === "date-time") return !Number.isNaN(Date.parse(candidate));
+      if (schema.format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(candidate);
+      if (schema.format === "uri" || schema.format === "url") return URL.canParse(candidate);
+      if (schema.format === "uuid")
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate);
+      return true;
+    };
     return (
-      candidates.find((candidate) => expressions.every((expression) => expression.test(candidate))) ?? "<pattern value>"
+      candidates.find(
+        (candidate) => formatValid(candidate) && expressions.every((expression) => expression.test(candidate)),
+      ) ?? "<pattern value>"
     );
   } catch {
     return "<pattern value>";
@@ -793,6 +806,20 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   if (minimum) result[minimum.exclusive ? "exclusiveMinimum" : "minimum"] = minimum.value;
   if (maximum) result[maximum.exclusive ? "exclusiveMaximum" : "maximum"] = maximum.value;
   const patterns = [...new Set(schemas.flatMap((schema) => (schema.pattern ? [schema.pattern] : [])))];
+  const enums = schemas.filter((schema) => schema.enum).map((schema) => schema.enum ?? []);
+  if (enums.length) {
+    result.enum = enums.reduce((values, items) => values.filter((value) => items.includes(value)));
+  }
+  const multiples = schemas.flatMap((schema) => (schema.multipleOf === undefined ? [] : [schema.multipleOf]));
+  if (multiples.length) {
+    const decimals = Math.max(...multiples.map((value) => (String(value).split(".")[1] ?? "").length));
+    const scale = 10 ** decimals;
+    const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+    result.multipleOf =
+      multiples
+        .map((value) => Math.round(value * scale))
+        .reduce((multiple, value) => (multiple * value) / gcd(multiple, value)) / scale;
+  }
   const type = Array.isArray(result.type) ? result.type.find((value: string) => value !== "null") : result.type;
   if (
     type === "string" &&
