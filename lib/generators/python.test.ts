@@ -133,7 +133,6 @@ describe("Python generator", () => {
                 items: {
                   properties: {
                     bbox: {
-                      items: { not: {} },
                       prefixItems: Array.from({ length: 4 }, () => ({ type: "number" })),
                       type: "array",
                     },
@@ -643,7 +642,6 @@ describe("Python generator", () => {
     expect(schemaExample(document, { type: ["null"] })).toBeNull();
     expect(
       schemaExample(document, {
-        items: { not: {} },
         prefixItems: Array.from({ length: 4 }, () => ({ type: "number" })),
         type: "array",
       }),

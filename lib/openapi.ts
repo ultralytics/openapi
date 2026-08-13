@@ -26,7 +26,6 @@ export interface JsonSchema {
   minimum?: number;
   multipleOf?: number;
   nullable?: boolean;
-  not?: JsonSchema;
   oneOf?: JsonSchema[];
   prefixItems?: JsonSchema[];
   properties?: Record<string, JsonSchema>;
@@ -1266,7 +1265,6 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
   const schema = resolveSchema(document, input) ?? input;
   if (schema.const !== undefined && value !== schema.const) return false;
   if (schema.enum?.length && !schema.enum.includes(value)) return false;
-  if (schema.not && schemaMatches(document, value, schema.not, depth + 1)) return false;
   if (schema.allOf?.some((item) => !schemaMatches(document, value, item, depth + 1))) return false;
   if (
     schema.oneOf?.length &&
