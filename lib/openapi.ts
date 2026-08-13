@@ -747,6 +747,20 @@ function stringExample(schema: JsonSchema, name?: string): string {
   return value;
 }
 
+function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[]): JsonSchema {
+  const schemas = inputs.map((schema) => resolveSchema(document, schema) ?? schema);
+  const result = Object.assign({}, ...schemas);
+  delete result.$ref;
+  delete result.allOf;
+  delete result.anyOf;
+  delete result.oneOf;
+  const minimumLengths = schemas.flatMap((schema) => (schema.minLength === undefined ? [] : [schema.minLength]));
+  const maximumLengths = schemas.flatMap((schema) => (schema.maxLength === undefined ? [] : [schema.maxLength]));
+  if (minimumLengths.length) result.minLength = Math.max(...minimumLengths);
+  if (maximumLengths.length) result.maxLength = Math.min(...maximumLengths);
+  return result;
+}
+
 export function schemaExample(
   document: OpenApiDocument,
   input: JsonSchema | undefined,
@@ -762,6 +776,13 @@ export function schemaExample(
 
   const union = schema.oneOf ?? schema.anyOf;
   if (union?.length) {
+    const selectedSchema = resolveSchema(document, union[0]) ?? union[0];
+    const selectedType = Array.isArray(selectedSchema.type)
+      ? selectedSchema.type.find((value) => value !== "null")
+      : selectedSchema.type;
+    if (selectedType !== "object" && !selectedSchema.properties) {
+      return schemaExample(document, mergeScalarSchemas(document, [selectedSchema, schema]), depth + 1, name);
+    }
     const selected = schemaExample(document, union[0], depth + 1, name);
     if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
       const siblings = schemaExample(document, { ...schema, anyOf: undefined, oneOf: undefined }, depth + 1, name);
@@ -772,9 +793,12 @@ export function schemaExample(
   if (schema.allOf?.length) {
     const object = objectSchema(document, schema);
     if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1, name);
+    return schemaExample(document, mergeScalarSchemas(document, [schema, ...schema.allOf]), depth + 1, name);
   }
 
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
+  if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.every((value) => value === "null")))
+    return null;
   if (type === "array") return [schemaExample(document, schema.items, depth + 1, name)];
   if (type === "boolean") return false;
   if (type === "integer" || type === "number") {

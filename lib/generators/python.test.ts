@@ -411,6 +411,10 @@ describe("Python generator", () => {
     expect(schemaExample(document, { maxLength: 6, pattern: "^yolo26n$|^yolo26$", type: "string" }, 0, "model")).toBe(
       "yolo26",
     );
+    expect(schemaExample(document, { minLength: 10, oneOf: [{ type: "string" }] })).toBe("examplexxx");
+    expect(schemaExample(document, { allOf: [{ type: "string" }, { minLength: 10 }] })).toBe("examplexxx");
+    expect(schemaExample(document, { type: "null" })).toBeNull();
+    expect(schemaExample(document, { type: ["null"] })).toBeNull();
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {
