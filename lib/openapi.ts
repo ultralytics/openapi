@@ -462,7 +462,22 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const constrainedComposedBody = Boolean(
     bodySchema?.allOf?.some((item) => typeof objectSchema(document, item)?.additionalProperties === "object"),
   );
-  const exclusiveBody = Boolean(union?.length);
+  const containsExclusiveUnion = (input: JsonSchema | undefined, depth = 0): boolean => {
+    const schema = resolveSchema(document, input);
+    if (!schema || depth >= 20) return false;
+    const variants = schema.oneOf ?? schema.anyOf;
+    if (variants?.length) {
+      const shapes = variants.map((item) => {
+        const object = objectSchema(document, item);
+        return `${Object.keys(object?.properties ?? {})
+          .sort()
+          .join("\0")}:${[...(object?.required ?? [])].sort().join("\0")}`;
+      });
+      if (new Set(shapes).size > 1) return true;
+    }
+    return schema.allOf?.some((item) => containsExclusiveUnion(item, depth + 1)) ?? false;
+  };
+  const exclusiveBody = Boolean(union?.length || containsExclusiveUnion(bodySchema));
   if (
     body?.properties &&
     Object.keys(body.properties).length &&
@@ -908,7 +923,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (digits) {
           const count = Math.min(
-            Math.max(Number(digits[1] ?? 1), schema.minLength ?? 1),
+            Math.max(Number(digits[1] ?? 1), schema.minLength ?? (digits[1] === "0" ? 0 : 1)),
             digits[2] ? Number(digits[2]) : Number.POSITIVE_INFINITY,
           );
           return ["0".repeat(count)];
@@ -916,7 +931,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         const repeatedClass = pattern.match(/^\^\[([^\]]+)\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedClass?.[1]) {
           const count = Math.min(
-            Math.max(Number(repeatedClass[2] ?? 1), schema.minLength ?? 1),
+            Math.max(Number(repeatedClass[2] ?? 1), schema.minLength ?? (repeatedClass[2] === "0" ? 0 : 1)),
             repeatedClass[3] ? Number(repeatedClass[3]) : Number.POSITIVE_INFINITY,
           );
           const member = repeatedClass[1].startsWith("\\d") ? "0" : repeatedClass[1][0];
@@ -925,7 +940,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         const repeatedLiteral = pattern.match(/^\^([A-Za-z0-9_-])(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedLiteral?.[1]) {
           const count = Math.min(
-            Math.max(Number(repeatedLiteral[2] ?? 1), schema.minLength ?? 1),
+            Math.max(Number(repeatedLiteral[2] ?? 1), schema.minLength ?? (repeatedLiteral[2] === "0" ? 0 : 1)),
             repeatedLiteral[3] ? Number(repeatedLiteral[3]) : Number.POSITIVE_INFINITY,
           );
           return [repeatedLiteral[1].repeat(count)];
@@ -933,7 +948,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedRange?.[1]) {
           const count = Math.min(
-            Math.max(Number(repeatedRange[2] ?? 1), schema.minLength ?? 1),
+            Math.max(Number(repeatedRange[2] ?? 1), schema.minLength ?? (repeatedRange[2] === "0" ? 0 : 1)),
             repeatedRange[3] ? Number(repeatedRange[3]) : Number.POSITIVE_INFINITY,
           );
           return [repeatedRange[1].repeat(count)];
@@ -983,11 +998,11 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           return [`${prefix}${"0".repeat(count)}`];
         }
         const repeatedGroup = pattern.match(
-          /^\^\(\?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\\.\)\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\$$/,
+          /^\^\(\?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\\.\)\{(\d+)(?:,(\d*))?\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\$$/,
         );
-        if (repeatedGroup?.[1] && repeatedGroup[4]) {
+        if (repeatedGroup?.[1] && repeatedGroup[5]) {
           return [
-            `${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(Number(repeatedGroup[3]))}${repeatedGroup[4]}`,
+            `${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(Number(repeatedGroup[3]))}${repeatedGroup[5]}`,
           ];
         }
         const variableMixed = pattern.match(
@@ -1495,7 +1510,9 @@ export function schemaExample(
       type === "integer" && Number.isInteger(candidate) ? candidate : Number(candidate.toPrecision(15));
     if (type === "number" && !multiple && minimum?.exclusive && maximum?.exclusive && !scalarMatches(1, schema)) {
       const midpoint = (minimum.value + maximum.value) / 2;
-      return scalarMatches(midpoint, schema) ? midpoint : round(midpoint);
+      const rounded = round(midpoint);
+      if (scalarMatches(midpoint, schema)) return midpoint;
+      if (scalarMatches(rounded, schema)) return rounded;
     }
     let value = 1;
     if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
@@ -1518,7 +1535,7 @@ export function schemaExample(
       if (alignment) value = round(Math.ceil(value / alignment) * alignment);
       if (minimum.exclusive && value <= minimum.value) value = round(value + step);
     }
-    return value;
+    return scalarMatches(value, schema) ? value : null;
   }
   if (type === "object" || schema.properties) {
     const properties = Object.entries(schema.properties ?? {}).filter(

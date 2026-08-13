@@ -236,6 +236,18 @@ describe("Python generator", () => {
     };
     expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
     createMedia[1].schema = {
+      allOf: [
+        {
+          oneOf: [
+            { properties: { a: { type: "integer" } }, required: ["a"], type: "object" },
+            { properties: { b: { type: "integer" } }, required: ["b"], type: "object" },
+          ],
+        },
+      ],
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
       additionalProperties: false,
       allOf: [{ properties: { a: { type: "integer" } }, type: "object" }],
       type: "object",
@@ -757,6 +769,10 @@ describe("Python generator", () => {
     expect(schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" })).toBe(
       "AA.AA.0",
     );
+    expect(schemaExample(document, { pattern: "^(?:[A-Z]{2}\\.){2,3}[0-9]$", type: "string" })).toBe("AA.AA.0");
+    expect(schemaExample(document, { pattern: "^\\d{0}$", type: "string" })).toBe("");
+    expect(schemaExample(document, { pattern: "^[A-Z]{0}$", type: "string" })).toBe("");
+    expect(schemaExample(document, { pattern: "^a{0}$", type: "string" })).toBe("");
     expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
       "000A",
     );
@@ -1079,6 +1095,13 @@ describe("Python generator", () => {
         type: "number",
       }),
     ).toBe(100000000000000.5);
+    expect(
+      schemaExample(document, {
+        exclusiveMaximum: 10000000000000002,
+        exclusiveMinimum: 10000000000000000,
+        type: "number",
+      }),
+    ).toBeNull();
     expect(
       schemaExample(document, {
         allOf: [
