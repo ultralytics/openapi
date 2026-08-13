@@ -735,6 +735,9 @@ describe("Python generator", () => {
     expect(
       schemaExample(document, { maxLength: 6, minLength: 6, pattern: "^[A-Z]{2}[0-9]{2,4}$", type: "string" }),
     ).toBe("AA0000");
+    expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[A-Z]{2}\\d{2}$", type: "string" })).toBe(
+      "AA00",
+    );
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );
@@ -747,6 +750,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "uri", maxLength: 7, type: "string" })).toBe("http:x");
     expect(schemaExample(document, { format: "duration", minLength: 4, type: "string" })).toBe("P11D");
     expect(schemaExample(document, { format: "email", maxLength: 7, minLength: 7, type: "string" })).toBe("a@b.cox");
+    expect(schemaExample(document, { format: "hostname", maxLength: 72, minLength: 72, type: "string" })).toHaveLength(
+      72,
+    );
     expect(schemaExample(document, { format: "ipv4", minLength: 12, type: "string" })).toBe("1.11.111.111");
     expect(schemaExample(document, { format: "ipv4", maxLength: 8, minLength: 8, type: "string" })).toBe("1.1.1.11");
     expect(schemaExample(document, { format: "ipv6", maxLength: 10, minLength: 4, type: "string" })).toBe("2001:db8::");

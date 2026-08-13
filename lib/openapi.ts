@@ -952,6 +952,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         }
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
+        const mixedSequence = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\d\{(\d+)\}\$$/);
+        if (mixedSequence?.[1]) {
+          return [`${mixedSequence[1].repeat(Number(mixedSequence[2]))}${"0".repeat(Number(mixedSequence[3]))}`];
+        }
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
         const ranges = sequence
           ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)(?:,(\d*))?\})/g)]
@@ -1006,6 +1010,17 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             }),
             "2001:0db8:0000:0000:0000:0000:0000:0001",
           ]
+        : []),
+      ...(schema.format === "hostname"
+        ? Array.from({ length: 253 }, (_, index) => index + 1).map((length) => {
+            const labels = Math.ceil(length / 64);
+            let characters = length - labels + 1;
+            return Array.from({ length: labels }, (_, index) => {
+              const width = Math.min(63, characters - (labels - index - 1));
+              characters -= width;
+              return "a".repeat(width);
+            }).join(".");
+          })
         : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
