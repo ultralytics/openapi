@@ -534,7 +534,7 @@ describe("Python generator", () => {
         type: "string",
       }),
     ).toBe("2027-01-01");
-    expect(schemaExample(document, { format: "date-time", maxLength: 10, type: "string" })).toBe("<date-time value>");
+    expect(schemaExample(document, { format: "date-time", maxLength: 10, type: "string" })).toBe("<date-time");
     expect(schemaExample(document, { format: "uuid", type: "string" }, 0, "model")).toBe(
       "123e4567-e89b-12d3-a456-426614174000",
     );
@@ -727,6 +727,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
+    expect(
+      schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" }),
+    ).toHaveLength(7);
     expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
       "000A",
     );

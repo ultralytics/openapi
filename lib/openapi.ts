@@ -1031,10 +1031,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         (candidate) =>
           stringFormatMatches(candidate, schema.format) &&
           expressions.every((expression) => expression.test(candidate)),
-      ) ?? `<${schema.format ?? "pattern"} value>`
+      ) ?? constrainLength(`<${schema.format ?? "pattern"} value>`)
     );
   } catch {
-    return "<pattern value>";
+    return constrainLength("<pattern value>");
   }
 }
 
