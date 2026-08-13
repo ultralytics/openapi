@@ -1109,6 +1109,7 @@ describe("Python generator", () => {
       }),
     ).toBe(1.2);
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
+    expect(schemaExample(document, { maximum: 0, type: "integer" })).toBe(0);
     expect(schemaExample(document, { maximum: 1.9, minimum: 1.5, type: ["integer", "number"] })).toBe(1.5);
     expect(schemaExample(document, { multipleOf: 0.3, type: "integer" })).toBe(3);
     expect(
