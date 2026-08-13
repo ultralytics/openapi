@@ -577,6 +577,28 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ b: 1 });
+    expect(
+      schemaExample(document, {
+        const: null,
+        oneOf: [{ nullable: true, type: "string" }, { type: "number" }],
+      }),
+    ).toBeNull();
+    expect(schemaExample(document, { oneOf: [{}, { type: "string" }] })).toBeNull();
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            properties: { failureId: { type: "string" } },
+            required: ["failureId"],
+            type: "object",
+          },
+          {
+            oneOf: [{ required: ["error"] }, { required: ["retryAfter"] }],
+            properties: { error: { type: "string" }, retryAfter: { type: "integer" } },
+          },
+        ],
+      }),
+    ).toEqual({ error: "example-error", failureId: "resource-id" });
     expect(schemaExample(document, { enum: ["a", "b"], pattern: "^b$", type: "string" })).toBe("b");
     expect(
       schemaExample(document, { maxProperties: 0, properties: { id: { type: "integer" } }, type: "object" }),

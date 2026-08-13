@@ -1007,6 +1007,7 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
   if (
     types.length &&
+    !(value === null && schema.nullable) &&
     !types.some((type) => {
       if (type === "null") return value === null;
       if (type === "array") return Array.isArray(value);
@@ -1094,7 +1095,7 @@ export function schemaExample(
       const selected = schemaExample(document, merged, depth + 1, name);
       if (schemaMatches(document, selected, schema)) return selected;
     }
-    return schemaExample(document, union[0], depth + 1, name);
+    return [null, false, 0, {}, []].find((candidate) => schemaMatches(document, candidate, schema)) ?? null;
   }
   if (schema.allOf?.length) {
     for (const [index, item] of schema.allOf.entries()) {
@@ -1102,11 +1103,15 @@ export function schemaExample(
       const alternatives = nested.oneOf ?? nested.anyOf;
       if (!alternatives?.length) continue;
       for (const alternative of alternatives) {
+        const required = new Set([...(nested.required ?? []), ...(alternative.required ?? [])]);
+        const properties = { ...nested.properties, ...alternative.properties };
         const replacement = {
           ...nested,
+          ...alternative,
           anyOf: undefined,
           oneOf: undefined,
-          allOf: [...(nested.allOf ?? []), alternative],
+          properties: Object.fromEntries(Object.entries(properties).filter(([property]) => required.has(property))),
+          required: [...required],
         };
         const candidate = schemaExample(
           document,
