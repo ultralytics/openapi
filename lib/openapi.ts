@@ -433,10 +433,17 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const structured = json || ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
   const bodySchema = resolveSchema(document, media?.[1].schema);
   const union = bodySchema?.oneOf ?? bodySchema?.anyOf;
-  const variantDescriptions = union
-    ?.map((variant) => resolveSchema(document, variant)?.description)
-    .filter((description): description is string => Boolean(description));
-  const variantDescription = variantDescriptions?.join(" Or ");
+  const unionDescriptions = (input: JsonSchema | undefined, depth = 0): string[] => {
+    const schema = resolveSchema(document, input);
+    if (!schema || depth >= 20) return [];
+    const variants = schema.oneOf ?? schema.anyOf;
+    return variants?.length
+      ? variants
+          .map((variant) => resolveSchema(document, variant)?.description)
+          .filter((description): description is string => Boolean(description))
+      : (schema.allOf ?? []).flatMap((item) => unionDescriptions(item, depth + 1));
+  };
+  const variantDescription = unionDescriptions(bodySchema).join(" Or ");
   const body = structured ? objectSchema(document, bodySchema) : undefined;
   const variants = union?.map((variant) => objectSchema(document, variant)) ?? [];
   const closed = bodySchema?.allOf?.flatMap((item) => {

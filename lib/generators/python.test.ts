@@ -239,14 +239,16 @@ describe("Python generator", () => {
       allOf: [
         {
           oneOf: [
-            { properties: { a: { type: "integer" } }, required: ["a"], type: "object" },
-            { properties: { b: { type: "integer" } }, required: ["b"], type: "object" },
+            { description: "Use A", properties: { a: { type: "integer" } }, required: ["a"], type: "object" },
+            { description: "Use B", properties: { b: { type: "integer" } }, required: ["b"], type: "object" },
           ],
         },
       ],
       type: "object",
     };
-    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([
+      { description: "Use A Or Use B", name: "body", wholeBody: true },
+    ]);
     createMedia[1].schema = {
       additionalProperties: false,
       allOf: [{ properties: { a: { type: "integer" } }, type: "object" }],
