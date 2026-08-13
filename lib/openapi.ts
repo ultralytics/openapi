@@ -987,6 +987,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         if (rangeThenDigits?.[1]) return [`${rangeThenDigits[1]}${"0".repeat(Number(rangeThenDigits[2]))}`];
         const digitsThenRange = pattern.match(/^\^\\d\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\$$/);
         if (digitsThenRange?.[2]) return [`${"0".repeat(Number(digitsThenRange[1]))}${digitsThenRange[2]}`];
+        const digitsThenBoundedRange = pattern.match(
+          /^\^\\d\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)(?:,(\d*))?\}\$$/,
+        );
+        if (digitsThenBoundedRange?.[2]) {
+          return [
+            `${"0".repeat(Number(digitsThenBoundedRange[1]))}${digitsThenBoundedRange[2].repeat(Number(digitsThenBoundedRange[3]))}`,
+          ];
+        }
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
         const ranges = sequence
           ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)(?:,(\d*))?\})/g)]
