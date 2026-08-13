@@ -781,11 +781,28 @@ function stringFormatMatches(value: string, format?: string): boolean {
     );
   if (format === "uuid")
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-  return !format || format === "binary" || format === "byte" || format === "password";
+  return true;
 }
 
 function stringExample(schema: JsonSchema, name?: string, patterns = schema.pattern ? [schema.pattern] : []): string {
   const key = name?.toLowerCase() ?? "";
+  const knownFormats = new Set([
+    "binary",
+    "byte",
+    "date",
+    "date-time",
+    "duration",
+    "email",
+    "hostname",
+    "ipv4",
+    "ipv6",
+    "password",
+    "time",
+    "uri",
+    "url",
+    "uuid",
+  ]);
+  if (schema.format && !knownFormats.has(schema.format) && !patterns.length) return `<${schema.format} value>`;
   let value = name ? `example-${name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}` : "example";
   if (schema.format === "date") value = "2026-01-01";
   else if (schema.format === "date-time") value = "2026-01-01T00:00:00Z";
@@ -1085,9 +1102,28 @@ export function schemaExample(
         if (schemaMatches(document, null, schema)) return null;
         continue;
       }
-      if (type === "object" || variant.properties) {
+      if (
+        type === "object" ||
+        variant.properties ||
+        variant.required ||
+        variant.additionalProperties !== undefined ||
+        variant.minProperties !== undefined ||
+        variant.maxProperties !== undefined ||
+        variant.propertyNames
+      ) {
         const combined = objectSchema(document, { allOf: [siblings, variant] });
-        const selected = schemaExample(document, combined ?? variant, depth + 1, name);
+        const required = new Set([...(siblings.required ?? []), ...(variant.required ?? [])]);
+        const narrowed =
+          combined && variant.required
+            ? {
+                ...combined,
+                allOf: undefined,
+                properties: Object.fromEntries(
+                  Object.entries(combined.properties ?? {}).filter(([property]) => required.has(property)),
+                ),
+              }
+            : combined;
+        const selected = schemaExample(document, narrowed ?? variant, depth + 1, name);
         if (schemaMatches(document, selected, schema)) return selected;
         continue;
       }
