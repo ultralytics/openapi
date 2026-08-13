@@ -647,6 +647,8 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[0-9]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^\\d+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^\\d{3}$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { pattern: "^\\d{3,5}$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { pattern: "^[0-9]*$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^$", type: "string" })).toBe("");
     expect(schemaExample(document, { pattern: "foo", type: "string" })).toBe("foo");
     expect(schemaExample(document, { type: "string" }, 0, "apiKey")).toBe("your-api-key");

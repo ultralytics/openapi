@@ -857,8 +857,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...patterns.flatMap((pattern) => {
         if (/^[a-zA-Z0-9._-]+$/.test(pattern)) return [pattern];
         if (pattern === "^$") return [""];
-        const digits = pattern.match(/^\^\\d(?:\{(\d+)\}|\+)\$$/);
+        const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,\d+)?\}|[+*])\$$/);
         if (digits) return ["0".repeat(digits[1] ? Number(digits[1]) : Math.max(1, schema.minLength ?? 1))];
+        const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,\d+)?\}|[+*])\$$/);
+        if (repeatedRange?.[1]) {
+          return [
+            repeatedRange[1].repeat(repeatedRange[2] ? Number(repeatedRange[2]) : Math.max(1, schema.minLength ?? 1)),
+          ];
+        }
         const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
         if (suffixed?.[1] && suffixed[2]) {
           return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
