@@ -699,6 +699,8 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^a+$", type: "string" })).toBe("a");
     expect(schemaExample(document, { pattern: "^a{3}$", type: "string" })).toBe("aaa");
     expect(schemaExample(document, { pattern: "^v[0-9]+$", type: "string" })).toBe("v0");
+    expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
+    expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );

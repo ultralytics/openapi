@@ -910,6 +910,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           );
           return ["0".repeat(count)];
         }
+        const repeatedClass = pattern.match(/^\^\[([^\]]+)\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
+        if (repeatedClass?.[1]) {
+          const count = Math.min(
+            Math.max(Number(repeatedClass[2] ?? 1), schema.minLength ?? 1),
+            repeatedClass[3] ? Number(repeatedClass[3]) : Number.POSITIVE_INFINITY,
+          );
+          return [repeatedClass[1][0]?.repeat(count) ?? ""];
+        }
         const repeatedLiteral = pattern.match(/^\^([A-Za-z0-9_-])(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedLiteral?.[1]) {
           const count = Math.min(
@@ -1099,7 +1107,12 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
     result.const === undefined &&
     !result.enum?.length
   ) {
-    result.example = stringExample(result, name, patterns);
+    const formats = [...new Set(schemas.flatMap((schema) => (schema.format ? [schema.format] : [])))];
+    result.example =
+      formats
+        .map((format) => stringExample({ ...result, format }, name, patterns))
+        .find((candidate) => schemas.every((schema) => scalarMatches(candidate, schema))) ??
+      stringExample(result, name, patterns);
   }
   return result;
 }
