@@ -18,9 +18,11 @@ export interface JsonSchema {
   items?: JsonSchema;
   maxItems?: number;
   maxLength?: number;
+  maxProperties?: number;
   maximum?: number;
   minItems?: number;
   minLength?: number;
+  minProperties?: number;
   minimum?: number;
   multipleOf?: number;
   nullable?: boolean;
@@ -431,13 +433,59 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const structured = json || ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
   const bodySchema = resolveSchema(document, media?.[1].schema);
   const union = bodySchema?.oneOf ?? bodySchema?.anyOf;
+  const unionDescriptions = (input: JsonSchema | undefined, depth = 0): string[] => {
+    const schema = resolveSchema(document, input);
+    if (!schema || depth >= 20) return [];
+    const variants = schema.oneOf ?? schema.anyOf;
+    return variants?.length
+      ? variants
+          .map((variant) => resolveSchema(document, variant)?.description)
+          .filter((description): description is string => Boolean(description))
+      : (schema.allOf ?? []).flatMap((item) => unionDescriptions(item, depth + 1));
+  };
+  const variantDescription = unionDescriptions(bodySchema).join(" Or ");
   const body = structured ? objectSchema(document, bodySchema) : undefined;
-  const variants = union?.map((variant) => objectSchema(document, variant));
-  const exclusiveBody =
-    variants?.length &&
-    variants.every((variant) => variant?.required?.length) &&
-    variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name)));
-  if (body?.properties && !exclusiveBody) {
+  const variants = union?.map((variant) => objectSchema(document, variant)) ?? [];
+  const closed = bodySchema?.allOf?.flatMap((item) => {
+    const branch = objectSchema(document, item);
+    return branch?.additionalProperties === false
+      ? [
+          Object.keys(branch.properties ?? {})
+            .sort()
+            .join("\0"),
+        ]
+      : [];
+  });
+  const closedVariants = variants.flatMap((variant) =>
+    variant?.additionalProperties === false
+      ? [
+          Object.keys(variant.properties ?? {})
+            .sort()
+            .join("\0"),
+        ]
+      : [],
+  );
+  const incompatibleClosedBody = Boolean((closed?.length && new Set(closed).size > 1) || closedVariants.length);
+  const constrainedComposedBody = Boolean(
+    bodySchema?.allOf?.some((item) => typeof objectSchema(document, item)?.additionalProperties === "object"),
+  );
+  const containsUnion = (input: JsonSchema | undefined, depth = 0): boolean => {
+    const schema = resolveSchema(document, input);
+    if (!schema || depth >= 20) return false;
+    return Boolean(
+      schema.oneOf?.length || schema.anyOf?.length || schema.allOf?.some((item) => containsUnion(item, depth + 1)),
+    );
+  };
+  const exclusiveBody = containsUnion(bodySchema);
+  if (
+    body?.properties &&
+    Object.keys(body.properties).length &&
+    !exclusiveBody &&
+    !incompatibleClosedBody &&
+    !constrainedComposedBody &&
+    body.minProperties === undefined &&
+    body.maxProperties === undefined
+  ) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
       if (property.readOnly) continue;
@@ -452,7 +500,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     }
   } else if (media) {
     parameters.push({
-      description: media[1].schema?.description ?? "Request body.",
+      description: bodySchema?.description || variantDescription || "Request body.",
       location: "body",
       name: "body",
       pythonName: "body",
@@ -503,12 +551,12 @@ export function pythonCodeSample(
     .map((argument) => {
       const value =
         argument.location !== "body"
-          ? schemaExample(document, argument.schema)
+          ? schemaExample(document, argument.schema, 0, argument.name)
           : argument.wholeBody
             ? exampleBody
             : bodyValues[argument.name] !== undefined
               ? bodyValues[argument.name]
-              : schemaExample(document, argument.schema);
+              : schemaExample(document, argument.schema, 0, argument.name);
       return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
     });
   return [
@@ -658,11 +706,66 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
   const schema = resolveSchema(document, input);
   if (!schema) return undefined;
   if (schema.allOf?.length) {
-    const objects = schema.allOf.map((item) => objectSchema(document, item)).filter((item) => item?.properties);
+    const objects = schema.allOf
+      .map((item) => objectSchema(document, item))
+      .filter(
+        (item): item is JsonSchema =>
+          Boolean(item) &&
+          (item?.type === "object" ||
+            item?.properties !== undefined ||
+            Boolean(item?.required?.length) ||
+            item?.minProperties !== undefined ||
+            item?.maxProperties !== undefined ||
+            item?.additionalProperties !== undefined ||
+            item?.propertyNames !== undefined),
+      );
     if (objects.length) {
+      const composed = [schema, ...objects];
+      const minimums = composed.flatMap((item) => (item.minProperties === undefined ? [] : [item.minProperties]));
+      const maximums = composed.flatMap((item) => (item.maxProperties === undefined ? [] : [item.maxProperties]));
+      const additional = composed.flatMap((item) =>
+        typeof item.additionalProperties === "object" ? [item.additionalProperties] : [],
+      );
+      const names = composed.flatMap((item) => (item.propertyNames ? [item.propertyNames] : []));
+      const propertyNames = names.length === 1 ? names[0] : names.length ? { allOf: names } : undefined;
+      const properties: Record<string, JsonSchema> = {};
+      for (const item of composed) {
+        for (const [name, property] of Object.entries(item.properties ?? {})) {
+          properties[name] =
+            properties[name] && !schemasEqual(properties[name], property)
+              ? { allOf: [properties[name], property] }
+              : property;
+        }
+      }
+      for (const [name, property] of Object.entries(properties)) {
+        const constraints = composed.flatMap((item) =>
+          typeof item.additionalProperties === "object" && !Object.hasOwn(item.properties ?? {}, name)
+            ? [item.additionalProperties]
+            : [],
+        );
+        if (constraints.length) properties[name] = { allOf: [property, ...constraints] };
+      }
+      const closed = composed.filter((item) => item.additionalProperties === false);
+      if (closed.length) {
+        for (const property of Object.keys(properties)) {
+          if (closed.some((item) => !Object.hasOwn(item.properties ?? {}, property))) delete properties[property];
+        }
+      }
       return {
         ...schema,
-        properties: Object.assign({}, schema.properties, ...objects.map((item) => item?.properties)),
+        ...(composed.some((item) => item.additionalProperties === false)
+          ? { additionalProperties: false }
+          : additional.length
+            ? { additionalProperties: additional.length === 1 ? additional[0] : { allOf: additional } }
+            : {}),
+        ...(maximums.length ? { maxProperties: Math.min(...maximums) } : {}),
+        ...(minimums.length ? { minProperties: Math.max(...minimums) } : {}),
+        ...(propertyNames ? { propertyNames } : {}),
+        properties: Object.fromEntries(
+          Object.entries(properties).filter(
+            ([property]) => !propertyNames || schemaMatches(document, property, propertyNames),
+          ),
+        ),
         required: [...new Set([...(schema.required ?? []), ...objects.flatMap((item) => item?.required ?? [])])],
         type: "object",
       };
@@ -699,62 +802,854 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
   };
 }
 
-export function schemaExample(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): unknown {
+function stringFormatMatches(value: string, format?: string): boolean {
+  const dateValid = (date: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const parsed = new Date(`${date}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+  };
+  if (format === "date") return dateValid(value);
+  if (format === "date-time") {
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+    if (!match?.[1]) return false;
+    return (
+      dateValid(match[1]) &&
+      Number(match[2]) <= 23 &&
+      Number(match[3]) <= 59 &&
+      Number(match[4]) <= 59 &&
+      !Number.isNaN(Date.parse(value))
+    );
+  }
+  if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+  if (format === "uri" || format === "url") return URL.canParse(value);
+  if (format === "hostname")
+    return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(
+      value,
+    );
+  if (format === "ipv4")
+    return (
+      value.split(".").length === 4 && value.split(".").every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+    );
+  if (format === "ipv6") {
+    const halves = value.split("::");
+    if (halves.length > 2) return false;
+    const groups = halves.flatMap((half) => (half ? half.split(":") : []));
+    if (groups.some((group) => !/^[0-9a-f]{1,4}$/i.test(group))) return false;
+    return halves.length === 2 ? groups.length < 8 : groups.length === 8;
+  }
+  if (format === "time") {
+    const match = value.match(/^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-](\d{2}):(\d{2}))$/);
+    if (!match) return false;
+    return (
+      Number(match[1]) <= 23 &&
+      Number(match[2]) <= 59 &&
+      Number(match[3]) <= 59 &&
+      (!match[5] || (Number(match[5]) <= 23 && Number(match[6]) <= 59))
+    );
+  }
+  if (format === "duration")
+    return /^P(?=\d|T\d)(?:\d+(?:\.\d+)?Y)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?W)?(?:\d+(?:\.\d+)?D)?(?:T(?=\d)(?:\d+(?:\.\d+)?H)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?S)?)?$/.test(
+      value,
+    );
+  if (format === "uuid")
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return true;
+}
+
+function stringExample(schema: JsonSchema, name?: string, patterns = schema.pattern ? [schema.pattern] : []): string {
+  const key = name?.replace(/[-_]/g, "").toLowerCase() ?? "";
+  const knownFormats = new Set([
+    "binary",
+    "byte",
+    "date",
+    "date-time",
+    "duration",
+    "email",
+    "hostname",
+    "ipv4",
+    "ipv6",
+    "password",
+    "time",
+    "uri",
+    "url",
+    "uuid",
+  ]);
+  const constrainLength = (candidate: string) =>
+    (schema.maxLength === undefined ? candidate : candidate.slice(0, schema.maxLength)).padEnd(
+      schema.minLength ?? 0,
+      "x",
+    );
+  if (schema.format && !knownFormats.has(schema.format) && !patterns.length) {
+    return constrainLength(`<${schema.format} value>`);
+  }
+  let value = name ? `example-${name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}` : "example";
+  if (schema.format === "date") value = "2026-01-01";
+  else if (schema.format === "date-time") value = "2026-01-01T00:00:00Z";
+  else if (schema.format === "email") value = "jane@example.com";
+  else if (schema.format === "uri" || schema.format === "url") value = "https://example.com";
+  else if (schema.format === "hostname") value = "example.com";
+  else if (schema.format === "ipv4") value = "192.0.2.1";
+  else if (schema.format === "ipv6") value = "2001:db8::1";
+  else if (schema.format === "time") value = "12:00:00Z";
+  else if (schema.format === "duration") value = "P1D";
+  else if (schema.format === "uuid") value = "123e4567-e89b-12d3-a456-426614174000";
+  else if (schema.format === "binary") value = "path/to/file";
+  else if (schema.format === "byte") value = "ZXhhbXBsZQ==";
+  else if (schema.format === "password") value = "example-password";
+  else if (key === "sourceurl") value = "https://example.com/dataset.zip";
+  else if (key === "region") value = "us-east-1";
+  else if (key === "model" || key === "basemodel") value = "yolo26n.pt";
+  else if (key === "data") value = "ul://jane-doe/datasets/coco8";
+  else if (key === "clientemail") value = "jane@example.com";
+  else if (key.includes("apikey")) value = "your-api-key";
+  else if (key === "owner" || key === "username") value = "jane-doe";
+  else if (key === "project" || key.endsWith("projectslug")) value = "example-project";
+  else if (key === "dataset") value = "coco8";
+  else if (key === "deployment") value = "example-deployment";
+  else if (key === "id" || key === "_id" || name?.endsWith("Id") || name?.endsWith("_id")) value = "resource-id";
+  else if (key.includes("url")) value = "https://example.com";
+  else if (key.includes("filename")) value = "image.jpg";
+  else if (key.includes("description")) value = "Example description";
+  else if (key === "name" || key.endsWith("name")) value = "Example name";
+  else if (key.includes("message")) value = "Operation completed";
+  else if (key.includes("hash")) value = "a1b2c3d4";
+  else if (key.includes("color")) value = "#4f46e5";
+  try {
+    const expressions = patterns.map((pattern) => new RegExp(pattern));
+    const candidates = [
+      value,
+      ...(key === "model" ? ["yolo26n", "yolo26"] : []),
+      ...(patterns.some((pattern) => pattern.includes("[A-Z]+")) ? ["KEY"] : []),
+      "example",
+      ...patterns.flatMap((pattern) => {
+        if (/^[a-zA-Z0-9._-]+$/.test(pattern)) return [pattern];
+        const simple = pattern
+          .split("|")
+          .map((alternative) => alternative.replace(/^\^/, "").replace(/\$$/, ""))
+          .filter((alternative) => /^[a-zA-Z0-9._-]+$/.test(alternative));
+        if (simple.length) return simple;
+        if (pattern === "^$") return [""];
+        const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
+        if (digits) {
+          const count = Math.min(
+            Math.max(Number(digits[1] ?? 1), schema.minLength ?? (digits[1] === "0" ? 0 : 1)),
+            digits[2] ? Number(digits[2]) : Number.POSITIVE_INFINITY,
+          );
+          return ["0".repeat(count)];
+        }
+        const repeatedClass = pattern.match(/^\^\[([^\]]+)\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
+        if (repeatedClass?.[1]) {
+          const count = Math.min(
+            Math.max(Number(repeatedClass[2] ?? 1), schema.minLength ?? (repeatedClass[2] === "0" ? 0 : 1)),
+            repeatedClass[3] ? Number(repeatedClass[3]) : Number.POSITIVE_INFINITY,
+          );
+          const member = repeatedClass[1].startsWith("\\d") ? "0" : repeatedClass[1][0];
+          return [member?.repeat(count) ?? ""];
+        }
+        const repeatedLiteral = pattern.match(/^\^([A-Za-z0-9_-])(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
+        if (repeatedLiteral?.[1]) {
+          const count = Math.min(
+            Math.max(Number(repeatedLiteral[2] ?? 1), schema.minLength ?? (repeatedLiteral[2] === "0" ? 0 : 1)),
+            repeatedLiteral[3] ? Number(repeatedLiteral[3]) : Number.POSITIVE_INFINITY,
+          );
+          return [repeatedLiteral[1].repeat(count)];
+        }
+        const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
+        if (repeatedRange?.[1]) {
+          const count = Math.min(
+            Math.max(Number(repeatedRange[2] ?? 1), schema.minLength ?? (repeatedRange[2] === "0" ? 0 : 1)),
+            repeatedRange[3] ? Number(repeatedRange[3]) : Number.POSITIVE_INFINITY,
+          );
+          return [repeatedRange[1].repeat(count)];
+        }
+        const multiRange = pattern.match(
+          /^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\](?:\{(\d+)(?:,\d*)?\}|[+*])\$$/,
+        );
+        if (multiRange?.[1]) return [multiRange[1].repeat(Math.max(Number(multiRange[2] ?? 1), schema.minLength ?? 1))];
+        const suffixed = pattern.match(
+          /^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[*+])\$$/,
+        );
+        if (suffixed?.[1] && suffixed[2]) {
+          const count = Math.min(
+            Math.max(Number(suffixed[3] ?? 1), (schema.minLength ?? 0) - suffixed[1].length, 1),
+            suffixed[4] ? Number(suffixed[4]) : Number.POSITIVE_INFINITY,
+          );
+          return [`${suffixed[1]}${suffixed[2].repeat(count)}`];
+        }
+        const digitSuffix = pattern.match(/^\^([A-Za-z0-9._-]+)\\d(?:\{(\d+)(?:,(\d*))?\}|[*+])\$$/);
+        if (digitSuffix?.[1]) {
+          const count = Math.min(
+            Math.max(Number(digitSuffix[2] ?? 1), (schema.minLength ?? 0) - digitSuffix[1].length, 1),
+            digitSuffix[3] ? Number(digitSuffix[3]) : Number.POSITIVE_INFINITY,
+          );
+          return [`${digitSuffix[1]}${"0".repeat(count)}`];
+        }
+        const wrappedToken = pattern.match(
+          /^\^([A-Za-z0-9._-]+)(\[([^\]]+)\]|\\d)(?:([+*])|\{(\d+)(?:,(\d*))?\})?([A-Za-z0-9._-]+)\$$/,
+        );
+        if (wrappedToken?.[1] && wrappedToken[7]) {
+          const minimum = Number(wrappedToken[5] ?? (wrappedToken[4] === "*" ? 0 : 1));
+          const maximum =
+            wrappedToken[4] || wrappedToken[6] === ""
+              ? Number.POSITIVE_INFINITY
+              : Number(wrappedToken[6] ?? wrappedToken[5] ?? 1);
+          const count = Math.min(
+            Math.max(minimum, (schema.minLength ?? 0) - wrappedToken[1].length - wrappedToken[7].length),
+            maximum,
+          );
+          const member = wrappedToken[2] === "\\d" || wrappedToken[3]?.startsWith("\\d") ? "0" : wrappedToken[3]?.[0];
+          return [`${wrappedToken[1]}${member?.repeat(count)}${wrappedToken[7]}`];
+        }
+        const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
+        if (grouped) return grouped.split("|");
+        const repeatedGroup = pattern.match(
+          /^\^\(\?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\\.\)\{(\d+)(?:,(\d*))?\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\$$/,
+        );
+        if (repeatedGroup?.[1] && repeatedGroup[5]) {
+          const width = Number(repeatedGroup[2]) + 1;
+          const count = Math.min(
+            Math.max(Number(repeatedGroup[3]), Math.ceil(((schema.minLength ?? 1) - 1) / width)),
+            repeatedGroup[4] ? Number(repeatedGroup[4]) : Number.POSITIVE_INFINITY,
+          );
+          return [`${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(count)}${repeatedGroup[5]}`];
+        }
+        const sequence = pattern.match(/^\^(.+)\$$/)?.[1];
+        const tokens = sequence
+          ? [...sequence.matchAll(/(\[([^\]]+)\]|\\d)([+*]|\{(\d+)(?:,(\d*))?\})?|\\([._-])|([A-Za-z0-9._-]+)/g)]
+          : [];
+        if (sequence && tokens.map((match) => match[0]).join("") === sequence) {
+          const counts = tokens.map((match) =>
+            match[6] || match[7]
+              ? ((match[6] ?? match[7])?.length ?? 0)
+              : Number(match[4] ?? (match[3] === "*" ? 0 : 1)),
+          );
+          let extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
+          for (const [index, match] of tokens.entries()) {
+            const maximum =
+              match[6] || match[7]
+                ? counts[index]
+                : !match[3]
+                  ? 1
+                  : match[3] === "+" || match[3] === "*" || match[5] === ""
+                    ? Number.POSITIVE_INFINITY
+                    : Number(match[5] ?? match[4]);
+            const added = Math.min(extra, maximum - counts[index]);
+            counts[index] += added;
+            extra -= added;
+          }
+          return [
+            tokens
+              .map(
+                (match, index) =>
+                  match[6] ??
+                  match[7] ??
+                  (match[1] === "\\d" || match[2]?.startsWith("\\d")
+                    ? "0"
+                    : match[2]?.startsWith("\\w")
+                      ? "a"
+                      : match[2]?.startsWith("\\s")
+                        ? " "
+                        : match[2]?.[0]
+                  )?.repeat(counts[index]),
+              )
+              .join(""),
+          ];
+        }
+        return pattern.split("|").flatMap((alternative) => {
+          const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
+          return match?.[1] ? [match[1]] : [];
+        });
+      }),
+      ...(schema.format === "email" ? ["a@b.co", `${"a".repeat(Math.max(1, (schema.minLength ?? 6) - 5))}@b.co`] : []),
+      ...(schema.format === "date-time"
+        ? [`2026-01-01T00:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 22) - 21))}Z`]
+        : []),
+      ...(schema.format === "time" ? [`12:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 11) - 10))}Z`] : []),
+      ...(schema.format === "duration" ? [`P${"1".repeat(Math.max(1, (schema.minLength ?? 3) - 2))}D`] : []),
+      ...(schema.format === "uri" || schema.format === "url" ? ["http:x", "http://x", "https://x.co"] : []),
+      ...(schema.format === "ipv4"
+        ? ["1", "11", "111"].flatMap((a) =>
+            ["1", "11", "111"].flatMap((b) =>
+              ["1", "11", "111"].flatMap((c) => ["1", "11", "111"].map((d) => `${a}.${b}.${c}.${d}`)),
+            ),
+          )
+        : []),
+      ...(schema.format === "ipv6"
+        ? [
+            "::1",
+            ...Array.from({ length: 37 }, (_, index) => index + 3).flatMap((length) => {
+              for (let groups = 1; groups <= 7; groups += 1) {
+                let digits = length - (groups - 1) - 3;
+                if (digits < groups || digits > groups * 4) continue;
+                const widths = Array.from({ length: groups }, () => 1);
+                for (let group = 0; digits > groups && group < groups; group += 1) {
+                  const added = Math.min(3, digits - groups);
+                  widths[group] += added;
+                  digits -= added;
+                }
+                return [`${widths.map((width) => "0".repeat(width)).join(":")}::1`];
+              }
+              return [];
+            }),
+            "2001:0db8:0000:0000:0000:0000:0000:0001",
+          ]
+        : []),
+      ...(schema.format === "hostname"
+        ? Array.from({ length: 253 }, (_, index) => index + 1).map((length) => {
+            const labels = Math.ceil((length + 1) / 64);
+            let characters = length - labels + 1;
+            return Array.from({ length: labels }, (_, index) => {
+              const width = Math.min(63, characters - (labels - index - 1));
+              characters -= width;
+              return "a".repeat(width);
+            }).join(".");
+          })
+        : []),
+      ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
+      ...(key === "region" ? ["us-east-1"] : []),
+    ].map(constrainLength);
+    return (
+      candidates.find(
+        (candidate) =>
+          stringFormatMatches(candidate, schema.format) &&
+          expressions.every((expression) => expression.test(candidate)),
+      ) ?? constrainLength(`<${schema.format ?? "pattern"} value>`)
+    );
+  } catch {
+    return constrainLength("<pattern value>");
+  }
+}
+
+function scalarMatches(value: unknown, schema: JsonSchema): boolean {
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+  if (
+    types.length &&
+    !types.some(
+      (type) =>
+        (type === "null" && value === null) ||
+        (type === "integer" && typeof value === "number" && Number.isInteger(value)) ||
+        (type === "number" && typeof value === "number") ||
+        type === typeof value,
+    )
+  )
+    return false;
+  if (typeof value === "string") {
+    if (!stringFormatMatches(value, schema.format)) return false;
+    if (schema.minLength !== undefined && value.length < schema.minLength) return false;
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) return false;
+    if (schema.pattern) {
+      try {
+        if (!new RegExp(schema.pattern).test(value)) return false;
+      } catch {
+        return false;
+      }
+    }
+  }
+  if (types.includes("integer") && !types.includes("number") && !Number.isInteger(value)) return false;
+  if (typeof value === "number") {
+    if (
+      schema.minimum !== undefined &&
+      (value < schema.minimum || (schema.exclusiveMinimum === true && value <= schema.minimum))
+    )
+      return false;
+    if (typeof schema.exclusiveMinimum === "number" && value <= schema.exclusiveMinimum) return false;
+    if (
+      schema.maximum !== undefined &&
+      (value > schema.maximum || (schema.exclusiveMaximum === true && value >= schema.maximum))
+    )
+      return false;
+    if (typeof schema.exclusiveMaximum === "number" && value >= schema.exclusiveMaximum) return false;
+    if (schema.multipleOf && Math.abs(value / schema.multipleOf - Math.round(value / schema.multipleOf)) > 1e-9)
+      return false;
+  }
+  return true;
+}
+
+function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], name?: string): JsonSchema {
+  const flatten = (input: JsonSchema, depth = 0): JsonSchema[] => {
+    const schema = resolveSchema(document, input) ?? input;
+    if (depth > 8) return [schema];
+    return [schema, ...(schema.allOf ?? []).flatMap((item) => flatten(item, depth + 1))];
+  };
+  const schemas = inputs.flatMap((schema) => flatten(schema));
+  const result = Object.assign({}, ...schemas);
+  delete result.$ref;
+  delete result.allOf;
+  delete result.anyOf;
+  delete result.oneOf;
+  const typeSets = schemas.flatMap((schema) => {
+    const values = (Array.isArray(schema.type) ? schema.type : [schema.type]).filter((value): value is string =>
+      Boolean(value),
+    );
+    return values.length
+      ? [new Set(values.flatMap((value) => (value === "number" ? ["integer", "number"] : [value])))]
+      : [];
+  });
+  if (typeSets.length) {
+    const types = [...typeSets[0]].filter((value) => typeSets.every((items) => items.has(value)));
+    if (types.includes("number") && types.includes("integer")) types.splice(types.indexOf("integer"), 1);
+    result.type = types.length === 1 ? types[0] : types;
+  }
+  const minimumLengths = schemas.flatMap((schema) => (schema.minLength === undefined ? [] : [schema.minLength]));
+  const maximumLengths = schemas.flatMap((schema) => (schema.maxLength === undefined ? [] : [schema.maxLength]));
+  if (minimumLengths.length) result.minLength = Math.max(...minimumLengths);
+  if (maximumLengths.length) result.maxLength = Math.min(...maximumLengths);
+  const minimumItems = schemas.flatMap((schema) => (schema.minItems === undefined ? [] : [schema.minItems]));
+  const maximumItems = schemas.flatMap((schema) => (schema.maxItems === undefined ? [] : [schema.maxItems]));
+  if (minimumItems.length) result.minItems = Math.max(...minimumItems);
+  if (maximumItems.length) result.maxItems = Math.min(...maximumItems);
+  const items = schemas.flatMap((schema) => (schema.items ? [schema.items] : []));
+  if (items.length) result.items = items.length === 1 ? items[0] : { allOf: items };
+  const minimums = schemas.flatMap((schema) => [
+    ...(schema.minimum === undefined ? [] : [{ exclusive: schema.exclusiveMinimum === true, value: schema.minimum }]),
+    ...(typeof schema.exclusiveMinimum === "number" ? [{ exclusive: true, value: schema.exclusiveMinimum }] : []),
+  ]);
+  const maximums = schemas.flatMap((schema) => [
+    ...(schema.maximum === undefined ? [] : [{ exclusive: schema.exclusiveMaximum === true, value: schema.maximum }]),
+    ...(typeof schema.exclusiveMaximum === "number" ? [{ exclusive: true, value: schema.exclusiveMaximum }] : []),
+  ]);
+  const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
+  const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
+  delete result.minimum;
+  delete result.maximum;
+  delete result.exclusiveMinimum;
+  delete result.exclusiveMaximum;
+  if (minimum) result[minimum.exclusive ? "exclusiveMinimum" : "minimum"] = minimum.value;
+  if (maximum) result[maximum.exclusive ? "exclusiveMaximum" : "maximum"] = maximum.value;
+  const patterns = [...new Set(schemas.flatMap((schema) => (schema.pattern ? [schema.pattern] : [])))];
+  const enums = schemas.filter((schema) => schema.enum).map((schema) => schema.enum ?? []);
+  if (enums.length) {
+    result.enum = enums
+      .reduce((values, items) => values.filter((value) => items.includes(value)))
+      .filter((value) => schemas.every((schema) => scalarMatches(value, schema)));
+  }
+  const multiples = schemas.flatMap((schema) => (schema.multipleOf === undefined ? [] : [schema.multipleOf]));
+  if (multiples.length) {
+    const decimals = Math.max(
+      ...multiples.map((value) => {
+        const [coefficient, exponent = "0"] = String(value).toLowerCase().split("e");
+        return Math.max(0, (coefficient.split(".")[1] ?? "").length - Number(exponent));
+      }),
+    );
+    const scale = 10 ** decimals;
+    const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+    result.multipleOf =
+      multiples
+        .map((value) => Math.round(value * scale))
+        .reduce((multiple, value) => (multiple * value) / gcd(multiple, value)) / scale;
+  }
+  const type = Array.isArray(result.type) ? result.type.find((value: string) => value !== "null") : result.type;
+  if (
+    type === "string" &&
+    result.example === undefined &&
+    result.default === undefined &&
+    result.const === undefined &&
+    !result.enum?.length
+  ) {
+    const formats = [...new Set(schemas.flatMap((schema) => (schema.format ? [schema.format] : [])))];
+    const example = [
+      ...formats.map((format) => stringExample({ ...result, format }, name, patterns)),
+      stringExample(result, name, patterns),
+    ].find((candidate) => schemas.every((schema) => scalarMatches(candidate, schema)));
+    if (example !== undefined) result.example = example;
+  }
+  return result;
+}
+
+function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSchema, depth = 0): boolean {
+  if (depth > 8) return true;
+  const schema = resolveSchema(document, input) ?? input;
+  if (schema.const !== undefined && value !== schema.const) return false;
+  if (schema.enum?.length && !schema.enum.includes(value)) return false;
+  if (schema.allOf?.some((item) => !schemaMatches(document, value, item, depth + 1))) return false;
+  if (
+    schema.oneOf?.length &&
+    schema.oneOf.filter((item) => schemaMatches(document, value, item, depth + 1)).length !== 1
+  )
+    return false;
+  if (schema.anyOf?.length && !schema.anyOf.some((item) => schemaMatches(document, value, item, depth + 1)))
+    return false;
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+  if (
+    types.length &&
+    !(value === null && schema.nullable) &&
+    !types.some((type) => {
+      if (type === "null") return value === null;
+      if (type === "array") return Array.isArray(value);
+      if (type === "object") return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+      if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+      return typeof value === type;
+    })
+  )
+    return false;
+  if ((typeof value === "string" || typeof value === "number") && !scalarMatches(value, schema)) return false;
+  if (Array.isArray(value)) {
+    if (schema.minItems !== undefined && value.length < schema.minItems) return false;
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) return false;
+    if (schema.items && value.some((item) => !schemaMatches(document, item, schema.items as JsonSchema, depth + 1)))
+      return false;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (schema.minProperties !== undefined && Object.keys(record).length < schema.minProperties) return false;
+    if (schema.maxProperties !== undefined && Object.keys(record).length > schema.maxProperties) return false;
+    if (schema.required?.some((name) => !Object.hasOwn(record, name))) return false;
+    if (
+      schema.propertyNames &&
+      Object.keys(record).some((name) => !schemaMatches(document, name, schema.propertyNames as JsonSchema, depth + 1))
+    )
+      return false;
+    if (
+      schema.additionalProperties === false &&
+      Object.keys(record).some((name) => !Object.hasOwn(schema.properties ?? {}, name))
+    )
+      return false;
+    if (
+      typeof schema.additionalProperties === "object" &&
+      Object.entries(record).some(
+        ([name, property]) =>
+          !Object.hasOwn(schema.properties ?? {}, name) &&
+          !schemaMatches(document, property, schema.additionalProperties as JsonSchema, depth + 1),
+      )
+    )
+      return false;
+    if (
+      Object.entries(schema.properties ?? {}).some(
+        ([name, property]) =>
+          Object.hasOwn(record, name) && !schemaMatches(document, record[name], property, depth + 1),
+      )
+    )
+      return false;
+  }
+  return true;
+}
+
+export function schemaExample(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  depth = 0,
+  name?: string,
+): unknown {
   if (!input || depth > 8) return null;
   const schema = resolveSchema(document, input) ?? input;
   if (schema.example !== undefined) return schema.example;
   if (schema.default !== undefined) return schema.default;
   if (schema.const !== undefined) return schema.const;
-  if (schema.enum?.length) return schema.enum[0];
+  if (schema.enum?.length) {
+    const siblings = { ...schema, enum: undefined };
+    return schema.enum.find((value) => schemaMatches(document, value, siblings)) ?? schema.enum[0];
+  }
 
   const union = schema.oneOf ?? schema.anyOf;
   if (union?.length) {
-    const selected = schemaExample(document, union[0], depth + 1);
-    if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
-      const siblings = schemaExample(document, { ...schema, anyOf: undefined, oneOf: undefined }, depth + 1);
-      if (siblings && typeof siblings === "object" && !Array.isArray(siblings)) return { ...siblings, ...selected };
+    const siblings = { ...schema, anyOf: undefined, oneOf: undefined };
+    for (const item of union) {
+      const variant = resolveSchema(document, item) ?? item;
+      const type = Array.isArray(variant.type) ? variant.type.find((value) => value !== "null") : variant.type;
+      if (variant.type === "null" || (Array.isArray(variant.type) && variant.type.every((value) => value === "null"))) {
+        if (schemaMatches(document, null, schema)) return null;
+        continue;
+      }
+      if (
+        type === "object" ||
+        variant.properties ||
+        variant.required ||
+        variant.additionalProperties !== undefined ||
+        variant.minProperties !== undefined ||
+        variant.maxProperties !== undefined ||
+        variant.propertyNames
+      ) {
+        const combined = objectSchema(document, { allOf: [siblings, variant] });
+        const required = new Set([...(siblings.required ?? []), ...(variant.required ?? [])]);
+        const hasRequired = Boolean(variant.required?.length);
+        const narrow = hasRequired || variant.additionalProperties === false || variant.propertyNames;
+        const narrowed =
+          combined && narrow
+            ? {
+                ...combined,
+                allOf: undefined,
+                properties: Object.fromEntries(
+                  Object.entries(combined.properties ?? {}).filter(
+                    ([property]) =>
+                      required.has(property) ||
+                      (!hasRequired &&
+                        (variant.additionalProperties !== false || Object.hasOwn(variant.properties ?? {}, property)) &&
+                        (!variant.propertyNames || schemaMatches(document, property, variant.propertyNames))),
+                  ),
+                ),
+              }
+            : combined;
+        const selected = schemaExample(document, narrowed ?? variant, depth + 1, name);
+        if (schemaMatches(document, selected, schema)) return selected;
+        continue;
+      }
+      const merged = mergeScalarSchemas(document, [variant, siblings], name);
+      const selected = schemaExample(document, merged, depth + 1, name);
+      if (schemaMatches(document, selected, schema)) return selected;
     }
-    return selected;
+    return [null, false, 0, {}, []].find((candidate) => schemaMatches(document, candidate, schema)) ?? null;
   }
   if (schema.allOf?.length) {
+    for (const [index, item] of schema.allOf.entries()) {
+      const nested = resolveSchema(document, item) ?? item;
+      const alternatives = nested.oneOf ?? nested.anyOf;
+      if (!alternatives?.length) continue;
+      for (const alternative of alternatives) {
+        const required = new Set([...(nested.required ?? []), ...(alternative.required ?? [])]);
+        const properties = { ...nested.properties, ...alternative.properties };
+        const replacement = {
+          ...nested,
+          ...alternative,
+          anyOf: undefined,
+          oneOf: undefined,
+          properties: Object.fromEntries(
+            Object.entries(properties).filter(
+              ([property]) => required.has(property) || Object.hasOwn(alternative.properties ?? {}, property),
+            ),
+          ),
+          required: [...required],
+        };
+        const candidate = schemaExample(
+          document,
+          {
+            ...schema,
+            allOf: schema.allOf.map((entry, entryIndex) => (entryIndex === index ? replacement : entry)),
+          },
+          depth + 1,
+          name,
+        );
+        if (schemaMatches(document, candidate, schema)) return candidate;
+      }
+    }
     const object = objectSchema(document, schema);
-    if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1);
+    if (object?.properties) {
+      const names = schema.allOf.flatMap((item) => {
+        const branch = resolveSchema(document, item) ?? item;
+        return branch.propertyNames ? [branch.propertyNames] : [];
+      });
+      const selected = schemaExample(
+        document,
+        {
+          ...object,
+          allOf: undefined,
+          ...(names.length ? { propertyNames: names.length === 1 ? names[0] : { allOf: names } } : {}),
+        },
+        depth + 1,
+        name,
+      );
+      if (schemaMatches(document, selected, schema)) return selected;
+      for (const item of schema.allOf) {
+        const candidate = schemaExample(document, item, depth + 1, name);
+        if (schemaMatches(document, candidate, schema)) return candidate;
+      }
+      const required = new Set(object.required ?? []);
+      const closed = schema.allOf.flatMap((item) => {
+        const branch = objectSchema(document, item);
+        return branch?.additionalProperties === false ? [new Set(Object.keys(branch.properties ?? {}))] : [];
+      });
+      const propertyNames = schema.allOf.flatMap((item) => {
+        const branch = objectSchema(document, item);
+        return branch?.propertyNames ? [branch.propertyNames] : [];
+      });
+      const common = Object.fromEntries(
+        Object.entries(selected as Record<string, unknown>).filter(
+          ([property]) =>
+            (required.has(property) || closed.every((properties) => properties.has(property))) &&
+            propertyNames.every((constraint) => schemaMatches(document, property, constraint)),
+        ),
+      );
+      if (schemaMatches(document, common, schema)) return common;
+      if (schemaMatches(document, {}, schema)) return {};
+      return null;
+    }
+    const selected = schemaExample(
+      document,
+      mergeScalarSchemas(document, [schema, ...schema.allOf], name),
+      depth + 1,
+      name,
+    );
+    if (schemaMatches(document, selected, schema)) return selected;
+    for (const item of schema.allOf) {
+      const candidate = schemaExample(document, item, depth + 1, name);
+      if (schemaMatches(document, candidate, schema)) return candidate;
+    }
+    return null;
   }
 
-  const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
-  if (type === "array") return [schemaExample(document, schema.items, depth + 1)];
+  if (Array.isArray(schema.type)) {
+    const types = schema.type.filter((value) => value !== "null");
+    if (schema.type.includes("null") || types.some((value) => value !== "integer" && value !== "number")) {
+      for (const candidateType of schema.type) {
+        const candidate = schemaExample(document, { ...schema, type: candidateType }, depth + 1, name);
+        if (schemaMatches(document, candidate, schema)) return candidate;
+      }
+      return null;
+    }
+  }
+  const type = Array.isArray(schema.type)
+    ? schema.type.includes("number") &&
+      schema.type.every((value) => value === "integer" || value === "number" || value === "null")
+      ? "number"
+      : schema.type.find((value) => value !== "null")
+    : schema.type;
+  if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.every((value) => value === "null")))
+    return null;
+  if (type === "array") {
+    const length = schema.maxItems === 0 ? 0 : Math.max(1, schema.minItems ?? 0);
+    return Array.from({ length }, () => schemaExample(document, schema.items, depth + 1, name));
+  }
   if (type === "boolean") return false;
   if (type === "integer" || type === "number") {
     const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
-    const step = multiple ?? 1;
-    const minimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : schema.minimum;
-    const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
-    const minimumExclusive = typeof schema.exclusiveMinimum === "number" || schema.exclusiveMinimum === true;
-    const maximumExclusive = typeof schema.exclusiveMaximum === "number" || schema.exclusiveMaximum === true;
+    const alignment = (() => {
+      if (!multiple || type !== "integer") return multiple;
+      const [coefficient, exponent = "0"] = String(multiple).toLowerCase().split("e");
+      const scale = 10 ** Math.max(0, (coefficient.split(".")[1] ?? "").length - Number(exponent));
+      const numerator = Math.round(multiple * scale);
+      const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+      return numerator / gcd(numerator, scale);
+    })();
+    const step = alignment ?? 1;
+    const minimums = [
+      ...(schema.minimum === undefined ? [] : [{ exclusive: schema.exclusiveMinimum === true, value: schema.minimum }]),
+      ...(typeof schema.exclusiveMinimum === "number" ? [{ exclusive: true, value: schema.exclusiveMinimum }] : []),
+    ];
+    const maximums = [
+      ...(schema.maximum === undefined ? [] : [{ exclusive: schema.exclusiveMaximum === true, value: schema.maximum }]),
+      ...(typeof schema.exclusiveMaximum === "number" ? [{ exclusive: true, value: schema.exclusiveMaximum }] : []),
+    ];
+    const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
+    const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
+    const round = (candidate: number) =>
+      type === "integer" && Number.isInteger(candidate) ? candidate : Number(candidate.toPrecision(15));
+    if (type === "number" && !multiple && minimum?.exclusive && maximum?.exclusive && !scalarMatches(1, schema)) {
+      const midpoint = (minimum.value + maximum.value) / 2;
+      const rounded = round(midpoint);
+      if (scalarMatches(midpoint, schema)) return midpoint;
+      if (scalarMatches(rounded, schema)) return rounded;
+    }
     let value = 1;
-    if (minimum !== undefined && (value < minimum || (minimumExclusive && value <= minimum))) {
-      value = minimum + (minimumExclusive ? step : 0);
+    if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
+      value = minimum.value;
+      if (type === "integer") value = Math.ceil(value);
+      if (alignment) value = round(Math.ceil(value / alignment) * alignment);
+      if (minimum.exclusive && value <= minimum.value) value = round(value + step);
+    } else {
+      if (type === "integer") value = Math.ceil(value);
+      if (alignment) value = round(Math.ceil(value / alignment) * alignment);
     }
-    if (type === "integer") value = Math.ceil(value);
-    if (multiple) value = Math.ceil(value / multiple) * multiple;
-    if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) {
-      value = maximum - (maximumExclusive ? step : 0);
-      if (type === "integer") value = maximumExclusive ? Math.ceil(maximum) - 1 : Math.floor(maximum);
-      if (multiple) value = Math.floor(value / multiple) * multiple;
+    if (maximum && (value > maximum.value || (maximum.exclusive && value >= maximum.value))) {
+      value = maximum.value - (maximum.exclusive ? step : 0);
+      if (type === "integer") value = maximum.exclusive ? Math.ceil(maximum.value) - 1 : Math.floor(maximum.value);
+      if (alignment) value = round(Math.floor(value / alignment) * alignment);
     }
-    return value;
+    if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
+      value = minimum.value;
+      if (type === "integer") value = Math.ceil(value);
+      if (alignment) value = round(Math.ceil(value / alignment) * alignment);
+      if (minimum.exclusive && value <= minimum.value) value = round(value + step);
+    }
+    return scalarMatches(value, schema) ? value : null;
   }
   if (type === "object" || schema.properties) {
-    const example = Object.fromEntries(
-      Object.entries(schema.properties ?? {}).map(([name, property]) => [
-        name,
-        schemaExample(document, property, depth + 1),
-      ]),
+    const properties = Object.entries(schema.properties ?? {}).filter(
+      ([property]) => !schema.propertyNames || schemaMatches(document, property, schema.propertyNames),
     );
-    if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
-    return { key: schemaExample(document, schema.additionalProperties, depth + 1) };
+    const required = new Set(schema.required ?? []);
+    const selected =
+      schema.maxProperties === undefined
+        ? properties
+        : [
+            ...properties.filter(([property]) => required.has(property)),
+            ...properties.filter(([property]) => !required.has(property)),
+          ].slice(0, schema.maxProperties);
+    const minimum = Math.min(schema.minProperties ?? 0, properties.length);
+    if (selected.length < minimum) {
+      const names = new Set(selected.map(([property]) => property));
+      selected.push(...properties.filter(([property]) => !names.has(property)).slice(0, minimum - selected.length));
+    }
+    const values = new Map(
+      selected.map(([name, property]) => [name, schemaExample(document, property, depth + 1, name)]),
+    );
+    const additional =
+      typeof schema.additionalProperties === "object" ? schema.additionalProperties : { type: "string" };
+    for (const property of required) {
+      if (!values.has(property)) values.set(property, schemaExample(document, additional, depth + 1, property));
+    }
+    const target =
+      schema.maxProperties === 0
+        ? 0
+        : Math.max(schema.minProperties ?? 0, values.size || (typeof schema.additionalProperties === "object" ? 1 : 0));
+    const key =
+      !schema.propertyNames || schemaMatches(document, "key", schema.propertyNames)
+        ? "key"
+        : String(schemaExample(document, schema.propertyNames, depth + 1, "key"));
+    for (let index = 1; values.size < target; index += 1) {
+      const alternatives = (schema.propertyNames?.enum ?? []).filter(
+        (candidate): candidate is string => typeof candidate === "string" && !values.has(candidate),
+      );
+      const patternAlternatives = schema.propertyNames?.pattern
+        ?.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1]
+        ?.split("|")
+        .filter((candidate) => !values.has(candidate));
+      const candidates =
+        index === 1
+          ? [key, ...alternatives, ...(patternAlternatives ?? [])]
+          : [
+              ...alternatives,
+              ...(patternAlternatives ?? []),
+              `${key}${index}`,
+              `${key}${"X".repeat(index - 1)}`,
+              `${key}${"x".repeat(index - 1)}`,
+              `${key}${key.at(-1)?.repeat(index - 1)}`,
+              ...(/[a-z]$/.test(key)
+                ? [
+                    `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
+                  ]
+                : []),
+              ...(/[A-Z]$/.test(key)
+                ? [
+                    `${key.slice(0, -1)}${String.fromCharCode(65 + ((key.charCodeAt(key.length - 1) - 65 + index) % 26))}`,
+                  ]
+                : []),
+              `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
+              ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
+              ...(/\d+$/.test(key)
+                ? [key.replace(/\d+$/, (digits) => String(Number(digits) + index - 1).padStart(digits.length, "0"))]
+                : []),
+              ...(key.match(/\d(?!.*\d)/)
+                ? [key.replace(/\d(?!.*\d)/, (digit) => String((Number(digit) + index - 1) % 10))]
+                : []),
+              ...(/^[a-z]+$/.test(key)
+                ? [
+                    `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
+                  ]
+                : []),
+              ...(/^[A-Z]+$/.test(key)
+                ? [
+                    Array.from({ length: key.length }, (_, position) =>
+                      String.fromCharCode(65 + (Math.floor(index / 26 ** (key.length - position - 1)) % 26)),
+                    ).join(""),
+                  ]
+                : []),
+              ...(/^[a-z]+$/.test(key)
+                ? [
+                    Array.from({ length: key.length }, (_, position) =>
+                      String.fromCharCode(97 + (Math.floor(index / 26 ** (key.length - position - 1)) % 26)),
+                    ).join(""),
+                  ]
+                : []),
+            ];
+      const property = candidates.find(
+        (candidate) =>
+          !values.has(candidate) && (!schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames)),
+      );
+      if (!property) break;
+      values.set(property, schemaExample(document, additional, depth + 1, property));
+    }
+    return Object.fromEntries(values);
   }
-  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "...";
+  return stringExample(schema, name);
 }
 
 function isBinarySchema(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): boolean {
@@ -795,6 +1690,8 @@ export function schemaConstraints(document: OpenApiDocument, input: JsonSchema |
   if (schema.maxLength !== undefined) constraints.push(`maximum length ${schema.maxLength}`);
   if (schema.minItems !== undefined) constraints.push(`minimum items ${schema.minItems}`);
   if (schema.maxItems !== undefined) constraints.push(`maximum items ${schema.maxItems}`);
+  if (schema.minProperties !== undefined) constraints.push(`minimum properties ${schema.minProperties}`);
+  if (schema.maxProperties !== undefined) constraints.push(`maximum properties ${schema.maxProperties}`);
   if (schema.multipleOf !== undefined) constraints.push(`multiple of ${schema.multipleOf}`);
   if (schema.pattern) constraints.push(`pattern ${schema.pattern}`);
   if (schema.default !== undefined) constraints.push(`default ${String(schema.default)}`);
@@ -937,17 +1834,19 @@ function authoredSchemaExample(
 function exampleObjectSchema(
   document: OpenApiDocument,
   input: JsonSchema | undefined,
+  value?: unknown,
   depth = 0,
 ): JsonSchema | undefined {
   if (depth > 8) return input;
   const schema = resolveSchema(document, input);
   if (!schema) return undefined;
   const union = schema.oneOf ?? schema.anyOf;
+  const selected = union?.find((item) => schemaMatches(document, value, item)) ?? union?.[0];
   return objectSchema(document, {
     ...schema,
     allOf: [
-      ...(schema.allOf ?? []).map((item) => exampleObjectSchema(document, item, depth + 1) ?? item),
-      ...(union?.length ? [exampleObjectSchema(document, union[0], depth + 1) ?? union[0]] : []),
+      ...(schema.allOf ?? []).map((item) => exampleObjectSchema(document, item, value, depth + 1) ?? item),
+      ...(selected ? [exampleObjectSchema(document, selected, value, depth + 1) ?? selected] : []),
     ],
     anyOf: undefined,
     oneOf: undefined,
@@ -964,20 +1863,64 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
   const generated = !authored.found || authored.nested;
   let example = generated ? schemaExample(document, request[1].schema) : authored.value;
   if (generated && example && typeof example === "object" && !Array.isArray(example)) {
-    const object = exampleObjectSchema(document, request[1].schema);
+    const object = exampleObjectSchema(document, request[1].schema, example);
     example = { ...example };
     const named = Object.entries(object?.properties ?? {});
     const properties = named.filter(([, property]) => !resolveSchema(document, property)?.readOnly);
     const required = new Set(object?.required ?? []);
-    const selected = properties.some(([name]) => required.has(name))
-      ? properties.filter(([name]) => required.has(name))
-      : properties.slice(0, 1);
     const values = example as Record<string, unknown>;
+    const present = properties.filter(([name]) => Object.hasOwn(values, name));
+    const selected = present.some(([name]) => required.has(name))
+      ? present.filter(([name]) => required.has(name))
+      : present.slice(0, 1);
+    const minimum = object?.minProperties ?? 0;
+    if (selected.length < minimum) {
+      const names = new Set(selected.map(([name]) => name));
+      selected.push(
+        ...properties
+          .filter(([name]) => Object.hasOwn(values, name) && !names.has(name))
+          .slice(0, minimum - selected.length),
+      );
+    }
+    const selectedNames = new Set(selected.map(([name]) => name));
+    for (const name of required) {
+      const property = object?.properties?.[name];
+      if (
+        Object.hasOwn(values, name) &&
+        !selectedNames.has(name) &&
+        (!property || !resolveSchema(document, property)?.readOnly)
+      ) {
+        selected.push([name, {}]);
+        selectedNames.add(name);
+      }
+    }
+    for (const name of Object.keys(values)) {
+      if (selected.length >= (object?.minProperties ?? 0)) break;
+      const property = object?.properties?.[name];
+      if (!selectedNames.has(name) && (!property || !resolveSchema(document, property)?.readOnly)) {
+        selected.push([name, {}]);
+      }
+    }
+    if (selected.length < minimum) {
+      const writable = schemaExample(document, {
+        ...object,
+        properties: Object.fromEntries(properties),
+        required: [...required].filter((name) => properties.some(([property]) => property === name)),
+      });
+      if (writable && typeof writable === "object" && !Array.isArray(writable)) {
+        Object.assign(values, writable);
+        for (const name of Object.keys(writable)) {
+          if (selected.length >= minimum) break;
+          if (!selectedNames.has(name)) selected.push([name, {}]);
+        }
+      }
+    }
+    if (object?.maxProperties !== undefined) selected.splice(object.maxProperties);
     if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
     else if (named.length) example = {};
   }
   if (authored.nested && authored.value !== undefined) {
-    example =
+    const combined =
       authored.value !== null &&
       typeof authored.value === "object" &&
       !Array.isArray(authored.value) &&
@@ -986,6 +1929,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
       !Array.isArray(example)
         ? { ...example, ...authored.value }
         : authored.value;
+    if (schemaMatches(document, combined, request[1].schema ?? {})) example = combined;
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
@@ -1034,7 +1978,7 @@ export function curlCodeSample(
 ): string {
   const parameterValueOrExample = (parameter: Parameter) => {
     const value = values[`${parameter.in}:${parameter.name}`];
-    if (value === undefined) return schemaExample(document, parameter.schema);
+    if (value === undefined) return schemaExample(document, parameter.schema, 0, parameter.name);
     try {
       return parameterValue(document, parameter, value);
     } catch {
@@ -1043,18 +1987,8 @@ export function curlCodeSample(
   };
   let path = operation.path;
   for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {
-    const schema = resolveSchema(document, parameter.schema);
-    const supplied = values[`${parameter.in}:${parameter.name}`];
-    const explicit =
-      schema?.example !== undefined ||
-      schema?.default !== undefined ||
-      schema?.const !== undefined ||
-      Boolean(schema?.enum?.length);
-    if (!explicit && supplied === undefined) {
-      continue;
-    }
     const value = serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved);
-    if (value) path = path.replace(`{${parameter.name}}`, value);
+    path = path.replace(`{${parameter.name}}`, value);
   }
   const query = (operation.parameters ?? [])
     .filter((parameter) => parameter.in === "query" && (parameter.required || values[`query:${parameter.name}`]))

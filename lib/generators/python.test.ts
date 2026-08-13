@@ -12,6 +12,7 @@ import {
   getAuthentication,
   getOperations,
   type OpenApiDocument,
+  objectSchema,
   requestBodyExample,
   requestMedia,
   resolveServerUrl,
@@ -78,6 +79,14 @@ describe("Python generator", () => {
       prefix: "",
     });
     expect(() => getAuthentication(multiple)).toThrow("Multiple authentication schemes");
+    const contentParameter = structuredClone(document);
+    const contentOperation = contentParameter.paths["/widgets"]?.get;
+    if (contentOperation) {
+      contentOperation.parameters = [
+        { content: { "application/json": { schema: { type: "string" } } }, in: "query", name: "filter" },
+      ];
+    }
+    expect(() => getOperations(contentParameter)).toThrow("Unsupported content parameter: query filter");
   });
 
   test("uses a configured package README", async () => {
@@ -135,7 +144,7 @@ describe("Python generator", () => {
     expect(sample?.source).toContain("response = client.widgets.retrieve(");
     expect(sample?.source).toContain('widget_id="widget_123"');
     const createSample = decorated.paths["/widgets"]?.post?.["x-codeSamples"]?.[0];
-    expect(createSample?.source).toContain("description=None");
+    expect(createSample?.source).toContain('body={"description": None');
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
 
@@ -149,7 +158,7 @@ describe("Python generator", () => {
       package: config.python.package,
     });
     expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]?.[0]?.source).toContain(
-      'widget_id_query="..."',
+      'widget_id_query="resource-id"',
     );
   });
 
@@ -183,7 +192,7 @@ describe("Python generator", () => {
         body: requestBodyExample(document, raw),
         origin: "https://docs.example.com",
       }),
-    ).toContain("-d '...'");
+    ).toContain("-d 'example'");
     const multipartDocument = structuredClone(document);
     const multipartUpload = getOperations(multipartDocument).find(
       (operation) => requestMedia(operation)?.[0] === "multipart/form-data",
@@ -226,7 +235,53 @@ describe("Python generator", () => {
       type: "object",
     };
     const minimalBody = requestBodyExample(minimalDocument, create);
-    expect(minimalBody).toBe('{\n  "name": "..."\n}');
+    expect(minimalBody).toBe('{\n  "name": "Example name"\n}');
+    createMedia[1].schema = {
+      allOf: [
+        { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+        { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+      ],
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      allOf: [
+        {
+          oneOf: [
+            { description: "Use A", properties: { a: { type: "integer" } }, required: ["a"], type: "object" },
+            { description: "Use B", properties: { b: { type: "integer" } }, required: ["b"], type: "object" },
+          ],
+        },
+      ],
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([
+      { description: "Use A Or Use B", name: "body", wholeBody: true },
+    ]);
+    createMedia[1].schema = {
+      additionalProperties: false,
+      allOf: [{ properties: { a: { type: "integer" } }, type: "object" }],
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      allOf: [
+        { additionalProperties: { type: "string" }, properties: { a: { type: "string" } }, type: "object" },
+        { additionalProperties: { type: "number" }, properties: { b: { type: "number" } }, type: "object" },
+      ],
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      maxProperties: 1,
+      properties: { a: { type: "integer" }, b: { type: "integer" } },
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      minProperties: 1,
+      properties: { a: { type: "integer" }, b: { type: "integer" } },
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
     const minimalCurl = curlCodeSample(minimalDocument, create, {
       body: minimalBody,
       environment: "EXAMPLE_API_KEY",
@@ -245,6 +300,24 @@ describe("Python generator", () => {
     };
     expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
     createMedia[1].schema = {
+      oneOf: [
+        {
+          additionalProperties: false,
+          example: { kind: "a" },
+          properties: { kind: { const: "a" } },
+          type: "object",
+        },
+        {
+          additionalProperties: false,
+          properties: { b: { type: "integer" } },
+          required: ["b"],
+          type: "object",
+        },
+      ],
+      required: ["b"],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
+    createMedia[1].schema = {
       allOf: [{ oneOf: [{ example: { name: "authored", optional: "preserved" }, type: "object" }] }],
     };
     expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
@@ -255,7 +328,7 @@ describe("Python generator", () => {
       ],
     };
     expect(JSON.parse(requestBodyExample(minimalDocument, create))).toEqual({
-      images: ["..."],
+      images: ["example-images"],
       model: "yolo11n.pt",
     });
     createMedia[1].schema = { allOf: [{ example: "authored", type: "string" }, { minLength: 1 }] };
@@ -270,11 +343,13 @@ describe("Python generator", () => {
           schema: {
             oneOf: [
               {
+                description: "Upload a file",
                 properties: { conf: { type: "number" }, file: { format: "binary", type: "string" } },
                 required: ["file"],
                 type: "object",
               },
               {
+                description: "Use a source URL",
                 properties: {
                   conf: { type: "number" },
                   file: { anyOf: [{ format: "binary", type: "string" }, { type: "null" }] },
@@ -289,10 +364,124 @@ describe("Python generator", () => {
       },
     };
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
-    expect(unionBody).toBe('{\n  "file": "..."\n}');
+    expect(unionBody).toBe('{\n  "file": "path/to/file"\n}');
+    const laterUnion = structuredClone(create);
+    laterUnion.requestBody = {
+      required: true,
+      content: {
+        "application/json": {
+          schema: {
+            anyOf: [
+              { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+              { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+            ],
+            properties: { b: { type: "integer" } },
+            required: ["b"],
+            type: "object",
+          },
+        },
+      },
+    };
+    expect(requestBodyExample(minimalDocument, laterUnion)).toBe('{\n  "b": 1\n}');
+    createMedia[1].schema = {
+      minProperties: 2,
+      properties: { a: { type: "integer" }, b: { type: "integer" } },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "a": 1,\n  "b": 1\n}');
+    createMedia[1].schema = {
+      additionalProperties: { type: "string" },
+      minProperties: 2,
+      properties: { a: { type: "integer" } },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "a": 1,\n  "key": "example-key"\n}');
+    createMedia[1].schema = {
+      maxProperties: 1,
+      properties: { id: { readOnly: true, type: "string" } },
+      required: ["id"],
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe("{}");
+    createMedia[1].schema = {
+      additionalProperties: { type: "string" },
+      minProperties: 1,
+      properties: { id: { readOnly: true, type: "string" } },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "example-key"\n}');
+    createMedia[1].schema = {
+      additionalProperties: { type: "string" },
+      minProperties: 2,
+      properties: { a: { type: "integer" } },
+      propertyNames: { pattern: "^key[0-9]*$", type: "string" },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "example-key",\n  "key2": "example-key2"\n}');
+    createMedia[1].schema = {
+      allOf: [{ properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" }, { required: ["b"] }],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
+    createMedia[1].schema = {
+      allOf: [
+        { properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" },
+        { propertyNames: { pattern: "^b$", type: "string" } },
+      ],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
-      { name: "body", required: true, wholeBody: true },
+      {
+        description: "Upload a file Or Use a source URL",
+        name: "body",
+        required: true,
+        wholeBody: true,
+      },
     ]);
+    const undescribedUnion = structuredClone(unionCreate);
+    const undescribedVariants = requestMedia(undescribedUnion)?.[1].schema?.oneOf;
+    for (const variant of undescribedVariants ?? []) delete variant.description;
+    expect(sdkArguments(minimalDocument, undescribedUnion)).toMatchObject([{ description: "Request body." }]);
+    const optionalClosedUnion = structuredClone(unionCreate);
+    const optionalClosedMedia = requestMedia(optionalClosedUnion);
+    if (optionalClosedMedia) {
+      optionalClosedMedia[1].schema = {
+        oneOf: [
+          { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+          { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+        ],
+      };
+    }
+    expect(sdkArguments(minimalDocument, optionalClosedUnion)).toMatchObject([{ name: "body", wholeBody: true }]);
+    const optionalClosedAnyOf = structuredClone(optionalClosedUnion);
+    const optionalClosedAnyOfMedia = requestMedia(optionalClosedAnyOf);
+    if (optionalClosedAnyOfMedia?.[1].schema?.oneOf) {
+      optionalClosedAnyOfMedia[1].schema.anyOf = optionalClosedAnyOfMedia[1].schema.oneOf;
+      delete optionalClosedAnyOfMedia[1].schema.oneOf;
+    }
+    expect(sdkArguments(minimalDocument, optionalClosedAnyOf)).toMatchObject([{ name: "body", wholeBody: true }]);
+    const correlatedAnyOf = structuredClone(optionalClosedAnyOf);
+    const correlatedMedia = requestMedia(correlatedAnyOf);
+    if (correlatedMedia) {
+      correlatedMedia[1].schema = {
+        anyOf: [
+          {
+            additionalProperties: false,
+            properties: { kind: { const: "a" }, value: { type: "integer" } },
+            type: "object",
+          },
+          {
+            additionalProperties: false,
+            properties: { kind: { const: "b" }, value: { type: "string" } },
+            type: "object",
+          },
+        ],
+      };
+    }
+    expect(sdkArguments(minimalDocument, correlatedAnyOf)).toMatchObject([{ name: "body", wholeBody: true }]);
+    if (correlatedMedia?.[1].schema?.anyOf) {
+      for (const variant of correlatedMedia[1].schema.anyOf) delete variant.additionalProperties;
+    }
+    expect(sdkArguments(minimalDocument, correlatedAnyOf)).toMatchObject([{ name: "body", wholeBody: true }]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
         body: unionBody,
@@ -321,7 +510,7 @@ describe("Python generator", () => {
     createMedia[1].schema = { example: null, type: ["object", "null"] };
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     createMedia[1].schema = { additionalProperties: { type: "string" }, type: "object" };
-    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "..."\n}');
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "example-key"\n}');
     createMedia[1].schema = { properties: { id: { readOnly: true, type: "string" } }, type: "object" };
     expect(requestBodyExample(minimalDocument, create)).toBe("{}");
     minimalDocument.components = { schemas: { Node: { oneOf: [{ $ref: "#/components/schemas/Node" }] } } };
@@ -333,8 +522,8 @@ describe("Python generator", () => {
     const pathParameter = retrieve.parameters?.find((parameter) => parameter.in === "path");
     if (pathParameter) pathParameter.schema = { type: "integer" };
     const retrieveCurl = curlCodeSample(document, retrieve, { origin: "https://docs.example.com" });
-    expect(retrieveCurl).toStartWith("curl -g ");
-    expect(retrieveCurl).toContain("/widgets/{widgetId}");
+    expect(retrieveCurl).toStartWith("curl ");
+    expect(retrieveCurl).toContain("/widgets/1");
     expect(
       curlCodeSample(document, retrieve, {
         origin: "https://docs.example.com",
@@ -346,7 +535,7 @@ describe("Python generator", () => {
         origin: "https://docs.example.com",
         values: { "path:widgetId": "" },
       }),
-    ).toContain("/widgets/{widgetId}");
+    ).toContain("/widgets/");
     const session = getOperations(document).find((operation) => operation.path === "/sessions");
     expect(session).toBeDefined();
     if (!session) return;
@@ -376,6 +565,13 @@ describe("Python generator", () => {
     ]);
     expect(
       schemaConstraints(document, {
+        maximum: Number.MAX_SAFE_INTEGER,
+        minimum: -Number.MAX_SAFE_INTEGER,
+        type: "integer",
+      }),
+    ).toEqual([`minimum ${-Number.MAX_SAFE_INTEGER}`, `maximum ${Number.MAX_SAFE_INTEGER}`]);
+    expect(
+      schemaConstraints(document, {
         allOf: [{ enum: ["obb"], type: "string" }],
         anyOf: [{ enum: ["classify"], type: "string" }],
         oneOf: [{ enum: ["pose"], type: "string" }],
@@ -384,8 +580,716 @@ describe("Python generator", () => {
   });
 
   test("uses generic string examples", () => {
-    expect(schemaExample(document, { type: "string" })).toBe("...");
+    expect(schemaExample(document, { type: "string" })).toBe("example");
+    expect(schemaExample(document, { format: "email", type: "string" })).toBe("jane@example.com");
+    expect(schemaExample(document, { format: "email", maxLength: 10, type: "string" })).toBe("a@b.co");
+    expect(schemaExample(document, { format: "ipv4", type: "string" })).toBe("192.0.2.1");
+    expect(schemaExample(document, { format: "custom", type: "string" })).toBe("<custom value>");
+    expect(schemaExample(document, { format: "date", type: "string" }, 0, "data")).toBe("2026-01-01");
+    expect(
+      schemaExample(document, {
+        format: "date",
+        pattern: "^2026-02-30$|^2027-01-01$",
+        type: "string",
+      }),
+    ).toBe("2027-01-01");
+    expect(schemaExample(document, { format: "date-time", maxLength: 10, type: "string" })).toBe("<date-time");
+    expect(schemaExample(document, { format: "uuid", type: "string" }, 0, "model")).toBe(
+      "123e4567-e89b-12d3-a456-426614174000",
+    );
+    expect(schemaExample(document, { type: "string" }, 0, "project")).toBe("example-project");
+    expect(schemaExample(document, { maxLength: 2, type: "string" }, 0, "iconLetter")).toBe("ex");
+    expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("AAAAAAAA");
+    expect(schemaExample(document, { pattern: "^[a-z0-9]+$", type: "string" }, 0, "model")).toBe("yolo26n");
+    expect(schemaExample(document, { pattern: "^[a-z]+$", type: "string" }, 0, "model")).toBe("example");
+    expect(schemaExample(document, { maxLength: 6, pattern: "^yolo26n$|^yolo26$", type: "string" }, 0, "model")).toBe(
+      "yolo26",
+    );
+    expect(schemaExample(document, { minLength: 10, oneOf: [{ type: "string" }] })).toBe("examplexxx");
+    expect(schemaExample(document, { allOf: [{ type: "string" }, { minLength: 10 }] })).toBe("examplexxx");
+    expect(
+      schemaExample(document, {
+        allOf: [{ allOf: [{ type: "string" }, { minLength: 10 }, { pattern: "^example" }] }, { pattern: "xxx$" }],
+      }),
+    ).toBe("examplexxx");
+    expect(schemaExample(document, { type: "null" })).toBeNull();
+    expect(schemaExample(document, { type: ["null"] })).toBeNull();
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { minimum: 20, type: "integer" },
+          { minimum: 10, type: "integer" },
+        ],
+      }),
+    ).toBe(20);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { maximum: 20, type: "integer" },
+          { exclusiveMaximum: 10, type: "integer" },
+        ],
+      }),
+    ).toBe(1);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { enum: ["a", "b"], type: "string" },
+          { enum: ["c", "b"], type: "string" },
+        ],
+      }),
+    ).toBe("b");
+    expect(
+      schemaExample(document, {
+        anyOf: [
+          { pattern: "^a$", type: "string" },
+          { properties: { id: { type: "integer" } }, type: "object" },
+        ],
+        pattern: "^b$",
+      }),
+    ).toEqual({ id: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            anyOf: [
+              { pattern: "^a$", type: "string" },
+              { pattern: "^b$", type: "string" },
+            ],
+          },
+          { pattern: "^b$" },
+        ],
+      }),
+    ).toBe("b");
+    expect(
+      schemaExample(document, {
+        anyOf: [{ type: "null" }, { properties: { id: { type: "integer" } }, type: "object" }],
+        type: "object",
+      }),
+    ).toEqual({ id: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { items: { type: "string" }, type: "array" },
+          { minItems: 2, type: "array" },
+        ],
+      }),
+    ).toEqual(["example", "example"]);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { items: { type: "string" }, type: "array" },
+          { maxItems: 0, type: "array" },
+        ],
+      }),
+    ).toEqual([]);
+    expect(
+      schemaExample(document, {
+        oneOf: [{ pattern: "^a$", type: "string" }, { type: "string" }],
+      }),
+    ).toBe("example");
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            allOf: [{ maxLength: 5 }],
+            anyOf: [{ pattern: "^abcde$|^yolo26n$", type: "string" }],
+          },
+        ],
+      }),
+    ).toBe("abcde");
+    expect(
+      schemaExample(document, {
+        allOf: [{ enum: ["a", "b"], type: "string" }, { pattern: "^b$" }],
+      }),
+    ).toBe("b");
+    expect(
+      schemaExample(document, {
+        anyOf: [
+          { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+          { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+        ],
+        properties: { b: { type: "integer" } },
+        required: ["b"],
+        type: "object",
+      }),
+    ).toEqual({ b: 1 });
+    expect(
+      schemaExample(document, {
+        const: null,
+        oneOf: [{ nullable: true, type: "string" }, { type: "number" }],
+      }),
+    ).toBeNull();
+    expect(schemaExample(document, { oneOf: [{}, { type: "string" }] })).toBeNull();
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            properties: { failureId: { type: "string" } },
+            required: ["failureId"],
+            type: "object",
+          },
+          {
+            oneOf: [{ required: ["error"] }, { required: ["retryAfter"] }],
+            properties: { error: { type: "string" }, retryAfter: { type: "integer" } },
+          },
+        ],
+      }),
+    ).toEqual({ error: "example-error", failureId: "resource-id" });
+    expect(schemaExample(document, { exclusiveMaximum: 0.6, exclusiveMinimum: 0.5, type: "number" })).toBe(0.55);
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { enum: ["a", "b"], type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ a: "example-a", b: "example-b" });
+    expect(
+      schemaExample(document, {
+        allOf: [{ format: "custom", type: "string" }, { pattern: "^abc$" }],
+      }),
+    ).toBe("abc");
+    expect(
+      schemaExample(document, {
+        oneOf: [{ required: ["a"] }, { required: ["b"] }],
+        properties: { a: { type: "integer" }, b: { type: "integer" } },
+        type: "object",
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        oneOf: [
+          {
+            additionalProperties: false,
+            minProperties: 1,
+            properties: { a: { type: "integer" } },
+            required: [],
+            type: "object",
+          },
+        ],
+        type: "object",
+      }),
+    ).toEqual({ a: 1 });
+    expect(schemaExample(document, { minLength: 3, pattern: "^[0-9]+$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { pattern: "^[0-9]+$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { pattern: "^\\d+$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { pattern: "^\\d{3}$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { pattern: "^\\d{3,5}$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { minLength: 4, pattern: "^\\d{3,5}$", type: "string" })).toBe("0000");
+    expect(schemaExample(document, { pattern: "^[0-9]*$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { pattern: "^[0-9A-F]{8}$", type: "string" })).toBe("00000000");
+    expect(schemaExample(document, { pattern: "^a+$", type: "string" })).toBe("a");
+    expect(schemaExample(document, { pattern: "^a{3}$", type: "string" })).toBe("aaa");
+    expect(schemaExample(document, { pattern: "^v[0-9]+$", type: "string" })).toBe("v0");
+    expect(schemaExample(document, { pattern: "^key[0-9]{2}$", type: "string" })).toBe("key00");
+    expect(schemaExample(document, { pattern: "^item-\\d+$", type: "string" })).toBe("item-0");
+    expect(schemaExample(document, { pattern: "^foo[0-9]{2}bar$", type: "string" })).toBe("foo00bar");
+    expect(schemaExample(document, { pattern: "^foo\\d{2}bar$", type: "string" })).toBe("foo00bar");
+    expect(schemaExample(document, { pattern: "^foo\\d+bar$", type: "string" })).toBe("foo0bar");
+    expect(schemaExample(document, { pattern: "^foo[0-9]bar$", type: "string" })).toBe("foo0bar");
+    expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
+    expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
+    expect(schemaExample(document, { pattern: "^[\\dA-F]{2}[A-Z]{2}$", type: "string" })).toBe("00AA");
+    expect(schemaExample(document, { pattern: "^[\\w-]{2}-\\d$", type: "string" })).toBe("aa-0");
+    expect(schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" })).toBe(
+      "AA.AA.0",
+    );
+    expect(schemaExample(document, { pattern: "^(?:[A-Z]{2}\\.){2,3}[0-9]$", type: "string" })).toBe("AA.AA.0");
+    expect(
+      schemaExample(document, {
+        maxLength: 10,
+        minLength: 10,
+        pattern: "^(?:[A-Z]{2}\\.){2,3}[0-9]$",
+        type: "string",
+      }),
+    ).toBe("AA.AA.AA.0");
+    expect(schemaExample(document, { pattern: "^\\d{0}$", type: "string" })).toBe("");
+    expect(schemaExample(document, { pattern: "^[A-Z]{0}$", type: "string" })).toBe("");
+    expect(schemaExample(document, { pattern: "^a{0}$", type: "string" })).toBe("");
+    expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
+      "000A",
+    );
+    expect(schemaExample(document, { maxLength: 5, minLength: 5, pattern: "^[0-9]+[A-Z]{2}$", type: "string" })).toBe(
+      "000AA",
+    );
+    expect(
+      schemaExample(document, { maxLength: 6, minLength: 6, pattern: "^[A-Z]{2}[0-9]{2,4}$", type: "string" }),
+    ).toBe("AA0000");
+    expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[A-Z]{2}\\d{2}$", type: "string" })).toBe(
+      "AA00",
+    );
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}[0-9]$", type: "string" })).toBe("AA0");
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}-\\d{3}$", type: "string" })).toBe("AA-000");
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d{2,4}$", type: "string" })).toBe("AA00");
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
+    expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
+    expect(schemaExample(document, { maxLength: 5, minLength: 5, pattern: "^[A-Z]+\\d+$", type: "string" })).toBe(
+      "AAAA0",
+    );
+    expect(schemaExample(document, { pattern: "^\\d+[A-Z]+$", type: "string" })).toBe("0A");
+    expect(schemaExample(document, { pattern: "^[A-Z]+\\d{2}$", type: "string" })).toBe("A00");
+    expect(schemaExample(document, { pattern: "^[A-Z]{2,4}\\d+$", type: "string" })).toBe("AA0");
+    expect(schemaExample(document, { pattern: "^\\d{2}[A-Z]+$", type: "string" })).toBe("00A");
+    expect(schemaExample(document, { pattern: "^\\d{2}[A-Z]{2,4}$", type: "string" })).toBe("00AA");
+    expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
+      "2026-01-01T00:00:00.0Z",
+    );
+    expect(schemaExample(document, { format: "date-time", minLength: 23, type: "string" })).toBe(
+      "2026-01-01T00:00:00.00Z",
+    );
+    expect(schemaExample(document, { format: "time", minLength: 10, type: "string" })).toBe("12:00:00.0Z");
+    expect(schemaExample(document, { format: "ipv6", maxLength: 3, type: "string" })).toBe("::1");
+    expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http:x");
+    expect(schemaExample(document, { format: "uri", maxLength: 7, type: "string" })).toBe("http:x");
+    expect(schemaExample(document, { format: "duration", minLength: 4, type: "string" })).toBe("P11D");
+    expect(schemaExample(document, { format: "email", maxLength: 7, minLength: 7, type: "string" })).toBe("a@b.cox");
+    expect(schemaExample(document, { format: "hostname", maxLength: 72, minLength: 72, type: "string" })).toHaveLength(
+      72,
+    );
+    expect(
+      schemaExample(document, { format: "hostname", maxLength: 128, minLength: 128, type: "string" }),
+    ).toHaveLength(128);
+    expect(schemaExample(document, { format: "ipv4", minLength: 12, type: "string" })).toBe("1.11.111.111");
+    expect(schemaExample(document, { format: "ipv4", maxLength: 8, minLength: 8, type: "string" })).toBe("1.1.1.11");
+    expect(schemaExample(document, { format: "ipv6", maxLength: 10, minLength: 4, type: "string" })).toBe("2001:db8::");
+    expect(schemaExample(document, { format: "ipv6", maxLength: 4, minLength: 4, type: "string" })).toBe("0::1");
+    expect(schemaExample(document, { format: "ipv6", minLength: 20, type: "string" })).toBe("0000:0000:0000:00::1");
+    expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
+    expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");
+    expect(schemaExample(document, { pattern: "^[0-9A-F]+$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { format: "ipv4", maxLength: 7, type: "string" })).toBe("1.1.1.1");
+    expect(schemaExample(document, { format: "custom", maxLength: 5, type: "string" })).toBe("<cust");
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^[0-9]{3}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ "000": "example-000", "001": "example-001" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^(ab|cd)$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ ab: "example-ab", cd: "example-cd" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^a+$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ a: "example-a", aa: "example-aa" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^v[0-9]+$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ v0: "example-v0", v02: "example-v02" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^[A-Z]{2}[0-9]{2}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ AA00: "example-aa00", AA01: "example-aa01" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^[A-Z]{2}[a-z]{2}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ AAaa: "example-aaaa", AAac: "example-aaac" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^[a-z]{3}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ key: "example-key", kea: "example-kea" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 3,
+        propertyNames: { pattern: "^[a-z]{2}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ aa: "example-aa", ac: "example-ac", ad: "example-ad" });
+    expect(schemaExample(document, { pattern: "^$", type: "string" })).toBe("");
+    expect(schemaExample(document, { pattern: "foo", type: "string" })).toBe("foo");
+    expect(schemaExample(document, { pattern: "foo|bar", type: "string" })).toBe("foo");
+    expect(schemaExample(document, { pattern: "^foo", type: "string" })).toBe("foo");
+    expect(schemaExample(document, { type: "string" }, 0, "apiKey")).toBe("your-api-key");
+    expect(schemaExample(document, { type: "string" }, 0, "baseModel")).toBe("yolo26n.pt");
+    expect(schemaExample(document, { pattern: "^b[0-9]*$", type: "string" })).toBe("b0");
+    expect(
+      schemaExample(document, {
+        additionalProperties: false,
+        properties: { a: { type: "integer" }, b: { type: "integer" } },
+        propertyNames: { pattern: "^a$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        anyOf: [{ additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" }],
+        minProperties: 1,
+        properties: { a: { type: "integer" }, b: { type: "integer" } },
+        type: "object",
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            properties: { a: { type: "integer" }, b: { type: "integer" } },
+            propertyNames: { pattern: "^[a-z]+$", type: "string" },
+            required: ["a"],
+            type: "object",
+          },
+          { propertyNames: { pattern: "^a$", type: "string" } },
+        ],
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      objectSchema(document, {
+        allOf: [
+          { properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" },
+          { propertyNames: { pattern: "^a$", type: "string" } },
+        ],
+      })?.properties,
+    ).toEqual({ a: { type: "integer" } });
+    expect(
+      objectSchema(document, {
+        additionalProperties: false,
+        allOf: [{ properties: { a: { type: "integer" } }, type: "object" }],
+        type: "object",
+      })?.properties,
+    ).toEqual({});
+    expect(
+      objectSchema(document, {
+        allOf: [
+          { additionalProperties: false, properties: { a: { type: "integer" } } },
+          { properties: { b: { type: "integer" } } },
+        ],
+      })?.properties,
+    ).toEqual({ a: { type: "integer" } });
+    expect(
+      objectSchema(document, {
+        allOf: [
+          { properties: { name: { pattern: "^a", type: "string" } } },
+          { properties: { name: { minLength: 2, type: "string" } } },
+        ],
+      })?.properties?.name,
+    ).toEqual({
+      allOf: [
+        { pattern: "^a", type: "string" },
+        { minLength: 2, type: "string" },
+      ],
+    });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { pattern: "^x+$", type: "string" },
+        allOf: [{ properties: { a: { type: "string" } }, required: ["a"] }],
+        type: "object",
+      }),
+    ).toEqual({ a: "x" });
+    expect(schemaConstraints(document, { maxProperties: 3, minProperties: 1, type: "object" })).toEqual([
+      "minimum properties 1",
+      "maximum properties 3",
+    ]);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            oneOf: [{ additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" }],
+          },
+          { minProperties: 1, type: "object" },
+        ],
+      }),
+    ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            additionalProperties: { type: "string" },
+            minProperties: 2,
+            properties: { b: { type: "integer" } },
+            type: "object",
+          },
+          { propertyNames: { pattern: "^b[0-9]*$", type: "string" } },
+        ],
+      }),
+    ).toEqual({ b: 1, b0: "example-b0" });
+    expect(schemaExample(document, { enum: ["a", "b"], pattern: "^b$", type: "string" })).toBe("b");
+    expect(
+      schemaExample(document, { maxProperties: 0, properties: { id: { type: "integer" } }, type: "object" }),
+    ).toEqual({});
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { properties: { a: { type: "integer" } }, type: "object" },
+          { maxProperties: 0, type: "object" },
+        ],
+      }),
+    ).toEqual({});
+    expect(
+      schemaExample(document, { additionalProperties: { type: "string" }, maxProperties: 0, type: "object" }),
+    ).toEqual({});
+    expect(
+      schemaExample(document, { additionalProperties: { type: "string" }, minProperties: 2, type: "object" }),
+    ).toEqual({ key: "example-key", key2: "example-key2" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^foo\\d{2}bar$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ foo00bar: "example-foo00bar", foo01bar: "example-foo01bar" });
+    const fixedWidthKeys = schemaExample(document, {
+      additionalProperties: { type: "string" },
+      minProperties: 27,
+      propertyNames: { pattern: "^[A-Z]{2}$", type: "string" },
+      type: "object",
+    });
+    expect(Object.keys(fixedWidthKeys as object)).toHaveLength(27);
+    expect(fixedWidthKeys).toHaveProperty("BA");
+    expect(
+      schemaExample(document, {
+        anyOf: [
+          {
+            additionalProperties: { type: "integer" },
+            properties: { a: { type: "integer" } },
+            type: "object",
+          },
+          { additionalProperties: false, properties: { b: { type: "string" } }, type: "object" },
+        ],
+        properties: { b: { type: "string" } },
+        required: ["b"],
+        type: "object",
+      }),
+    ).toEqual({ b: "example-b" });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { properties: { a: { type: "integer" } }, type: "object" },
+          { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+        ],
+      }),
+    ).toEqual({ b: 1 });
+    expect(schemaExample(document, { anyOf: [{ type: ["string", "number"] }], pattern: "^a$" })).toBe("a");
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        properties: { a: { type: "integer" } },
+        type: "object",
+      }),
+    ).toEqual({ a: 1, key: "example-key" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        required: ["foo"],
+        type: "object",
+      }),
+    ).toEqual({ foo: "example-foo" });
+    expect(
+      schemaExample(document, {
+        allOf: [{ type: ["string", "number"] }, { minimum: 1, type: "number" }],
+      }),
+    ).toBe(1);
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^[A-Z]+$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ KEY: "example-key" });
+    expect(
+      schemaExample(document, {
+        anyOf: [{ maximum: 1.9, minimum: 1.5, type: ["integer", "number"] }],
+      }),
+    ).toBe(1.5);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+          { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+        ],
+      }),
+    ).toEqual({});
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^[A-Z]{8}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ AAAAAAAA: "example-aaaaaaaa" });
+    expect(schemaExample(document, { exclusiveMinimum: 1, minimum: 5, type: "number" })).toBe(5);
+    expect(schemaExample(document, { minimum: Number.MAX_SAFE_INTEGER, multipleOf: 1, type: "integer" })).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+    expect(
+      schemaExample(document, {
+        maximum: Number.MAX_SAFE_INTEGER + 1,
+        minimum: Number.MAX_SAFE_INTEGER,
+        multipleOf: 2,
+        type: "integer",
+      }),
+    ).toBe(Number.MAX_SAFE_INTEGER + 1);
+    expect(
+      schemaExample(document, {
+        exclusiveMaximum: 100000000000001,
+        exclusiveMinimum: 100000000000000,
+        type: "number",
+      }),
+    ).toBe(100000000000000.5);
+    expect(
+      schemaExample(document, {
+        exclusiveMaximum: 10000000000000002,
+        exclusiveMinimum: 10000000000000000,
+        type: "number",
+      }),
+    ).toBeNull();
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { multipleOf: 0.2, type: "number" },
+          { multipleOf: 0.3, type: "number" },
+        ],
+      }),
+    ).toBe(1.2);
+    expect(
+      schemaExample(document, {
+        allOf: [{ type: "integer" }, { maximum: 2.5, minimum: 1.5, type: "number" }],
+      }),
+    ).toBe(2);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { enum: [1, 2], type: "integer" },
+          { multipleOf: 2, type: "integer" },
+        ],
+      }),
+    ).toBe(2);
+    expect(
+      schemaExample(document, {
+        anyOf: [
+          { pattern: "^a$", type: "string" },
+          { pattern: "^b$", type: "string" },
+        ],
+        pattern: "^b$",
+      }),
+    ).toBe("b");
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { multipleOf: 1e-7, type: "number" },
+          { multipleOf: 0.3, type: "number" },
+        ],
+      }),
+    ).toBe(1.2);
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
+    expect(schemaExample(document, { maximum: 0, type: "integer" })).toBe(0);
+    expect(schemaExample(document, { maximum: 1.9, minimum: 1.5, type: ["integer", "number"] })).toBe(1.5);
+    expect(schemaExample(document, { multipleOf: 0.3, type: "integer" })).toBe(3);
+    expect(
+      schemaExample(document, {
+        maxItems: 0,
+        minItems: 1,
+        pattern: "^a$",
+        type: ["array", "string"],
+      }),
+    ).toBe("a");
+    expect(
+      schemaExample(document, {
+        exclusiveMaximum: 0.25,
+        exclusiveMinimum: 0.15,
+        multipleOf: 0.1,
+        type: "number",
+      }),
+    ).toBe(0.2);
+    expect(
+      schemaExample(document, {
+        allOf: [{ type: ["string", "null"] }, { type: "null" }],
+      }),
+    ).toBeNull();
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^[0-9]{3}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ "000": "example-000" });
+    expect(schemaExample(document, { format: "time", pattern: "^99:99:99Z$|^12:00:00Z$", type: "string" })).toBe(
+      "12:00:00Z",
+    );
+    expect(schemaExample(document, { format: "ipv6", pattern: "^::::$|^2001:db8::1$", type: "string" })).toBe(
+      "2001:db8::1",
+    );
+    expect(schemaExample(document, { format: "duration", pattern: "^P1$", type: "string" })).toBe("<duration value>");
+    expect(
+      schemaExample(document, {
+        minimum: 10,
+        pattern: "^a$",
+        type: ["string", "number"],
+      }),
+    ).toBe("a");
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^[a-z]{3}[0-9]+$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ aaa0: "example-aaa0" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^(ab|cd)$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ ab: "example-ab" });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { format: "date", type: "string" },
+          { format: "password", type: "string" },
+        ],
+      }),
+    ).toBe("2026-01-01");
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            additionalProperties: false,
+            properties: { a: { type: "integer" }, b: { type: "integer" } },
+            type: "object",
+          },
+          {
+            additionalProperties: false,
+            properties: { b: { type: "integer" }, c: { type: "integer" } },
+            required: ["b"],
+            type: "object",
+          },
+        ],
+      }),
+    ).toEqual({ b: 1 });
     expect(
       schemaExample(document, {
         exclusiveMaximum: true,
@@ -517,8 +1421,7 @@ describe("Python generator", () => {
     expect(types).toContain(
       '"primaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure], "secondaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure]',
     );
-    expect(widgets).toContain("description: str | None");
-    expect(widgets).toContain("label: str | NotGiven = NOT_GIVEN");
+    expect(widgets).toContain("def create(self, *, body: dict[str, Any])");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");
   });
 
@@ -647,13 +1550,10 @@ describe("Python generator", () => {
     }
   });
 
-  test("merges composed request schemas without narrowing union fields", async () => {
+  test("retains composed request unions as a whole body", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
-    expect(widgets).toContain('provider: Literal["cloud", "local"]');
-    expect(widgets).toContain("settings: dict[str, Any]");
-    expect(widgets).toContain("name: str");
-    expect(widgets).toContain("region: str");
-    expect(widgets).toContain("description: str | None");
+    expect(widgets).toContain("def create(self, *, body: dict[str, Any])");
+    expect(widgets).toContain("json=body");
     const createWidget = getOperations(document).find((operation) => operation.operationId === "create_widget");
     expect(createWidget && schemaExample(document, requestMedia(createWidget)?.[1].schema)).toMatchObject({
       provider: "cloud",
