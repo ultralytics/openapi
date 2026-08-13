@@ -737,6 +737,14 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
               : property;
         }
       }
+      for (const [name, property] of Object.entries(properties)) {
+        const constraints = composed.flatMap((item) =>
+          typeof item.additionalProperties === "object" && !Object.hasOwn(item.properties ?? {}, name)
+            ? [item.additionalProperties]
+            : [],
+        );
+        if (constraints.length) properties[name] = { allOf: [property, ...constraints] };
+      }
       const closed = composed.filter((item) => item.additionalProperties === false);
       if (closed.length) {
         for (const property of Object.keys(properties)) {

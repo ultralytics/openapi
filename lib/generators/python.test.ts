@@ -995,6 +995,13 @@ describe("Python generator", () => {
         { minLength: 2, type: "string" },
       ],
     });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { pattern: "^x+$", type: "string" },
+        allOf: [{ properties: { a: { type: "string" } }, required: ["a"] }],
+        type: "object",
+      }),
+    ).toEqual({ a: "x" });
     expect(schemaConstraints(document, { maxProperties: 3, minProperties: 1, type: "object" })).toEqual([
       "minimum properties 1",
       "maximum properties 3",
