@@ -741,11 +741,11 @@ function stringFormatMatches(value: string, format?: string): boolean {
     const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
     return Boolean(
       match?.[1] &&
-        dateValid(match[1]) &&
-        Number(match[2]) <= 23 &&
-        Number(match[3]) <= 59 &&
-        Number(match[4]) <= 59 &&
-        !Number.isNaN(Date.parse(value)),
+      dateValid(match[1]) &&
+      Number(match[2]) <= 23 &&
+      Number(match[3]) <= 59 &&
+      Number(match[4]) <= 59 &&
+      !Number.isNaN(Date.parse(value)),
     );
   }
   if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
@@ -769,10 +769,10 @@ function stringFormatMatches(value: string, format?: string): boolean {
     const match = value.match(/^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-](\d{2}):(\d{2}))$/);
     return Boolean(
       match &&
-        Number(match[1]) <= 23 &&
-        Number(match[2]) <= 59 &&
-        Number(match[3]) <= 59 &&
-        (!match[5] || (Number(match[5]) <= 23 && Number(match[6]) <= 59)),
+      Number(match[1]) <= 23 &&
+      Number(match[2]) <= 59 &&
+      Number(match[3]) <= 59 &&
+      (!match[5] || (Number(match[5]) <= 23 && Number(match[6]) <= 59)),
     );
   }
   if (format === "duration") return /^P(?=\d|T\d)/.test(value);
