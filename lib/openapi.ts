@@ -18,9 +18,11 @@ export interface JsonSchema {
   items?: JsonSchema;
   maxItems?: number;
   maxLength?: number;
+  maxProperties?: number;
   maximum?: number;
   minItems?: number;
   minLength?: number;
+  minProperties?: number;
   minimum?: number;
   multipleOf?: number;
   nullable?: boolean;
@@ -948,6 +950,8 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
+    if (schema.minProperties !== undefined && Object.keys(record).length < schema.minProperties) return false;
+    if (schema.maxProperties !== undefined && Object.keys(record).length > schema.maxProperties) return false;
     if (schema.required?.some((name) => !Object.hasOwn(record, name))) return false;
     if (
       schema.additionalProperties === false &&
@@ -976,7 +980,10 @@ export function schemaExample(
   if (schema.example !== undefined) return schema.example;
   if (schema.default !== undefined) return schema.default;
   if (schema.const !== undefined) return schema.const;
-  if (schema.enum?.length) return schema.enum[0];
+  if (schema.enum?.length) {
+    const siblings = { ...schema, enum: undefined };
+    return schema.enum.find((value) => schemaMatches(document, value, siblings)) ?? schema.enum[0];
+  }
 
   const union = schema.oneOf ?? schema.anyOf;
   if (union?.length) {
@@ -1058,11 +1065,22 @@ export function schemaExample(
     return value;
   }
   if (type === "object" || schema.properties) {
+    const properties = Object.entries(schema.properties ?? {});
+    const required = new Set(schema.required ?? []);
+    const selected =
+      schema.maxProperties === undefined
+        ? properties
+        : [
+            ...properties.filter(([property]) => required.has(property)),
+            ...properties.filter(([property]) => !required.has(property)),
+          ].slice(0, schema.maxProperties);
+    const minimum = Math.min(schema.minProperties ?? 0, properties.length);
+    if (selected.length < minimum) {
+      const names = new Set(selected.map(([property]) => property));
+      selected.push(...properties.filter(([property]) => !names.has(property)).slice(0, minimum - selected.length));
+    }
     const example = Object.fromEntries(
-      Object.entries(schema.properties ?? {}).map(([name, property]) => [
-        name,
-        schemaExample(document, property, depth + 1, name),
-      ]),
+      selected.map(([name, property]) => [name, schemaExample(document, property, depth + 1, name)]),
     );
     if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
     return { key: schemaExample(document, schema.additionalProperties, depth + 1, "key") };
@@ -1250,17 +1268,19 @@ function authoredSchemaExample(
 function exampleObjectSchema(
   document: OpenApiDocument,
   input: JsonSchema | undefined,
+  value?: unknown,
   depth = 0,
 ): JsonSchema | undefined {
   if (depth > 8) return input;
   const schema = resolveSchema(document, input);
   if (!schema) return undefined;
   const union = schema.oneOf ?? schema.anyOf;
+  const selected = union?.find((item) => schemaMatches(document, value, item)) ?? union?.[0];
   return objectSchema(document, {
     ...schema,
     allOf: [
-      ...(schema.allOf ?? []).map((item) => exampleObjectSchema(document, item, depth + 1) ?? item),
-      ...(union?.length ? [exampleObjectSchema(document, union[0], depth + 1) ?? union[0]] : []),
+      ...(schema.allOf ?? []).map((item) => exampleObjectSchema(document, item, value, depth + 1) ?? item),
+      ...(selected ? [exampleObjectSchema(document, selected, value, depth + 1) ?? selected] : []),
     ],
     anyOf: undefined,
     oneOf: undefined,
@@ -1277,7 +1297,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
   const generated = !authored.found || authored.nested;
   let example = generated ? schemaExample(document, request[1].schema) : authored.value;
   if (generated && example && typeof example === "object" && !Array.isArray(example)) {
-    const object = exampleObjectSchema(document, request[1].schema);
+    const object = exampleObjectSchema(document, request[1].schema, example);
     example = { ...example };
     const named = Object.entries(object?.properties ?? {});
     const properties = named.filter(([, property]) => !resolveSchema(document, property)?.readOnly);

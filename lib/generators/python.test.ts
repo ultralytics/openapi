@@ -292,6 +292,24 @@ describe("Python generator", () => {
     };
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
     expect(unionBody).toBe('{\n  "file": "path/to/file"\n}');
+    const laterUnion = structuredClone(create);
+    laterUnion.requestBody = {
+      required: true,
+      content: {
+        "application/json": {
+          schema: {
+            anyOf: [
+              { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+              { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+            ],
+            properties: { b: { type: "integer" } },
+            required: ["b"],
+            type: "object",
+          },
+        },
+      },
+    };
+    expect(requestBodyExample(minimalDocument, laterUnion)).toBe('{\n  "b": 1\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
       {
         description: "Upload a file Or Use a source URL",
@@ -528,6 +546,10 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ b: 1 });
+    expect(schemaExample(document, { enum: ["a", "b"], pattern: "^b$", type: "string" })).toBe("b");
+    expect(
+      schemaExample(document, { maxProperties: 0, properties: { id: { type: "integer" } }, type: "object" }),
+    ).toEqual({});
     expect(
       schemaExample(document, {
         allOf: [
