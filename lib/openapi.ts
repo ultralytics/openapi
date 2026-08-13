@@ -686,6 +686,15 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
       );
       const names = composed.flatMap((item) => (item.propertyNames ? [item.propertyNames] : []));
       const propertyNames = names.length === 1 ? names[0] : names.length ? { allOf: names } : undefined;
+      const properties: Record<string, JsonSchema> = {};
+      for (const item of composed) {
+        for (const [name, property] of Object.entries(item.properties ?? {})) {
+          properties[name] =
+            properties[name] && !schemasEqual(properties[name], property)
+              ? { allOf: [properties[name], property] }
+              : property;
+        }
+      }
       return {
         ...schema,
         ...(composed.some((item) => item.additionalProperties === false)
@@ -697,9 +706,9 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
         ...(minimums.length ? { minProperties: Math.max(...minimums) } : {}),
         ...(propertyNames ? { propertyNames } : {}),
         properties: Object.fromEntries(
-          Object.entries<JsonSchema>(
-            Object.assign({}, schema.properties, ...objects.map((item) => item?.properties)),
-          ).filter(([property]) => !propertyNames || schemaMatches(document, property, propertyNames)),
+          Object.entries(properties).filter(
+            ([property]) => !propertyNames || schemaMatches(document, property, propertyNames),
+          ),
         ),
         required: [...new Set([...(schema.required ?? []), ...objects.flatMap((item) => item?.required ?? [])])],
         type: "object",
@@ -856,6 +865,11 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       "example",
       ...patterns.flatMap((pattern) => {
         if (/^[a-zA-Z0-9._-]+$/.test(pattern)) return [pattern];
+        const simple = pattern
+          .split("|")
+          .map((alternative) => alternative.replace(/^\^/, "").replace(/\$$/, ""))
+          .filter((alternative) => /^[a-zA-Z0-9._-]+$/.test(alternative));
+        if (simple.length) return simple;
         if (pattern === "^$") return [""];
         const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,\d+)?\}|[+*])\$$/);
         if (digits) return ["0".repeat(digits[1] ? Number(digits[1]) : Math.max(1, schema.minLength ?? 1))];
@@ -1419,6 +1433,8 @@ export function schemaConstraints(document: OpenApiDocument, input: JsonSchema |
   if (schema.maxLength !== undefined) constraints.push(`maximum length ${schema.maxLength}`);
   if (schema.minItems !== undefined) constraints.push(`minimum items ${schema.minItems}`);
   if (schema.maxItems !== undefined) constraints.push(`maximum items ${schema.maxItems}`);
+  if (schema.minProperties !== undefined) constraints.push(`minimum properties ${schema.minProperties}`);
+  if (schema.maxProperties !== undefined) constraints.push(`maximum properties ${schema.maxProperties}`);
   if (schema.multipleOf !== undefined) constraints.push(`multiple of ${schema.multipleOf}`);
   if (schema.pattern) constraints.push(`pattern ${schema.pattern}`);
   if (schema.default !== undefined) constraints.push(`default ${String(schema.default)}`);

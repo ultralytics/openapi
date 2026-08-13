@@ -651,6 +651,8 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[0-9]*$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^$", type: "string" })).toBe("");
     expect(schemaExample(document, { pattern: "foo", type: "string" })).toBe("foo");
+    expect(schemaExample(document, { pattern: "foo|bar", type: "string" })).toBe("foo");
+    expect(schemaExample(document, { pattern: "^foo", type: "string" })).toBe("foo");
     expect(schemaExample(document, { type: "string" }, 0, "apiKey")).toBe("your-api-key");
     expect(schemaExample(document, { type: "string" }, 0, "baseModel")).toBe("yolo26n.pt");
     expect(schemaExample(document, { pattern: "^b[0-9]*$", type: "string" })).toBe("b0");
@@ -691,6 +693,23 @@ describe("Python generator", () => {
         ],
       })?.properties,
     ).toEqual({ a: { type: "integer" } });
+    expect(
+      objectSchema(document, {
+        allOf: [
+          { properties: { name: { pattern: "^a", type: "string" } } },
+          { properties: { name: { minLength: 2, type: "string" } } },
+        ],
+      })?.properties?.name,
+    ).toEqual({
+      allOf: [
+        { pattern: "^a", type: "string" },
+        { minLength: 2, type: "string" },
+      ],
+    });
+    expect(schemaConstraints(document, { maxProperties: 3, minProperties: 1, type: "object" })).toEqual([
+      "minimum properties 1",
+      "maximum properties 3",
+    ]);
     expect(
       schemaExample(document, {
         allOf: [
