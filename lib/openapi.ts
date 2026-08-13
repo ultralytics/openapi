@@ -449,7 +449,18 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
         ]
       : [];
   });
-  const incompatibleClosedBody = Boolean(closed?.length && new Set(closed).size > 1);
+  const closedVariants = variants.flatMap((variant) =>
+    variant?.additionalProperties === false
+      ? [
+          Object.keys(variant.properties ?? {})
+            .sort()
+            .join("\0"),
+        ]
+      : [],
+  );
+  const incompatibleClosedBody = Boolean(
+    (closed?.length && new Set(closed).size > 1) || (closedVariants.length > 1 && new Set(closedVariants).size > 1),
+  );
   const exclusiveBody =
     Boolean(bodySchema?.oneOf?.length) ||
     (variants.length > 0 &&
@@ -898,6 +909,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             digits[2] ? Number(digits[2]) : Number.POSITIVE_INFINITY,
           );
           return ["0".repeat(count)];
+        }
+        const repeatedLiteral = pattern.match(/^\^([A-Za-z0-9_-])(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
+        if (repeatedLiteral?.[1]) {
+          const count = Math.min(
+            Math.max(Number(repeatedLiteral[2] ?? 1), schema.minLength ?? 1),
+            repeatedLiteral[3] ? Number(repeatedLiteral[3]) : Number.POSITIVE_INFINITY,
+          );
+          return [repeatedLiteral[1].repeat(count)];
         }
         const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedRange?.[1]) {
@@ -1421,6 +1440,7 @@ export function schemaExample(
               `${key}${index}`,
               `${key}${"X".repeat(index - 1)}`,
               `${key}${"x".repeat(index - 1)}`,
+              `${key}${key.at(-1)?.repeat(index - 1)}`,
               `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
               ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
               ...(/^[a-z]+$/.test(key)
