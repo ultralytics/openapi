@@ -452,7 +452,7 @@ describe("Python generator", () => {
     );
     expect(schemaExample(document, { type: "string" }, 0, "project")).toBe("example-project");
     expect(schemaExample(document, { maxLength: 2, type: "string" }, 0, "iconLetter")).toBe("ex");
-    expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("<pattern value>");
+    expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("AAAAAAAA");
     expect(schemaExample(document, { pattern: "^[a-z0-9]+$", type: "string" }, 0, "model")).toBe("yolo26n");
     expect(schemaExample(document, { pattern: "^[a-z]+$", type: "string" }, 0, "model")).toBe("example");
     expect(schemaExample(document, { maxLength: 6, pattern: "^yolo26n$|^yolo26$", type: "string" }, 0, "model")).toBe(
@@ -636,6 +636,27 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ KEY: "example-key" });
+    expect(
+      schemaExample(document, {
+        anyOf: [{ maximum: 1.9, minimum: 1.5, type: ["integer", "number"] }],
+      }),
+    ).toBe(1.5);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+          { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+        ],
+      }),
+    ).toEqual({});
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^[A-Z]{8}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ AAAAAAAA: "example-aaaaaaaa" });
     expect(
       schemaExample(document, {
         allOf: [

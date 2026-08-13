@@ -793,6 +793,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     const candidates = [
       value,
       ...patterns.flatMap((pattern) => {
+        const repeated = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\$$/);
+        if (repeated?.[1] && repeated[2]) return [repeated[1].toUpperCase().repeat(Number(repeated[2]))];
         return pattern.split("|").flatMap((alternative) => {
           const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
           return match?.[1] ? [match[1]] : [];
@@ -843,7 +845,7 @@ function scalarMatches(value: unknown, schema: JsonSchema): boolean {
       }
     }
   }
-  if (types.includes("integer") && !Number.isInteger(value)) return false;
+  if (types.includes("integer") && !types.includes("number") && !Number.isInteger(value)) return false;
   if (typeof value === "number") {
     const minimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : schema.minimum;
     const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
@@ -1088,6 +1090,7 @@ export function schemaExample(
         const candidate = schemaExample(document, item, depth + 1, name);
         if (schemaMatches(document, candidate, schema)) return candidate;
       }
+      if (schemaMatches(document, {}, schema)) return {};
       return selected;
     }
     return schemaExample(document, mergeScalarSchemas(document, [schema, ...schema.allOf], name), depth + 1, name);
@@ -1153,12 +1156,19 @@ export function schemaExample(
         ? "key"
         : String(schemaExample(document, schema.propertyNames, depth + 1, "key"));
     for (let index = 1; values.size < target; index += 1) {
-      const property =
+      const candidates =
         index === 1
-          ? key
-          : ([`${key}${index}`, `${key}${"X".repeat(index - 1)}`, `${key}${"x".repeat(index - 1)}`].find(
-              (candidate) => !schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames),
-            ) ?? `${key}${index}`);
+          ? [key]
+          : [
+              `${key}${index}`,
+              `${key}${"X".repeat(index - 1)}`,
+              `${key}${"x".repeat(index - 1)}`,
+              `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
+            ];
+      const property = candidates.find(
+        (candidate) => !schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames),
+      );
+      if (!property) break;
       if (!values.has(property)) values.set(property, schemaExample(document, additional, depth + 1, property));
     }
     return Object.fromEntries(values);
