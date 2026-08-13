@@ -818,7 +818,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     "url",
     "uuid",
   ]);
-  if (schema.format && !knownFormats.has(schema.format) && !patterns.length) return `<${schema.format} value>`;
+  const constrainLength = (candidate: string) =>
+    (schema.maxLength === undefined ? candidate : candidate.slice(0, schema.maxLength)).padEnd(
+      schema.minLength ?? 0,
+      "x",
+    );
+  if (schema.format && !knownFormats.has(schema.format) && !patterns.length) {
+    return constrainLength(`<${schema.format} value>`);
+  }
   let value = name ? `example-${name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}` : "example";
   if (schema.format === "date") value = "2026-01-01";
   else if (schema.format === "date-time") value = "2026-01-01T00:00:00Z";
@@ -851,11 +858,6 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
   else if (key.includes("message")) value = "Operation completed";
   else if (key.includes("hash")) value = "a1b2c3d4";
   else if (key.includes("color")) value = "#4f46e5";
-  const constrainLength = (candidate: string) =>
-    (schema.maxLength === undefined ? candidate : candidate.slice(0, schema.maxLength)).padEnd(
-      schema.minLength ?? 0,
-      "x",
-    );
   try {
     const expressions = patterns.map((pattern) => new RegExp(pattern));
     const candidates = [
@@ -879,6 +881,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             repeatedRange[1].repeat(repeatedRange[2] ? Number(repeatedRange[2]) : Math.max(1, schema.minLength ?? 1)),
           ];
         }
+        const multiRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\]\{(\d+)\}\$$/);
+        if (multiRange?.[1] && multiRange[2]) return [multiRange[1].repeat(Number(multiRange[2]))];
         const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
         if (suffixed?.[1] && suffixed[2]) {
           return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
