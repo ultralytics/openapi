@@ -664,10 +664,34 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
   const schema = resolveSchema(document, input);
   if (!schema) return undefined;
   if (schema.allOf?.length) {
-    const objects = schema.allOf.map((item) => objectSchema(document, item)).filter((item) => item?.properties);
+    const objects = schema.allOf
+      .map((item) => objectSchema(document, item))
+      .filter((item): item is JsonSchema =>
+        Boolean(
+          item &&
+            (item.type === "object" ||
+              item.properties ||
+              item.minProperties !== undefined ||
+              item.maxProperties !== undefined ||
+              item.additionalProperties !== undefined),
+        ),
+      );
     if (objects.length) {
+      const composed = [schema, ...objects];
+      const minimums = composed.flatMap((item) => (item.minProperties === undefined ? [] : [item.minProperties]));
+      const maximums = composed.flatMap((item) => (item.maxProperties === undefined ? [] : [item.maxProperties]));
+      const additional = composed.flatMap((item) =>
+        typeof item.additionalProperties === "object" ? [item.additionalProperties] : [],
+      );
       return {
         ...schema,
+        ...(composed.some((item) => item.additionalProperties === false)
+          ? { additionalProperties: false }
+          : additional.length
+            ? { additionalProperties: additional.length === 1 ? additional[0] : { allOf: additional } }
+            : {}),
+        ...(maximums.length ? { maxProperties: Math.min(...maximums) } : {}),
+        ...(minimums.length ? { minProperties: Math.max(...minimums) } : {}),
         properties: Object.assign({}, schema.properties, ...objects.map((item) => item?.properties)),
         required: [...new Set([...(schema.required ?? []), ...objects.flatMap((item) => item?.required ?? [])])],
         type: "object",
@@ -959,6 +983,15 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
     )
       return false;
     if (
+      typeof schema.additionalProperties === "object" &&
+      Object.entries(record).some(
+        ([name, property]) =>
+          !Object.hasOwn(schema.properties ?? {}, name) &&
+          !schemaMatches(document, property, schema.additionalProperties as JsonSchema, depth + 1),
+      )
+    )
+      return false;
+    if (
       Object.entries(schema.properties ?? {}).some(
         ([name, property]) =>
           Object.hasOwn(record, name) && !schemaMatches(document, record[name], property, depth + 1),
@@ -1083,7 +1116,13 @@ export function schemaExample(
       selected.map(([name, property]) => [name, schemaExample(document, property, depth + 1, name)]),
     );
     if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
-    return { key: schemaExample(document, schema.additionalProperties, depth + 1, "key") };
+    const count = schema.maxProperties === 0 ? 0 : Math.max(1, schema.minProperties ?? 0);
+    return Object.fromEntries(
+      Array.from({ length: count }, (_, index) => [
+        index ? `key${index + 1}` : "key",
+        schemaExample(document, schema.additionalProperties as JsonSchema, depth + 1, "key"),
+      ]),
+    );
   }
   return stringExample(schema, name);
 }
@@ -1305,6 +1344,11 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     const selected = properties.some(([name]) => required.has(name))
       ? properties.filter(([name]) => required.has(name))
       : properties.slice(0, 1);
+    const minimum = Math.min(object?.minProperties ?? 0, properties.length);
+    if (selected.length < minimum) {
+      const names = new Set(selected.map(([name]) => name));
+      selected.push(...properties.filter(([name]) => !names.has(name)).slice(0, minimum - selected.length));
+    }
     const values = example as Record<string, unknown>;
     if (selected.length) example = Object.fromEntries(selected.map(([name]) => [name, values[name]]));
     else if (named.length) example = {};
