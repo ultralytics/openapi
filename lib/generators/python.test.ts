@@ -270,6 +270,18 @@ describe("Python generator", () => {
       ],
     };
     expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      maxProperties: 1,
+      properties: { a: { type: "integer" }, b: { type: "integer" } },
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      minProperties: 1,
+      properties: { a: { type: "integer" }, b: { type: "integer" } },
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
     const minimalCurl = curlCodeSample(minimalDocument, create, {
       body: minimalBody,
       environment: "EXAMPLE_API_KEY",

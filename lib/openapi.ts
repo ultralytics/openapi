@@ -482,7 +482,9 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     Object.keys(body.properties).length &&
     !exclusiveBody &&
     !incompatibleClosedBody &&
-    !constrainedComposedBody
+    !constrainedComposedBody &&
+    body.minProperties === undefined &&
+    body.maxProperties === undefined
   ) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
