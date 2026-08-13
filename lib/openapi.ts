@@ -537,15 +537,7 @@ export function pythonCodeSample(
   bodyValue?: unknown,
 ): string {
   const request = requestMedia(operation);
-  const generatedBody = request ? requestBodyExample(document, operation) : "";
-  const exampleBody =
-    bodyValue !== undefined
-      ? bodyValue
-      : request?.[1].example !== undefined
-        ? request[1].example
-        : request?.[0].startsWith("text/")
-          ? generatedBody
-          : JSON.parse(generatedBody || "null");
+  const exampleBody = bodyValue !== undefined ? bodyValue : request ? requestBodyExampleValue(document, request) : null;
   const bodyValues =
     exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
       ? (exampleBody as Record<string, unknown>)
@@ -1510,13 +1502,15 @@ export function schemaExample(
   if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.every((value) => value === "null")))
     return null;
   if (type === "array") {
-    const prefix = (schema.prefixItems ?? []).map((item) => schemaExample(document, item, depth + 1, name));
     const length = Math.min(
       schema.maxItems ?? Number.POSITIVE_INFINITY,
-      Math.max(prefix.length, 1, schema.minItems ?? 0),
+      Math.max(schema.prefixItems?.length ?? 0, 1, schema.minItems ?? 0),
     );
+    const prefix = (schema.prefixItems ?? [])
+      .slice(0, length)
+      .map((item) => schemaExample(document, item, depth + 1, name));
     return [
-      ...prefix.slice(0, length),
+      ...prefix,
       ...Array.from({ length: Math.max(0, length - prefix.length) }, () =>
         schemaExample(document, schema.items, depth + 1, name),
       ),
@@ -1877,9 +1871,7 @@ function exampleObjectSchema(
   });
 }
 
-export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
-  const request = requestMedia(operation);
-  if (!request) return "";
+function requestBodyExampleValue(document: OpenApiDocument, request: [string, MediaType]): unknown {
   const authored =
     request[1].example !== undefined
       ? { found: true, value: request[1].example }
@@ -1955,6 +1947,13 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
         : authored.value;
     if (schemaMatches(document, combined, request[1].schema ?? {})) example = combined;
   }
+  return example;
+}
+
+export function requestBodyExample(document: OpenApiDocument, operation: ApiOperation): string {
+  const request = requestMedia(operation);
+  if (!request) return "";
+  const example = requestBodyExampleValue(document, request);
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
 
