@@ -503,12 +503,12 @@ export function pythonCodeSample(
     .map((argument) => {
       const value =
         argument.location !== "body"
-          ? schemaExample(document, argument.schema)
+          ? schemaExample(document, argument.schema, 0, argument.name)
           : argument.wholeBody
             ? exampleBody
             : bodyValues[argument.name] !== undefined
               ? bodyValues[argument.name]
-              : schemaExample(document, argument.schema);
+              : schemaExample(document, argument.schema, 0, argument.name);
       return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
     });
   return [
@@ -699,7 +699,37 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
   };
 }
 
-export function schemaExample(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): unknown {
+function stringExample(schema: JsonSchema, name?: string): string {
+  if (schema.format === "date") return "2026-01-01";
+  if (schema.format === "date-time") return "2026-01-01T00:00:00Z";
+  if (schema.format === "email") return "jane@example.com";
+  if (schema.format === "uri" || schema.format === "url") return "https://example.com";
+  if (schema.format === "uuid") return "123e4567-e89b-12d3-a456-426614174000";
+  if (schema.format === "binary") return "path/to/file";
+  const key = name?.toLowerCase() ?? "";
+  if (key.includes("apikey") || key.includes("api_key")) return "your-api-key";
+  if (key === "owner" || key === "username") return "jane-doe";
+  if (key === "project" || key.endsWith("projectslug")) return "example-project";
+  if (key === "dataset") return "coco8";
+  if (key === "model" || key === "basemodel") return "yolo26n";
+  if (key === "deployment") return "example-deployment";
+  if (key === "id" || key === "_id" || name?.endsWith("Id") || name?.endsWith("_id")) return "resource-id";
+  if (key.includes("url")) return "https://example.com";
+  if (key.includes("filename")) return "image.jpg";
+  if (key.includes("description")) return "Example description";
+  if (key === "name" || key.endsWith("name")) return "Example name";
+  if (key.includes("message")) return "Operation completed";
+  if (key.includes("hash")) return "a1b2c3d4";
+  if (key.includes("color")) return "#4f46e5";
+  return name ? `example-${name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}` : "example";
+}
+
+export function schemaExample(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  depth = 0,
+  name?: string,
+): unknown {
   if (!input || depth > 8) return null;
   const schema = resolveSchema(document, input) ?? input;
   if (schema.example !== undefined) return schema.example;
@@ -709,20 +739,20 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
 
   const union = schema.oneOf ?? schema.anyOf;
   if (union?.length) {
-    const selected = schemaExample(document, union[0], depth + 1);
+    const selected = schemaExample(document, union[0], depth + 1, name);
     if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
-      const siblings = schemaExample(document, { ...schema, anyOf: undefined, oneOf: undefined }, depth + 1);
+      const siblings = schemaExample(document, { ...schema, anyOf: undefined, oneOf: undefined }, depth + 1, name);
       if (siblings && typeof siblings === "object" && !Array.isArray(siblings)) return { ...siblings, ...selected };
     }
     return selected;
   }
   if (schema.allOf?.length) {
     const object = objectSchema(document, schema);
-    if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1);
+    if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1, name);
   }
 
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
-  if (type === "array") return [schemaExample(document, schema.items, depth + 1)];
+  if (type === "array") return [schemaExample(document, schema.items, depth + 1, name)];
   if (type === "boolean") return false;
   if (type === "integer" || type === "number") {
     const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
@@ -748,13 +778,13 @@ export function schemaExample(document: OpenApiDocument, input: JsonSchema | und
     const example = Object.fromEntries(
       Object.entries(schema.properties ?? {}).map(([name, property]) => [
         name,
-        schemaExample(document, property, depth + 1),
+        schemaExample(document, property, depth + 1, name),
       ]),
     );
     if (Object.keys(example).length || typeof schema.additionalProperties !== "object") return example;
-    return { key: schemaExample(document, schema.additionalProperties, depth + 1) };
+    return { key: schemaExample(document, schema.additionalProperties, depth + 1, "key") };
   }
-  return schema.format === "date-time" ? "2026-01-01T00:00:00Z" : "...";
+  return stringExample(schema, name);
 }
 
 function isBinarySchema(document: OpenApiDocument, input: JsonSchema | undefined, depth = 0): boolean {
@@ -786,10 +816,10 @@ export function schemaConstraints(document: OpenApiDocument, input: JsonSchema |
   const constraints: string[] = [];
   if (schema.enum?.length) constraints.push(`values: ${schema.enum.map(String).join(", ")}`);
   if (typeof schema.exclusiveMinimum === "number") constraints.push(`greater than ${schema.exclusiveMinimum}`);
-  else if (schema.minimum !== undefined)
+  else if (schema.minimum !== undefined && schema.minimum !== -Number.MAX_SAFE_INTEGER)
     constraints.push(`${schema.exclusiveMinimum ? "greater than" : "minimum"} ${schema.minimum}`);
   if (typeof schema.exclusiveMaximum === "number") constraints.push(`less than ${schema.exclusiveMaximum}`);
-  else if (schema.maximum !== undefined)
+  else if (schema.maximum !== undefined && schema.maximum !== Number.MAX_SAFE_INTEGER)
     constraints.push(`${schema.exclusiveMaximum ? "less than" : "maximum"} ${schema.maximum}`);
   if (schema.minLength !== undefined) constraints.push(`minimum length ${schema.minLength}`);
   if (schema.maxLength !== undefined) constraints.push(`maximum length ${schema.maxLength}`);
@@ -1034,7 +1064,7 @@ export function curlCodeSample(
 ): string {
   const parameterValueOrExample = (parameter: Parameter) => {
     const value = values[`${parameter.in}:${parameter.name}`];
-    if (value === undefined) return schemaExample(document, parameter.schema);
+    if (value === undefined) return schemaExample(document, parameter.schema, 0, parameter.name);
     try {
       return parameterValue(document, parameter, value);
     } catch {

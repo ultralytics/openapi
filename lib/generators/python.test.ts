@@ -149,7 +149,7 @@ describe("Python generator", () => {
       package: config.python.package,
     });
     expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]?.[0]?.source).toContain(
-      'widget_id_query="..."',
+      'widget_id_query="resource-id"',
     );
   });
 
@@ -183,7 +183,7 @@ describe("Python generator", () => {
         body: requestBodyExample(document, raw),
         origin: "https://docs.example.com",
       }),
-    ).toContain("-d '...'");
+    ).toContain("-d 'example'");
     const multipartDocument = structuredClone(document);
     const multipartUpload = getOperations(multipartDocument).find(
       (operation) => requestMedia(operation)?.[0] === "multipart/form-data",
@@ -226,7 +226,7 @@ describe("Python generator", () => {
       type: "object",
     };
     const minimalBody = requestBodyExample(minimalDocument, create);
-    expect(minimalBody).toBe('{\n  "name": "..."\n}');
+    expect(minimalBody).toBe('{\n  "name": "Example name"\n}');
     const minimalCurl = curlCodeSample(minimalDocument, create, {
       body: minimalBody,
       environment: "EXAMPLE_API_KEY",
@@ -255,7 +255,7 @@ describe("Python generator", () => {
       ],
     };
     expect(JSON.parse(requestBodyExample(minimalDocument, create))).toEqual({
-      images: ["..."],
+      images: ["example-images"],
       model: "yolo11n.pt",
     });
     createMedia[1].schema = { allOf: [{ example: "authored", type: "string" }, { minLength: 1 }] };
@@ -289,7 +289,7 @@ describe("Python generator", () => {
       },
     };
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
-    expect(unionBody).toBe('{\n  "file": "..."\n}');
+    expect(unionBody).toBe('{\n  "file": "path/to/file"\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
       { name: "body", required: true, wholeBody: true },
     ]);
@@ -321,7 +321,7 @@ describe("Python generator", () => {
     createMedia[1].schema = { example: null, type: ["object", "null"] };
     expect(requestBodyExample(minimalDocument, create)).toBe("null");
     createMedia[1].schema = { additionalProperties: { type: "string" }, type: "object" };
-    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "..."\n}');
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "example-key"\n}');
     createMedia[1].schema = { properties: { id: { readOnly: true, type: "string" } }, type: "object" };
     expect(requestBodyExample(minimalDocument, create)).toBe("{}");
     minimalDocument.components = { schemas: { Node: { oneOf: [{ $ref: "#/components/schemas/Node" }] } } };
@@ -376,6 +376,13 @@ describe("Python generator", () => {
     ]);
     expect(
       schemaConstraints(document, {
+        maximum: Number.MAX_SAFE_INTEGER,
+        minimum: -Number.MAX_SAFE_INTEGER,
+        type: "integer",
+      }),
+    ).toEqual([]);
+    expect(
+      schemaConstraints(document, {
         allOf: [{ enum: ["obb"], type: "string" }],
         anyOf: [{ enum: ["classify"], type: "string" }],
         oneOf: [{ enum: ["pose"], type: "string" }],
@@ -384,7 +391,9 @@ describe("Python generator", () => {
   });
 
   test("uses generic string examples", () => {
-    expect(schemaExample(document, { type: "string" })).toBe("...");
+    expect(schemaExample(document, { type: "string" })).toBe("example");
+    expect(schemaExample(document, { format: "email", type: "string" })).toBe("jane@example.com");
+    expect(schemaExample(document, { type: "string" }, 0, "project")).toBe("example-project");
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {
