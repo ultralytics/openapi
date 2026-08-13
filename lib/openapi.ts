@@ -951,9 +951,13 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         });
       }),
       ...(schema.format === "email" ? ["a@b.co"] : []),
-      ...(schema.format === "date-time" ? ["2026-01-01T00:00:00.0Z"] : []),
+      ...(schema.format === "date-time"
+        ? [`2026-01-01T00:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 22) - 21))}Z`]
+        : []),
+      ...(schema.format === "time" ? [`12:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 11) - 10))}Z`] : []),
       ...(schema.format === "uri" || schema.format === "url" ? ["https://x.co"] : []),
       ...(schema.format === "ipv4" ? ["1.1.1.1"] : []),
+      ...(schema.format === "ipv6" ? ["::1"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
     ].map(constrainLength);

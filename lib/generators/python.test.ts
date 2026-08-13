@@ -696,6 +696,11 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );
+    expect(schemaExample(document, { format: "date-time", minLength: 23, type: "string" })).toBe(
+      "2026-01-01T00:00:00.00Z",
+    );
+    expect(schemaExample(document, { format: "time", minLength: 10, type: "string" })).toBe("12:00:00.0Z");
+    expect(schemaExample(document, { format: "ipv6", maxLength: 3, type: "string" })).toBe("::1");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");
