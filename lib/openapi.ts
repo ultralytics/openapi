@@ -27,6 +27,7 @@ export interface JsonSchema {
   multipleOf?: number;
   nullable?: boolean;
   oneOf?: JsonSchema[];
+  prefixItems?: JsonSchema[];
   properties?: Record<string, JsonSchema>;
   propertyNames?: JsonSchema;
   pattern?: string;
@@ -536,12 +537,15 @@ export function pythonCodeSample(
   bodyValue?: unknown,
 ): string {
   const request = requestMedia(operation);
+  const generatedBody = request ? requestBodyExample(document, operation) : "";
   const exampleBody =
     bodyValue !== undefined
       ? bodyValue
       : request?.[1].example !== undefined
         ? request[1].example
-        : schemaExample(document, request?.[1].schema);
+        : request?.[0].startsWith("text/")
+          ? generatedBody
+          : JSON.parse(generatedBody || "null");
   const bodyValues =
     exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
       ? (exampleBody as Record<string, unknown>)
@@ -1286,7 +1290,18 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) return false;
     if (schema.maxItems !== undefined && value.length > schema.maxItems) return false;
-    if (schema.items && value.some((item) => !schemaMatches(document, item, schema.items as JsonSchema, depth + 1)))
+    if (
+      schema.prefixItems?.some(
+        (item, index) => index < value.length && !schemaMatches(document, value[index], item, depth + 1),
+      )
+    )
+      return false;
+    if (
+      schema.items &&
+      value
+        .slice(schema.prefixItems?.length ?? 0)
+        .some((item) => !schemaMatches(document, item, schema.items as JsonSchema, depth + 1))
+    )
       return false;
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -1495,8 +1510,17 @@ export function schemaExample(
   if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.every((value) => value === "null")))
     return null;
   if (type === "array") {
-    const length = schema.maxItems === 0 ? 0 : Math.max(1, schema.minItems ?? 0);
-    return Array.from({ length }, () => schemaExample(document, schema.items, depth + 1, name));
+    const prefix = (schema.prefixItems ?? []).map((item) => schemaExample(document, item, depth + 1, name));
+    const length = Math.min(
+      schema.maxItems ?? Number.POSITIVE_INFINITY,
+      Math.max(prefix.length, 1, schema.minItems ?? 0),
+    );
+    return [
+      ...prefix.slice(0, length),
+      ...Array.from({ length: Math.max(0, length - prefix.length) }, () =>
+        schemaExample(document, schema.items, depth + 1, name),
+      ),
+    ];
   }
   if (type === "boolean") return false;
   if (type === "integer" || type === "number") {
