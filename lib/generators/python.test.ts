@@ -270,11 +270,13 @@ describe("Python generator", () => {
           schema: {
             oneOf: [
               {
+                description: "Upload a file",
                 properties: { conf: { type: "number" }, file: { format: "binary", type: "string" } },
                 required: ["file"],
                 type: "object",
               },
               {
+                description: "Use a source URL",
                 properties: {
                   conf: { type: "number" },
                   file: { anyOf: [{ format: "binary", type: "string" }, { type: "null" }] },
@@ -291,7 +293,12 @@ describe("Python generator", () => {
     const unionBody = requestBodyExample(minimalDocument, unionCreate);
     expect(unionBody).toBe('{\n  "file": "path/to/file"\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
-      { name: "body", required: true, wholeBody: true },
+      {
+        description: "Upload a file Or Use a source URL",
+        name: "body",
+        required: true,
+        wholeBody: true,
+      },
     ]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {

@@ -431,6 +431,9 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const structured = json || ["application/x-www-form-urlencoded", "multipart/form-data"].includes(media?.[0] ?? "");
   const bodySchema = resolveSchema(document, media?.[1].schema);
   const union = bodySchema?.oneOf ?? bodySchema?.anyOf;
+  const variantDescriptions = union
+    ?.map((variant) => resolveSchema(document, variant)?.description)
+    .filter((description): description is string => Boolean(description));
   const body = structured ? objectSchema(document, bodySchema) : undefined;
   const variants = union?.map((variant) => objectSchema(document, variant));
   const exclusiveBody =
@@ -452,7 +455,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     }
   } else if (media) {
     parameters.push({
-      description: media[1].schema?.description ?? "Request body.",
+      description: bodySchema?.description ?? variantDescriptions?.join(" Or ") ?? "Request body.",
       location: "body",
       name: "body",
       pythonName: "body",
