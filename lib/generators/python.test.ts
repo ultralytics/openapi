@@ -405,6 +405,8 @@ describe("Python generator", () => {
     expect(schemaExample(document, { type: "string" })).toBe("example");
     expect(schemaExample(document, { format: "email", type: "string" })).toBe("jane@example.com");
     expect(schemaExample(document, { format: "email", maxLength: 10, type: "string" })).toBe("a@b.co");
+    expect(schemaExample(document, { format: "ipv4", type: "string" })).toBe("192.0.2.1");
+    expect(schemaExample(document, { format: "custom", type: "string" })).toBe("<custom value>");
     expect(schemaExample(document, { format: "date", type: "string" }, 0, "data")).toBe("2026-01-01");
     expect(schemaExample(document, { format: "uuid", type: "string" }, 0, "model")).toBe(
       "123e4567-e89b-12d3-a456-426614174000",
@@ -450,6 +452,15 @@ describe("Python generator", () => {
         ],
       }),
     ).toBe("b");
+    expect(
+      schemaExample(document, {
+        anyOf: [
+          { pattern: "^a$", type: "string" },
+          { properties: { id: { type: "integer" } }, type: "object" },
+        ],
+        pattern: "^b$",
+      }),
+    ).toEqual({ id: 1 });
     expect(
       schemaExample(document, {
         allOf: [

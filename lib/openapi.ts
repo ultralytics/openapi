@@ -708,9 +708,20 @@ function stringFormatMatches(value: string, format?: string): boolean {
   if (format === "date-time") return !Number.isNaN(Date.parse(value));
   if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
   if (format === "uri" || format === "url") return URL.canParse(value);
+  if (format === "hostname")
+    return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(
+      value,
+    );
+  if (format === "ipv4")
+    return (
+      value.split(".").length === 4 && value.split(".").every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+    );
+  if (format === "ipv6") return value.includes(":") && /^[0-9a-f:]+$/i.test(value);
+  if (format === "time") return /^\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value);
+  if (format === "duration") return /^P(?=\d|T\d)/.test(value);
   if (format === "uuid")
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-  return true;
+  return !format || format === "binary" || format === "byte" || format === "password";
 }
 
 function stringExample(schema: JsonSchema, name?: string, patterns = schema.pattern ? [schema.pattern] : []): string {
@@ -720,8 +731,15 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
   else if (schema.format === "date-time") value = "2026-01-01T00:00:00Z";
   else if (schema.format === "email") value = "jane@example.com";
   else if (schema.format === "uri" || schema.format === "url") value = "https://example.com";
+  else if (schema.format === "hostname") value = "example.com";
+  else if (schema.format === "ipv4") value = "192.0.2.1";
+  else if (schema.format === "ipv6") value = "2001:db8::1";
+  else if (schema.format === "time") value = "12:00:00Z";
+  else if (schema.format === "duration") value = "P1D";
   else if (schema.format === "uuid") value = "123e4567-e89b-12d3-a456-426614174000";
   else if (schema.format === "binary") value = "path/to/file";
+  else if (schema.format === "byte") value = "ZXhhbXBsZQ==";
+  else if (schema.format === "password") value = "example-password";
   else if (key === "sourceurl") value = "https://example.com/dataset.zip";
   else if (key === "region") value = "us-east-1";
   else if (key === "model" || key === "basemodel") value = "yolo26n.pt";
@@ -765,7 +783,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         (candidate) =>
           stringFormatMatches(candidate, schema.format) &&
           expressions.every((expression) => expression.test(candidate)),
-      ) ?? "<pattern value>"
+      ) ?? `<${schema.format ?? "pattern"} value>`
     );
   } catch {
     return "<pattern value>";
@@ -908,26 +926,26 @@ export function schemaExample(
 
   const union = schema.oneOf ?? schema.anyOf;
   if (union?.length) {
-    const selectedSchema = resolveSchema(document, union[0]) ?? union[0];
     const siblings = { ...schema, anyOf: undefined, oneOf: undefined };
-    const selectedType = Array.isArray(selectedSchema.type)
-      ? selectedSchema.type.find((value) => value !== "null")
-      : selectedSchema.type;
-    if (selectedType !== "object" && !selectedSchema.properties) {
-      const scalar = union
-        .map((item) => resolveSchema(document, item) ?? item)
-        .filter((item) => item.type !== "object" && !item.properties)
-        .map((item) => mergeScalarSchemas(document, [item, siblings], name))
-        .find((item) => scalarMatches(schemaExample(document, item, depth + 1, name), item));
-      if (scalar) return schemaExample(document, scalar, depth + 1, name);
-      return schemaExample(document, mergeScalarSchemas(document, [selectedSchema, siblings], name), depth + 1, name);
+    for (const item of union) {
+      const variant = resolveSchema(document, item) ?? item;
+      const type = Array.isArray(variant.type) ? variant.type.find((value) => value !== "null") : variant.type;
+      if (variant.type === "null" || (Array.isArray(variant.type) && variant.type.every((value) => value === "null")))
+        return null;
+      if (type === "object" || variant.properties) {
+        const selected = schemaExample(document, variant, depth + 1, name);
+        if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
+          const enclosing = schemaExample(document, siblings, depth + 1, name);
+          if (enclosing && typeof enclosing === "object" && !Array.isArray(enclosing))
+            return { ...enclosing, ...selected };
+        }
+        return selected;
+      }
+      const merged = mergeScalarSchemas(document, [variant, siblings], name);
+      const selected = schemaExample(document, merged, depth + 1, name);
+      if (scalarMatches(selected, merged)) return selected;
     }
-    const selected = schemaExample(document, union[0], depth + 1, name);
-    if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
-      const siblings = schemaExample(document, { ...schema, anyOf: undefined, oneOf: undefined }, depth + 1, name);
-      if (siblings && typeof siblings === "object" && !Array.isArray(siblings)) return { ...siblings, ...selected };
-    }
-    return selected;
+    return schemaExample(document, union[0], depth + 1, name);
   }
   if (schema.allOf?.length) {
     const object = objectSchema(document, schema);
