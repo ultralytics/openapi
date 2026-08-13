@@ -459,11 +459,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
       : [],
   );
   const incompatibleClosedBody = Boolean((closed?.length && new Set(closed).size > 1) || closedVariants.length);
-  const exclusiveBody =
-    Boolean(bodySchema?.oneOf?.length) ||
-    (variants.length > 0 &&
-      variants.every((variant) => variant?.required?.length) &&
-      variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name))));
+  const exclusiveBody = Boolean(union?.length);
   if (body?.properties && Object.keys(body.properties).length && !exclusiveBody && !incompatibleClosedBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
@@ -945,6 +941,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             suffixed[4] ? Number(suffixed[4]) : Number.POSITIVE_INFINITY,
           );
           return [`${suffixed[1]}${suffixed[2].repeat(count)}`];
+        }
+        const digitSuffix = pattern.match(/^\^([A-Za-z0-9._-]+)\\d(?:\{(\d+)(?:,(\d*))?\}|[*+])\$$/);
+        if (digitSuffix?.[1]) {
+          const count = Math.min(
+            Math.max(Number(digitSuffix[2] ?? 1), (schema.minLength ?? 0) - digitSuffix[1].length, 1),
+            digitSuffix[3] ? Number(digitSuffix[3]) : Number.POSITIVE_INFINITY,
+          );
+          return [`${digitSuffix[1]}${"0".repeat(count)}`];
         }
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
@@ -1496,6 +1500,16 @@ export function schemaExample(
               `${key}${"X".repeat(index - 1)}`,
               `${key}${"x".repeat(index - 1)}`,
               `${key}${key.at(-1)?.repeat(index - 1)}`,
+              ...(/[a-z]$/.test(key)
+                ? [
+                    `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
+                  ]
+                : []),
+              ...(/[A-Z]$/.test(key)
+                ? [
+                    `${key.slice(0, -1)}${String.fromCharCode(65 + ((key.charCodeAt(key.length - 1) - 65 + index) % 26))}`,
+                  ]
+                : []),
               `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
               ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
               ...(/\d+$/.test(key)

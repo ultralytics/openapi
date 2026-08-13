@@ -419,6 +419,10 @@ describe("Python generator", () => {
       };
     }
     expect(sdkArguments(minimalDocument, correlatedAnyOf)).toMatchObject([{ name: "body", wholeBody: true }]);
+    if (correlatedMedia?.[1].schema?.anyOf) {
+      for (const variant of correlatedMedia[1].schema.anyOf) delete variant.additionalProperties;
+    }
+    expect(sdkArguments(minimalDocument, correlatedAnyOf)).toMatchObject([{ name: "body", wholeBody: true }]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
         body: unionBody,
@@ -719,6 +723,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^a{3}$", type: "string" })).toBe("aaa");
     expect(schemaExample(document, { pattern: "^v[0-9]+$", type: "string" })).toBe("v0");
     expect(schemaExample(document, { pattern: "^key[0-9]{2}$", type: "string" })).toBe("key00");
+    expect(schemaExample(document, { pattern: "^item-\\d+$", type: "string" })).toBe("item-0");
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
@@ -793,6 +798,14 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ AA00: "example-aa00", AA01: "example-aa01" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^[A-Z]{2}[a-z]{2}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ AAaa: "example-aaaa", AAac: "example-aaac" });
     expect(
       schemaExample(document, {
         additionalProperties: { type: "string" },
