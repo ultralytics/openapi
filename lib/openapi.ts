@@ -1013,25 +1013,37 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           );
           return [`${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(count)}${repeatedGroup[5]}`];
         }
-        const sequence = pattern.match(/^\^((?:(?:\[[^\]]+\]|\\d)(?:[+*]|\{\d+(?:,\d*)?\})?)+?)\$$/)?.[1];
-        const tokens = sequence ? [...sequence.matchAll(/(\[([^\]]+)\]|\\d)([+*]|\{(\d+)(?:,(\d*))?\})?/g)] : [];
-        if (tokens.length) {
-          const counts = tokens.map((match) => Number(match[4] ?? (match[3] === "*" ? 0 : 1)));
+        const sequence = pattern.match(/^\^(.+)\$$/)?.[1];
+        const tokens = sequence
+          ? [...sequence.matchAll(/(\[([^\]]+)\]|\\d)([+*]|\{(\d+)(?:,(\d*))?\})?|\\([._-])|([A-Za-z0-9._-]+)/g)]
+          : [];
+        if (sequence && tokens.map((match) => match[0]).join("") === sequence) {
+          const counts = tokens.map((match) =>
+            match[6] || match[7]
+              ? ((match[6] ?? match[7])?.length ?? 0)
+              : Number(match[4] ?? (match[3] === "*" ? 0 : 1)),
+          );
           let extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
           for (const [index, match] of tokens.entries()) {
-            const maximum = !match[3]
-              ? 1
-              : match[3] === "+" || match[3] === "*" || match[5] === ""
-                ? Number.POSITIVE_INFINITY
-                : Number(match[5] ?? match[4]);
+            const maximum =
+              match[6] || match[7]
+                ? counts[index]
+                : !match[3]
+                  ? 1
+                  : match[3] === "+" || match[3] === "*" || match[5] === ""
+                    ? Number.POSITIVE_INFINITY
+                    : Number(match[5] ?? match[4]);
             const added = Math.min(extra, maximum - counts[index]);
             counts[index] += added;
             extra -= added;
           }
           return [
             tokens
-              .map((match, index) =>
-                (match[1] === "\\d" || match[2]?.startsWith("\\d") ? "0" : match[2]?.[0])?.repeat(counts[index]),
+              .map(
+                (match, index) =>
+                  match[6] ??
+                  match[7] ??
+                  (match[1] === "\\d" || match[2]?.startsWith("\\d") ? "0" : match[2]?.[0])?.repeat(counts[index]),
               )
               .join(""),
           ];
@@ -1228,11 +1240,11 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
     !result.enum?.length
   ) {
     const formats = [...new Set(schemas.flatMap((schema) => (schema.format ? [schema.format] : [])))];
-    result.example =
-      formats
-        .map((format) => stringExample({ ...result, format }, name, patterns))
-        .find((candidate) => schemas.every((schema) => scalarMatches(candidate, schema))) ??
-      stringExample(result, name, patterns);
+    const example = [
+      ...formats.map((format) => stringExample({ ...result, format }, name, patterns)),
+      stringExample(result, name, patterns),
+    ].find((candidate) => schemas.every((schema) => scalarMatches(candidate, schema)));
+    if (example !== undefined) result.example = example;
   }
   return result;
 }

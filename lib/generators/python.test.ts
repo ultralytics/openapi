@@ -819,6 +819,7 @@ describe("Python generator", () => {
       "AA00",
     );
     expect(schemaExample(document, { pattern: "^[A-Z]{2}[0-9]$", type: "string" })).toBe("AA0");
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}-\\d{3}$", type: "string" })).toBe("AA-000");
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d{2,4}$", type: "string" })).toBe("AA00");
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
     expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
