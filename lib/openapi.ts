@@ -983,6 +983,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           /^\^(?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\\d\+|\\d\+\[([A-Za-z0-9])-[A-Za-z0-9]\]\+)\$$/,
         );
         if (variableMixed) return [variableMixed[1] ? `${variableMixed[1]}0` : `0${variableMixed[2]}`];
+        const rangeThenDigits = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\\d\{(\d+)\}\$$/);
+        if (rangeThenDigits?.[1]) return [`${rangeThenDigits[1]}${"0".repeat(Number(rangeThenDigits[2]))}`];
+        const digitsThenRange = pattern.match(/^\^\\d\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\$$/);
+        if (digitsThenRange?.[2]) return [`${"0".repeat(Number(digitsThenRange[1]))}${digitsThenRange[2]}`];
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
         const ranges = sequence
           ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)(?:,(\d*))?\})/g)]
@@ -1465,7 +1469,7 @@ export function schemaExample(
     const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
     const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
     const round = (candidate: number) =>
-      Number.isSafeInteger(candidate) ? candidate : Number(candidate.toPrecision(15));
+      type === "integer" && Number.isInteger(candidate) ? candidate : Number(candidate.toPrecision(15));
     if (type === "number" && !multiple && minimum?.exclusive && maximum?.exclusive && !scalarMatches(1, schema)) {
       return round((minimum.value + maximum.value) / 2);
     }
@@ -1843,7 +1847,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     else if (named.length) example = {};
   }
   if (authored.nested && authored.value !== undefined) {
-    example =
+    const combined =
       authored.value !== null &&
       typeof authored.value === "object" &&
       !Array.isArray(authored.value) &&
@@ -1852,6 +1856,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
       !Array.isArray(example)
         ? { ...example, ...authored.value }
         : authored.value;
+    if (schemaMatches(document, combined, request[1].schema ?? {})) example = combined;
   }
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }

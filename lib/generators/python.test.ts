@@ -266,6 +266,24 @@ describe("Python generator", () => {
     };
     expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
     createMedia[1].schema = {
+      oneOf: [
+        {
+          additionalProperties: false,
+          example: { kind: "a" },
+          properties: { kind: { const: "a" } },
+          type: "object",
+        },
+        {
+          additionalProperties: false,
+          properties: { b: { type: "integer" } },
+          required: ["b"],
+          type: "object",
+        },
+      ],
+      required: ["b"],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
+    createMedia[1].schema = {
       allOf: [{ oneOf: [{ example: { name: "authored", optional: "preserved" }, type: "object" }] }],
     };
     expect(requestBodyExample(minimalDocument, create)).toContain('"optional": "preserved"');
@@ -754,6 +772,8 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
     expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
     expect(schemaExample(document, { pattern: "^\\d+[A-Z]+$", type: "string" })).toBe("0A");
+    expect(schemaExample(document, { pattern: "^[A-Z]+\\d{2}$", type: "string" })).toBe("A00");
+    expect(schemaExample(document, { pattern: "^\\d{2}[A-Z]+$", type: "string" })).toBe("00A");
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );
@@ -1041,6 +1061,14 @@ describe("Python generator", () => {
     expect(schemaExample(document, { minimum: Number.MAX_SAFE_INTEGER, multipleOf: 1, type: "integer" })).toBe(
       Number.MAX_SAFE_INTEGER,
     );
+    expect(
+      schemaExample(document, {
+        maximum: Number.MAX_SAFE_INTEGER + 1,
+        minimum: Number.MAX_SAFE_INTEGER,
+        multipleOf: 2,
+        type: "integer",
+      }),
+    ).toBe(Number.MAX_SAFE_INTEGER + 1);
     expect(
       schemaExample(document, {
         allOf: [
