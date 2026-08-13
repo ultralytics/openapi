@@ -669,6 +669,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^\\d+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^\\d{3}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { pattern: "^\\d{3,5}$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { minLength: 4, pattern: "^\\d{3,5}$", type: "string" })).toBe("0000");
     expect(schemaExample(document, { pattern: "^[0-9]*$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
@@ -692,7 +693,15 @@ describe("Python generator", () => {
         propertyNames: { pattern: "^[a-z]{3}$", type: "string" },
         type: "object",
       }),
-    ).toEqual({ key: "example-key", kez: "example-kez" });
+    ).toEqual({ key: "example-key", kea: "example-kea" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 3,
+        propertyNames: { pattern: "^[a-z]{2}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ aa: "example-aa", ac: "example-ac", ad: "example-ad" });
     expect(schemaExample(document, { pattern: "^$", type: "string" })).toBe("");
     expect(schemaExample(document, { pattern: "foo", type: "string" })).toBe("foo");
     expect(schemaExample(document, { pattern: "foo|bar", type: "string" })).toBe("foo");

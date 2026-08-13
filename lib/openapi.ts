@@ -890,8 +890,14 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           .filter((alternative) => /^[a-zA-Z0-9._-]+$/.test(alternative));
         if (simple.length) return simple;
         if (pattern === "^$") return [""];
-        const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,\d*)?\}|[+*])\$$/);
-        if (digits) return ["0".repeat(digits[1] ? Number(digits[1]) : Math.max(1, schema.minLength ?? 1))];
+        const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
+        if (digits) {
+          const count = Math.min(
+            Math.max(Number(digits[1] ?? 1), schema.minLength ?? 1),
+            digits[2] ? Number(digits[2]) : Number.POSITIVE_INFINITY,
+          );
+          return ["0".repeat(count)];
+        }
         const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedRange?.[1]) {
           const count = Math.min(
@@ -1412,7 +1418,9 @@ export function schemaExample(
               `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
               ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
               ...(/^[a-z]+$/.test(key)
-                ? [`${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 96) % 26))}`]
+                ? [
+                    `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
+                  ]
                 : []),
             ];
       const property = candidates.find(
