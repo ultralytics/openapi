@@ -753,6 +753,39 @@ describe("Python generator", () => {
     ).toEqual({ aaa0: "example-aaa0" });
     expect(
       schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^(ab|cd)$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ ab: "example-ab" });
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { format: "date", type: "string" },
+          { format: "password", type: "string" },
+        ],
+      }),
+    ).toBe("2026-01-01");
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            additionalProperties: false,
+            properties: { a: { type: "integer" }, b: { type: "integer" } },
+            type: "object",
+          },
+          {
+            additionalProperties: false,
+            properties: { b: { type: "integer" }, c: { type: "integer" } },
+            required: ["b"],
+            type: "object",
+          },
+        ],
+      }),
+    ).toEqual({ b: 1 });
+    expect(
+      schemaExample(document, {
         exclusiveMaximum: true,
         exclusiveMinimum: true,
         maximum: -0.5,

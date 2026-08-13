@@ -828,6 +828,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     const candidates = [
       value,
       ...patterns.flatMap((pattern) => {
+        const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
+        if (grouped) return grouped.split("|");
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+\}))+?)\$$/)?.[1];
         const ranges = sequence ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)\})/g)] : [];
         if (sequence?.includes("{") || ranges.length > 1) {
@@ -1126,10 +1128,32 @@ export function schemaExample(
         const candidate = schemaExample(document, item, depth + 1, name);
         if (schemaMatches(document, candidate, schema)) return candidate;
       }
+      const required = new Set(object.required ?? []);
+      const closed = schema.allOf.flatMap((item) => {
+        const branch = objectSchema(document, item);
+        return branch?.additionalProperties === false ? [new Set(Object.keys(branch.properties ?? {}))] : [];
+      });
+      const common = Object.fromEntries(
+        Object.entries(selected as Record<string, unknown>).filter(
+          ([property]) => required.has(property) || closed.every((properties) => properties.has(property)),
+        ),
+      );
+      if (schemaMatches(document, common, schema)) return common;
       if (schemaMatches(document, {}, schema)) return {};
-      return selected;
+      return null;
     }
-    return schemaExample(document, mergeScalarSchemas(document, [schema, ...schema.allOf], name), depth + 1, name);
+    const selected = schemaExample(
+      document,
+      mergeScalarSchemas(document, [schema, ...schema.allOf], name),
+      depth + 1,
+      name,
+    );
+    if (schemaMatches(document, selected, schema)) return selected;
+    for (const item of schema.allOf) {
+      const candidate = schemaExample(document, item, depth + 1, name);
+      if (schemaMatches(document, candidate, schema)) return candidate;
+    }
+    return null;
   }
 
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
