@@ -722,8 +722,14 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
-      "0AAA",
+      "000A",
     );
+    expect(schemaExample(document, { maxLength: 5, minLength: 5, pattern: "^[0-9]+[A-Z]{2}$", type: "string" })).toBe(
+      "000AA",
+    );
+    expect(
+      schemaExample(document, { maxLength: 6, minLength: 6, pattern: "^[A-Z]{2}[0-9]{2,4}$", type: "string" }),
+    ).toBe("AA0000");
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );
@@ -735,12 +741,12 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http:x");
     expect(schemaExample(document, { format: "uri", maxLength: 7, type: "string" })).toBe("http:x");
     expect(schemaExample(document, { format: "duration", minLength: 4, type: "string" })).toBe("P11D");
+    expect(schemaExample(document, { format: "email", maxLength: 7, minLength: 7, type: "string" })).toBe("a@b.cox");
     expect(schemaExample(document, { format: "ipv4", minLength: 12, type: "string" })).toBe("1.11.111.111");
     expect(schemaExample(document, { format: "ipv4", maxLength: 8, minLength: 8, type: "string" })).toBe("1.1.1.11");
     expect(schemaExample(document, { format: "ipv6", maxLength: 10, minLength: 4, type: "string" })).toBe("2001:db8::");
-    expect(schemaExample(document, { format: "ipv6", minLength: 20, type: "string" })).toBe(
-      "2001:0db8:0000:0000:0000:0000:0000:0001",
-    );
+    expect(schemaExample(document, { format: "ipv6", maxLength: 4, minLength: 4, type: "string" })).toBe("0::1");
+    expect(schemaExample(document, { format: "ipv6", minLength: 20, type: "string" })).toBe("0000:0000:0000:00::1");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");

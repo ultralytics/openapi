@@ -948,19 +948,28 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         }
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
-        const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+\}))+?)\$$/)?.[1];
-        const ranges = sequence ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)\})/g)] : [];
+        const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
+        const ranges = sequence
+          ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)(?:,(\d*))?\})/g)]
+          : [];
         if (sequence?.includes("{") || ranges.length > 1 || sequence?.endsWith("+")) {
           const counts = ranges.map((match) => (match[3] ? Number(match[3]) : 1));
-          const extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
-          return [ranges.map((match, index) => match[1]?.repeat(counts[index] + (index ? extra : 0))).join("")];
+          let extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
+          for (const [index, match] of ranges.entries()) {
+            const maximum =
+              match[2] === "+" || match[4] === "" ? Number.POSITIVE_INFINITY : Number(match[4] ?? match[3]);
+            const added = Math.min(extra, maximum - counts[index]);
+            counts[index] += added;
+            extra -= added;
+          }
+          return [ranges.map((match, index) => match[1]?.repeat(counts[index])).join("")];
         }
         return pattern.split("|").flatMap((alternative) => {
           const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
           return match?.[1] ? [match[1]] : [];
         });
       }),
-      ...(schema.format === "email" ? ["a@b.co"] : []),
+      ...(schema.format === "email" ? ["a@b.co", `${"a".repeat(Math.max(1, (schema.minLength ?? 6) - 5))}@b.co`] : []),
       ...(schema.format === "date-time"
         ? [`2026-01-01T00:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 22) - 21))}Z`]
         : []),
@@ -977,7 +986,20 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...(schema.format === "ipv6"
         ? [
             "::1",
-            ...Array.from({ length: 7 }, (_, index) => `${"0:".repeat(index + 1)}:`),
+            ...Array.from({ length: 37 }, (_, index) => index + 3).flatMap((length) => {
+              for (let groups = 1; groups <= 7; groups += 1) {
+                let digits = length - (groups - 1) - 3;
+                if (digits < groups || digits > groups * 4) continue;
+                const widths = Array.from({ length: groups }, () => 1);
+                for (let group = 0; digits > groups && group < groups; group += 1) {
+                  const added = Math.min(3, digits - groups);
+                  widths[group] += added;
+                  digits -= added;
+                }
+                return [`${widths.map((width) => "0".repeat(width)).join(":")}::1`];
+              }
+              return [];
+            }),
             "2001:0db8:0000:0000:0000:0000:0000:0001",
           ]
         : []),
