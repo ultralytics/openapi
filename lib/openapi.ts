@@ -1214,7 +1214,12 @@ export function schemaExample(
     return null;
   }
 
-  const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;
+  const type = Array.isArray(schema.type)
+    ? schema.type.includes("number") &&
+      schema.type.every((value) => value === "integer" || value === "number" || value === "null")
+      ? "number"
+      : schema.type.find((value) => value !== "null")
+    : schema.type;
   if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.every((value) => value === "null")))
     return null;
   if (type === "array") {
@@ -1534,15 +1539,16 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     const named = Object.entries(object?.properties ?? {});
     const properties = named.filter(([, property]) => !resolveSchema(document, property)?.readOnly);
     const required = new Set(object?.required ?? []);
-    const selected = properties.some(([name]) => required.has(name))
-      ? properties.filter(([name]) => required.has(name))
-      : properties.slice(0, 1);
+    const values = example as Record<string, unknown>;
+    const present = properties.filter(([name]) => Object.hasOwn(values, name));
+    const selected = present.some(([name]) => required.has(name))
+      ? present.filter(([name]) => required.has(name))
+      : present.slice(0, 1);
     const minimum = object?.minProperties ?? 0;
     if (selected.length < minimum) {
       const names = new Set(selected.map(([name]) => name));
       selected.push(...properties.filter(([name]) => !names.has(name)).slice(0, minimum - selected.length));
     }
-    const values = example as Record<string, unknown>;
     const selectedNames = new Set(selected.map(([name]) => name));
     for (const name of required) {
       const property = object?.properties?.[name];

@@ -341,6 +341,13 @@ describe("Python generator", () => {
       allOf: [{ properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" }, { required: ["b"] }],
     };
     expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
+    createMedia[1].schema = {
+      allOf: [
+        { properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" },
+        { propertyNames: { pattern: "^b$", type: "string" } },
+      ],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
       {
         description: "Upload a file Or Use a source URL",
@@ -788,6 +795,7 @@ describe("Python generator", () => {
       }),
     ).toBe(1.2);
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
+    expect(schemaExample(document, { maximum: 1.9, minimum: 1.5, type: ["integer", "number"] })).toBe(1.5);
     expect(
       schemaExample(document, {
         exclusiveMaximum: 0.25,
