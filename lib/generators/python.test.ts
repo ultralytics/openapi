@@ -650,6 +650,20 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ a: 1 });
+    expect(
+      schemaExample(document, {
+        oneOf: [
+          {
+            additionalProperties: false,
+            minProperties: 1,
+            properties: { a: { type: "integer" } },
+            required: [],
+            type: "object",
+          },
+        ],
+        type: "object",
+      }),
+    ).toEqual({ a: 1 });
     expect(schemaExample(document, { minLength: 3, pattern: "^[0-9]+$", type: "string" })).toBe("000");
     expect(schemaExample(document, { pattern: "^[0-9]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^\\d+$", type: "string" })).toBe("0");
@@ -658,6 +672,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[0-9]*$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
+    expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { format: "custom", maxLength: 5, type: "string" })).toBe("<cust");
     expect(
       schemaExample(document, {
@@ -708,6 +723,14 @@ describe("Python generator", () => {
         allOf: [
           { properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" },
           { propertyNames: { pattern: "^a$", type: "string" } },
+        ],
+      })?.properties,
+    ).toEqual({ a: { type: "integer" } });
+    expect(
+      objectSchema(document, {
+        allOf: [
+          { additionalProperties: false, properties: { a: { type: "integer" } } },
+          { properties: { b: { type: "integer" } } },
         ],
       })?.properties,
     ).toEqual({ a: { type: "integer" } });

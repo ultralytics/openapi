@@ -706,6 +706,12 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
               : property;
         }
       }
+      const closed = objects.filter((item) => item.additionalProperties === false);
+      if (closed.length) {
+        for (const property of Object.keys(properties)) {
+          if (closed.some((item) => !Object.hasOwn(item.properties ?? {}, property))) delete properties[property];
+        }
+      }
       return {
         ...schema,
         ...(composed.some((item) => item.additionalProperties === false)
@@ -884,9 +890,9 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           .filter((alternative) => /^[a-zA-Z0-9._-]+$/.test(alternative));
         if (simple.length) return simple;
         if (pattern === "^$") return [""];
-        const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,\d+)?\}|[+*])\$$/);
+        const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,\d*)?\}|[+*])\$$/);
         if (digits) return ["0".repeat(digits[1] ? Number(digits[1]) : Math.max(1, schema.minLength ?? 1))];
-        const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,\d+)?\}|[+*])\$$/);
+        const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,\d*)?\}|[+*])\$$/);
         if (repeatedRange?.[1]) {
           return [
             repeatedRange[1].repeat(repeatedRange[2] ? Number(repeatedRange[2]) : Math.max(1, schema.minLength ?? 1)),
@@ -1169,7 +1175,8 @@ export function schemaExample(
       ) {
         const combined = objectSchema(document, { allOf: [siblings, variant] });
         const required = new Set([...(siblings.required ?? []), ...(variant.required ?? [])]);
-        const narrow = variant.required || variant.additionalProperties === false || variant.propertyNames;
+        const hasRequired = Boolean(variant.required?.length);
+        const narrow = hasRequired || variant.additionalProperties === false || variant.propertyNames;
         const narrowed =
           combined && narrow
             ? {
@@ -1179,7 +1186,7 @@ export function schemaExample(
                   Object.entries(combined.properties ?? {}).filter(
                     ([property]) =>
                       required.has(property) ||
-                      (!variant.required &&
+                      (!hasRequired &&
                         (variant.additionalProperties !== false || Object.hasOwn(variant.properties ?? {}, property)) &&
                         (!variant.propertyNames || schemaMatches(document, property, variant.propertyNames))),
                   ),
