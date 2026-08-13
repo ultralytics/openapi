@@ -844,12 +844,15 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     const expressions = patterns.map((pattern) => new RegExp(pattern));
     const candidates = [
       value,
+      ...(key === "model" ? ["yolo26n", "yolo26"] : []),
+      ...(patterns.some((pattern) => pattern.includes("[A-Z]+")) ? ["KEY"] : []),
+      "example",
       ...patterns.flatMap((pattern) => {
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+\}))+?)\$$/)?.[1];
         const ranges = sequence ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)\})/g)] : [];
-        if (sequence?.includes("{") || ranges.length > 1 || (sequence?.endsWith("+") && schema.minLength)) {
+        if (sequence?.includes("{") || ranges.length > 1 || sequence?.endsWith("+")) {
           return [
             ranges
               .map((match) => match[1]?.repeat(match[3] ? Number(match[3]) : Math.max(1, schema.minLength ?? 1)))
@@ -863,11 +866,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       }),
       ...(schema.format === "email" ? ["a@b.co"] : []),
       ...(schema.format === "uri" || schema.format === "url" ? ["https://x.co"] : []),
-      ...(key === "model" ? ["yolo26n", "yolo26"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
-      ...(patterns.some((pattern) => pattern.includes("[A-Z]+")) ? ["KEY"] : []),
-      "example",
     ].map(constrainLength);
     return (
       candidates.find(

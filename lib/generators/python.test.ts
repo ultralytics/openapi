@@ -635,6 +635,7 @@ describe("Python generator", () => {
       }),
     ).toEqual({ a: 1 });
     expect(schemaExample(document, { minLength: 3, pattern: "^[0-9]+$", type: "string" })).toBe("000");
+    expect(schemaExample(document, { pattern: "^[0-9]+$", type: "string" })).toBe("0");
     expect(
       schemaExample(document, {
         additionalProperties: false,
