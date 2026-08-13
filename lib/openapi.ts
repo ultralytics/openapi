@@ -454,8 +454,8 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     Boolean(bodySchema?.oneOf?.length) ||
     Boolean(
       variants?.length &&
-        variants.every((variant) => variant?.required?.length) &&
-        variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name))),
+      variants.every((variant) => variant?.required?.length) &&
+      variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name))),
     );
   if (body?.properties && !exclusiveBody && !incompatibleClosedBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
