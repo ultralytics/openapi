@@ -785,7 +785,7 @@ function stringFormatMatches(value: string, format?: string): boolean {
 }
 
 function stringExample(schema: JsonSchema, name?: string, patterns = schema.pattern ? [schema.pattern] : []): string {
-  const key = name?.toLowerCase() ?? "";
+  const key = name?.replace(/[-_]/g, "").toLowerCase() ?? "";
   const knownFormats = new Set([
     "binary",
     "byte",
@@ -821,8 +821,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
   else if (key === "region") value = "us-east-1";
   else if (key === "model" || key === "basemodel") value = "yolo26n.pt";
   else if (key === "data") value = "ul://jane-doe/datasets/coco8";
-  else if (key === "client_email") value = "jane@example.com";
-  else if (key.includes("apikey") || key.includes("api_key")) value = "your-api-key";
+  else if (key === "clientemail") value = "jane@example.com";
+  else if (key.includes("apikey")) value = "your-api-key";
   else if (key === "owner" || key === "username") value = "jane-doe";
   else if (key === "project" || key.endsWith("projectslug")) value = "example-project";
   else if (key === "dataset") value = "coco8";
@@ -848,6 +848,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...(patterns.some((pattern) => pattern.includes("[A-Z]+")) ? ["KEY"] : []),
       "example",
       ...patterns.flatMap((pattern) => {
+        if (pattern === "^$") return [""];
+        if (pattern === "^\\d+$") return ["0".repeat(Math.max(1, schema.minLength ?? 1))];
         const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
         if (suffixed?.[1] && suffixed[2]) {
           return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
@@ -1250,7 +1252,15 @@ export function schemaExample(
   if (type === "boolean") return false;
   if (type === "integer" || type === "number") {
     const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
-    const step = multiple ?? 1;
+    const alignment = (() => {
+      if (!multiple || type !== "integer") return multiple;
+      const [coefficient, exponent = "0"] = String(multiple).toLowerCase().split("e");
+      const scale = 10 ** Math.max(0, (coefficient.split(".")[1] ?? "").length - Number(exponent));
+      const numerator = Math.round(multiple * scale);
+      const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+      return numerator / gcd(numerator, scale);
+    })();
+    const step = alignment ?? 1;
     const minimums = [
       ...(schema.minimum === undefined ? [] : [{ exclusive: schema.exclusiveMinimum === true, value: schema.minimum }]),
       ...(typeof schema.exclusiveMinimum === "number" ? [{ exclusive: true, value: schema.exclusiveMinimum }] : []),
@@ -1269,21 +1279,21 @@ export function schemaExample(
     if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
       value = minimum.value;
       if (type === "integer") value = Math.ceil(value);
-      if (multiple) value = round(Math.ceil(value / multiple) * multiple);
+      if (alignment) value = round(Math.ceil(value / alignment) * alignment);
       if (minimum.exclusive && value <= minimum.value) value = round(value + step);
     } else {
       if (type === "integer") value = Math.ceil(value);
-      if (multiple) value = round(Math.ceil(value / multiple) * multiple);
+      if (alignment) value = round(Math.ceil(value / alignment) * alignment);
     }
     if (maximum && (value > maximum.value || (maximum.exclusive && value >= maximum.value))) {
       value = maximum.value - (maximum.exclusive ? step : 0);
       if (type === "integer") value = maximum.exclusive ? Math.ceil(maximum.value) - 1 : Math.floor(maximum.value);
-      if (multiple) value = round(Math.floor(value / multiple) * multiple);
+      if (alignment) value = round(Math.floor(value / alignment) * alignment);
     }
     if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
       value = minimum.value;
       if (type === "integer") value = Math.ceil(value);
-      if (multiple) value = round(Math.ceil(value / multiple) * multiple);
+      if (alignment) value = round(Math.ceil(value / alignment) * alignment);
       if (minimum.exclusive && value <= minimum.value) value = round(value + step);
     }
     return value;
