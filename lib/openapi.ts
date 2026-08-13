@@ -439,11 +439,22 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const variantDescription = variantDescriptions?.join(" Or ");
   const body = structured ? objectSchema(document, bodySchema) : undefined;
   const variants = union?.map((variant) => objectSchema(document, variant));
+  const closed = bodySchema?.allOf?.flatMap((item) => {
+    const branch = objectSchema(document, item);
+    return branch?.additionalProperties === false
+      ? [
+          Object.keys(branch.properties ?? {})
+            .sort()
+            .join("\0"),
+        ]
+      : [];
+  });
+  const incompatibleClosedBody = Boolean(closed?.length && new Set(closed).size > 1);
   const exclusiveBody =
     variants?.length &&
     variants.every((variant) => variant?.required?.length) &&
     variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name)));
-  if (body?.properties && !exclusiveBody) {
+  if (body?.properties && !exclusiveBody && !incompatibleClosedBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
       if (property.readOnly) continue;
@@ -881,7 +892,9 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             repeatedRange[1].repeat(repeatedRange[2] ? Number(repeatedRange[2]) : Math.max(1, schema.minLength ?? 1)),
           ];
         }
-        const multiRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\]\{(\d+)\}\$$/);
+        const multiRange = pattern.match(
+          /^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\]\{(\d+)(?:,\d*)?\}\$$/,
+        );
         if (multiRange?.[1] && multiRange[2]) return [multiRange[1].repeat(Number(multiRange[2]))];
         const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
         if (suffixed?.[1] && suffixed[2]) {
@@ -1387,6 +1400,7 @@ export function schemaExample(
               `${key}${"X".repeat(index - 1)}`,
               `${key}${"x".repeat(index - 1)}`,
               `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
+              ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
             ];
       const property = candidates.find(
         (candidate) => !schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames),
