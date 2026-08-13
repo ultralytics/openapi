@@ -300,6 +300,10 @@ describe("Python generator", () => {
         wholeBody: true,
       },
     ]);
+    const undescribedUnion = structuredClone(unionCreate);
+    const undescribedVariants = requestMedia(undescribedUnion)?.[1].schema?.oneOf;
+    for (const variant of undescribedVariants ?? []) delete variant.description;
+    expect(sdkArguments(minimalDocument, undescribedUnion)).toMatchObject([{ description: "Request body." }]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
         body: unionBody,
@@ -404,6 +408,9 @@ describe("Python generator", () => {
     expect(schemaExample(document, { maxLength: 2, type: "string" }, 0, "iconLetter")).toBe("ex");
     expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("<pattern value>");
     expect(schemaExample(document, { pattern: "^[a-z0-9]+$", type: "string" }, 0, "model")).toBe("yolo26n");
+    expect(schemaExample(document, { maxLength: 6, pattern: "^yolo26n$|^yolo26$", type: "string" }, 0, "model")).toBe(
+      "yolo26",
+    );
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {

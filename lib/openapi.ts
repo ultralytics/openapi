@@ -434,6 +434,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   const variantDescriptions = union
     ?.map((variant) => resolveSchema(document, variant)?.description)
     .filter((description): description is string => Boolean(description));
+  const variantDescription = variantDescriptions?.join(" Or ");
   const body = structured ? objectSchema(document, bodySchema) : undefined;
   const variants = union?.map((variant) => objectSchema(document, variant));
   const exclusiveBody =
@@ -455,7 +456,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     }
   } else if (media) {
     parameters.push({
-      description: bodySchema?.description ?? variantDescriptions?.join(" Or ") ?? "Request body.",
+      description: bodySchema?.description || variantDescription || "Request body.",
       location: "body",
       name: "body",
       pythonName: "body",
@@ -728,11 +729,16 @@ function stringExample(schema: JsonSchema, name?: string): string {
   else if (key.includes("message")) value = "Operation completed";
   else if (key.includes("hash")) value = "a1b2c3d4";
   else if (key.includes("color")) value = "#4f46e5";
-  if (schema.maxLength !== undefined) value = value.slice(0, schema.maxLength);
-  if (schema.minLength !== undefined) value = value.padEnd(schema.minLength, "x");
+  const constrainLength = (candidate: string) =>
+    candidate.slice(0, schema.maxLength).padEnd(schema.minLength ?? 0, "x");
+  value = constrainLength(value);
+  const pattern = schema.pattern;
   try {
-    if (schema.pattern && !new RegExp(schema.pattern).test(value)) {
-      if (key === "model" && new RegExp(schema.pattern).test("yolo26n")) return "yolo26n";
+    if (pattern && !new RegExp(pattern).test(value)) {
+      if (key === "model") {
+        const alternate = ["yolo26n", "yolo26"].map(constrainLength).find((item) => new RegExp(pattern).test(item));
+        if (alternate) return alternate;
+      }
       return "<pattern value>";
     }
   } catch {
