@@ -330,6 +330,10 @@ describe("Python generator", () => {
       type: "object",
     };
     expect(requestBodyExample(minimalDocument, create)).toBe("{}");
+    createMedia[1].schema = {
+      allOf: [{ properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" }, { required: ["b"] }],
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
     expect(sdkArguments(minimalDocument, unionCreate)).toMatchObject([
       {
         description: "Upload a file Or Use a source URL",
@@ -446,6 +450,13 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "ipv4", type: "string" })).toBe("192.0.2.1");
     expect(schemaExample(document, { format: "custom", type: "string" })).toBe("<custom value>");
     expect(schemaExample(document, { format: "date", type: "string" }, 0, "data")).toBe("2026-01-01");
+    expect(
+      schemaExample(document, {
+        format: "date",
+        pattern: "^2026-02-30$|^2027-01-01$",
+        type: "string",
+      }),
+    ).toBe("2027-01-01");
     expect(schemaExample(document, { format: "date-time", maxLength: 10, type: "string" })).toBe("<date-time value>");
     expect(schemaExample(document, { format: "uuid", type: "string" }, 0, "model")).toBe(
       "123e4567-e89b-12d3-a456-426614174000",
@@ -657,6 +668,7 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ AAAAAAAA: "example-aaaaaaaa" });
+    expect(schemaExample(document, { exclusiveMinimum: 1, minimum: 5, type: "number" })).toBe(5);
     expect(
       schemaExample(document, {
         allOf: [

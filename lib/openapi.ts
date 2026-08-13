@@ -671,9 +671,11 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
           Boolean(item) &&
           (item?.type === "object" ||
             item?.properties !== undefined ||
+            Boolean(item?.required?.length) ||
             item?.minProperties !== undefined ||
             item?.maxProperties !== undefined ||
-            item?.additionalProperties !== undefined),
+            item?.additionalProperties !== undefined ||
+            item?.propertyNames !== undefined),
       );
     if (objects.length) {
       const composed = [schema, ...objects];
@@ -729,8 +731,23 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
 }
 
 function stringFormatMatches(value: string, format?: string): boolean {
-  if (format === "date") return /^\d{4}-\d{2}-\d{2}$/.test(value);
-  if (format === "date-time") return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value);
+  const dateValid = (date: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const parsed = new Date(`${date}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+  };
+  if (format === "date") return dateValid(value);
+  if (format === "date-time") {
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+    return Boolean(
+      match?.[1] &&
+        dateValid(match[1]) &&
+        Number(match[2]) <= 23 &&
+        Number(match[3]) <= 59 &&
+        Number(match[4]) <= 59 &&
+        !Number.isNaN(Date.parse(value)),
+    );
+  }
   if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
   if (format === "uri" || format === "url") return URL.canParse(value);
   if (format === "hostname")
@@ -847,12 +864,18 @@ function scalarMatches(value: unknown, schema: JsonSchema): boolean {
   }
   if (types.includes("integer") && !types.includes("number") && !Number.isInteger(value)) return false;
   if (typeof value === "number") {
-    const minimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : schema.minimum;
-    const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
-    const minimumExclusive = typeof schema.exclusiveMinimum === "number" || schema.exclusiveMinimum === true;
-    const maximumExclusive = typeof schema.exclusiveMaximum === "number" || schema.exclusiveMaximum === true;
-    if (minimum !== undefined && (value < minimum || (minimumExclusive && value <= minimum))) return false;
-    if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) return false;
+    if (
+      schema.minimum !== undefined &&
+      (value < schema.minimum || (schema.exclusiveMinimum === true && value <= schema.minimum))
+    )
+      return false;
+    if (typeof schema.exclusiveMinimum === "number" && value <= schema.exclusiveMinimum) return false;
+    if (
+      schema.maximum !== undefined &&
+      (value > schema.maximum || (schema.exclusiveMaximum === true && value >= schema.maximum))
+    )
+      return false;
+    if (typeof schema.exclusiveMaximum === "number" && value >= schema.exclusiveMaximum) return false;
     if (schema.multipleOf && Math.abs(value / schema.multipleOf - Math.round(value / schema.multipleOf)) > 1e-9)
       return false;
   } else if (schema.multipleOf !== undefined || schema.minimum !== undefined || schema.maximum !== undefined) {
@@ -896,20 +919,14 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   if (maximumItems.length) result.maxItems = Math.min(...maximumItems);
   const items = schemas.flatMap((schema) => (schema.items ? [schema.items] : []));
   if (items.length) result.items = items.length === 1 ? items[0] : { allOf: items };
-  const minimums = schemas.flatMap((schema) =>
-    typeof schema.exclusiveMinimum === "number"
-      ? [{ exclusive: true, value: schema.exclusiveMinimum }]
-      : schema.minimum === undefined
-        ? []
-        : [{ exclusive: schema.exclusiveMinimum === true, value: schema.minimum }],
-  );
-  const maximums = schemas.flatMap((schema) =>
-    typeof schema.exclusiveMaximum === "number"
-      ? [{ exclusive: true, value: schema.exclusiveMaximum }]
-      : schema.maximum === undefined
-        ? []
-        : [{ exclusive: schema.exclusiveMaximum === true, value: schema.maximum }],
-  );
+  const minimums = schemas.flatMap((schema) => [
+    ...(schema.minimum === undefined ? [] : [{ exclusive: schema.exclusiveMinimum === true, value: schema.minimum }]),
+    ...(typeof schema.exclusiveMinimum === "number" ? [{ exclusive: true, value: schema.exclusiveMinimum }] : []),
+  ]);
+  const maximums = schemas.flatMap((schema) => [
+    ...(schema.maximum === undefined ? [] : [{ exclusive: schema.exclusiveMaximum === true, value: schema.maximum }]),
+    ...(typeof schema.exclusiveMaximum === "number" ? [{ exclusive: true, value: schema.exclusiveMaximum }] : []),
+  ]);
   const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
   const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
   delete result.minimum;
@@ -1107,19 +1124,25 @@ export function schemaExample(
   if (type === "integer" || type === "number") {
     const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
     const step = multiple ?? 1;
-    const minimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : schema.minimum;
-    const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
-    const minimumExclusive = typeof schema.exclusiveMinimum === "number" || schema.exclusiveMinimum === true;
-    const maximumExclusive = typeof schema.exclusiveMaximum === "number" || schema.exclusiveMaximum === true;
+    const minimums = [
+      ...(schema.minimum === undefined ? [] : [{ exclusive: schema.exclusiveMinimum === true, value: schema.minimum }]),
+      ...(typeof schema.exclusiveMinimum === "number" ? [{ exclusive: true, value: schema.exclusiveMinimum }] : []),
+    ];
+    const maximums = [
+      ...(schema.maximum === undefined ? [] : [{ exclusive: schema.exclusiveMaximum === true, value: schema.maximum }]),
+      ...(typeof schema.exclusiveMaximum === "number" ? [{ exclusive: true, value: schema.exclusiveMaximum }] : []),
+    ];
+    const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
+    const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
     let value = 1;
-    if (minimum !== undefined && (value < minimum || (minimumExclusive && value <= minimum))) {
-      value = minimum + (minimumExclusive ? step : 0);
+    if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
+      value = minimum.value + (minimum.exclusive ? step : 0);
     }
     if (type === "integer") value = Math.ceil(value);
     if (multiple) value = Math.ceil(value / multiple) * multiple;
-    if (maximum !== undefined && (value > maximum || (maximumExclusive && value >= maximum))) {
-      value = maximum - (maximumExclusive ? step : 0);
-      if (type === "integer") value = maximumExclusive ? Math.ceil(maximum) - 1 : Math.floor(maximum);
+    if (maximum && (value > maximum.value || (maximum.exclusive && value >= maximum.value))) {
+      value = maximum.value - (maximum.exclusive ? step : 0);
+      if (type === "integer") value = maximum.exclusive ? Math.ceil(maximum.value) - 1 : Math.floor(maximum.value);
       if (multiple) value = Math.floor(value / multiple) * multiple;
     }
     return value;
