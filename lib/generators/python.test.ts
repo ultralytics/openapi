@@ -235,6 +235,12 @@ describe("Python generator", () => {
       ],
     };
     expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      additionalProperties: false,
+      allOf: [{ properties: { a: { type: "integer" } }, type: "object" }],
+      type: "object",
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
     const minimalCurl = curlCodeSample(minimalDocument, create, {
       body: minimalBody,
       environment: "EXAMPLE_API_KEY",
@@ -701,6 +707,7 @@ describe("Python generator", () => {
     );
     expect(schemaExample(document, { format: "time", minLength: 10, type: "string" })).toBe("12:00:00.0Z");
     expect(schemaExample(document, { format: "ipv6", maxLength: 3, type: "string" })).toBe("::1");
+    expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http://x");
     expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
     expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");
@@ -739,6 +746,14 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ v0: "example-v0", v02: "example-v02" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^[A-Z]{2}[0-9]{2}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ AA00: "example-aa00", AA01: "example-aa01" });
     expect(
       schemaExample(document, {
         additionalProperties: { type: "string" },

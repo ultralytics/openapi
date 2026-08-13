@@ -466,7 +466,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
     (variants.length > 0 &&
       variants.every((variant) => variant?.required?.length) &&
       variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name))));
-  if (body?.properties && !exclusiveBody && !incompatibleClosedBody) {
+  if (body?.properties && Object.keys(body.properties).length && !exclusiveBody && !incompatibleClosedBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
       if (property.readOnly) continue;
@@ -955,7 +955,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         ? [`2026-01-01T00:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 22) - 21))}Z`]
         : []),
       ...(schema.format === "time" ? [`12:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 11) - 10))}Z`] : []),
-      ...(schema.format === "uri" || schema.format === "url" ? ["https://x.co"] : []),
+      ...(schema.format === "uri" || schema.format === "url" ? ["http://x", "https://x.co"] : []),
       ...(schema.format === "ipv4" ? ["1.1.1.1"] : []),
       ...(schema.format === "ipv6" ? ["::1"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
@@ -1448,6 +1448,9 @@ export function schemaExample(
               `${key}${key.at(-1)?.repeat(index - 1)}`,
               `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
               ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
+              ...(/\d+$/.test(key)
+                ? [key.replace(/\d+$/, (digits) => String(Number(digits) + index - 1).padStart(digits.length, "0"))]
+                : []),
               ...(/^[a-z]+$/.test(key)
                 ? [
                     `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
