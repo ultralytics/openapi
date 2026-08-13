@@ -768,8 +768,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     const candidates = [
       value,
       ...patterns.flatMap((pattern) => {
-        const match = pattern.match(/^\^([a-zA-Z0-9._-]+)\$$/);
-        return match?.[1] ? [match[1]] : [];
+        return pattern.split("|").flatMap((alternative) => {
+          const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
+          return match?.[1] ? [match[1]] : [];
+        });
       }),
       ...(schema.format === "email" ? ["a@b.co"] : []),
       ...(schema.format === "uri" || schema.format === "url" ? ["https://x.co"] : []),
@@ -918,8 +920,13 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
   if (schema.const !== undefined && value !== schema.const) return false;
   if (schema.enum?.length && !schema.enum.includes(value)) return false;
   if (schema.allOf?.some((item) => !schemaMatches(document, value, item, depth + 1))) return false;
-  const union = schema.oneOf ?? schema.anyOf;
-  if (union?.length && !union.some((item) => schemaMatches(document, value, item, depth + 1))) return false;
+  if (
+    schema.oneOf?.length &&
+    schema.oneOf.filter((item) => schemaMatches(document, value, item, depth + 1)).length !== 1
+  )
+    return false;
+  if (schema.anyOf?.length && !schema.anyOf.some((item) => schemaMatches(document, value, item, depth + 1)))
+    return false;
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
   if (
     types.length &&
@@ -994,7 +1001,12 @@ export function schemaExample(
       const alternatives = nested.oneOf ?? nested.anyOf;
       if (!alternatives?.length) continue;
       for (const alternative of alternatives) {
-        const replacement = { ...nested, anyOf: undefined, oneOf: undefined, allOf: [alternative] };
+        const replacement = {
+          ...nested,
+          anyOf: undefined,
+          oneOf: undefined,
+          allOf: [...(nested.allOf ?? []), alternative],
+        };
         const candidate = schemaExample(
           document,
           {

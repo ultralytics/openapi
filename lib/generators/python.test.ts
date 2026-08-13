@@ -499,6 +499,21 @@ describe("Python generator", () => {
     ).toEqual([]);
     expect(
       schemaExample(document, {
+        oneOf: [{ pattern: "^a$", type: "string" }, { type: "string" }],
+      }),
+    ).toBe("example");
+    expect(
+      schemaExample(document, {
+        allOf: [
+          {
+            allOf: [{ maxLength: 5 }],
+            anyOf: [{ pattern: "^abcde$|^yolo26n$", type: "string" }],
+          },
+        ],
+      }),
+    ).toBe("abcde");
+    expect(
+      schemaExample(document, {
         allOf: [
           { multipleOf: 0.2, type: "number" },
           { multipleOf: 0.3, type: "number" },
