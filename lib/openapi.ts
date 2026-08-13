@@ -1482,7 +1482,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
     const selected = properties.some(([name]) => required.has(name))
       ? properties.filter(([name]) => required.has(name))
       : properties.slice(0, 1);
-    const minimum = Math.min(object?.minProperties ?? 0, properties.length);
+    const minimum = object?.minProperties ?? 0;
     if (selected.length < minimum) {
       const names = new Set(selected.map(([name]) => name));
       selected.push(...properties.filter(([name]) => !names.has(name)).slice(0, minimum - selected.length));
@@ -1505,6 +1505,20 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
       const property = object?.properties?.[name];
       if (!selectedNames.has(name) && (!property || !resolveSchema(document, property)?.readOnly)) {
         selected.push([name, {}]);
+      }
+    }
+    if (selected.length < minimum) {
+      const writable = schemaExample(document, {
+        ...object,
+        properties: Object.fromEntries(properties),
+        required: [...required].filter((name) => properties.some(([property]) => property === name)),
+      });
+      if (writable && typeof writable === "object" && !Array.isArray(writable)) {
+        Object.assign(values, writable);
+        for (const name of Object.keys(writable)) {
+          if (selected.length >= minimum) break;
+          if (!selectedNames.has(name)) selected.push([name, {}]);
+        }
       }
     }
     if (object?.maxProperties !== undefined) selected.splice(object.maxProperties);

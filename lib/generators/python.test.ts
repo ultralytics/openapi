@@ -331,6 +331,13 @@ describe("Python generator", () => {
     };
     expect(requestBodyExample(minimalDocument, create)).toBe("{}");
     createMedia[1].schema = {
+      additionalProperties: { type: "string" },
+      minProperties: 1,
+      properties: { id: { readOnly: true, type: "string" } },
+      type: "object",
+    };
+    expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "key": "example-key"\n}');
+    createMedia[1].schema = {
       allOf: [{ properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" }, { required: ["b"] }],
     };
     expect(requestBodyExample(minimalDocument, create)).toBe('{\n  "b": 1\n}');
