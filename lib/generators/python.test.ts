@@ -735,6 +735,22 @@ describe("Python generator", () => {
     expect(schemaExample(document, { format: "ipv6", pattern: "^::::$|^2001:db8::1$", type: "string" })).toBe(
       "2001:db8::1",
     );
+    expect(schemaExample(document, { format: "duration", pattern: "^P1$", type: "string" })).toBe("<duration value>");
+    expect(
+      schemaExample(document, {
+        minimum: 10,
+        pattern: "^a$",
+        type: ["string", "number"],
+      }),
+    ).toBe("a");
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^[a-z]{3}[0-9]+$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ aaa0: "example-aaa0" });
     expect(
       schemaExample(document, {
         exclusiveMaximum: true,

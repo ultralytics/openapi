@@ -775,7 +775,10 @@ function stringFormatMatches(value: string, format?: string): boolean {
       (!match[5] || (Number(match[5]) <= 23 && Number(match[6]) <= 59))
     );
   }
-  if (format === "duration") return /^P(?=\d|T\d)/.test(value);
+  if (format === "duration")
+    return /^P(?=\d|T\d)(?:\d+(?:\.\d+)?Y)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?W)?(?:\d+(?:\.\d+)?D)?(?:T(?=\d)(?:\d+(?:\.\d+)?H)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?S)?)?$/.test(
+      value,
+    );
   if (format === "uuid")
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   return !format || format === "binary" || format === "byte" || format === "password";
@@ -825,8 +828,11 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     const candidates = [
       value,
       ...patterns.flatMap((pattern) => {
-        const repeated = pattern.match(/^\^\[([A-Za-z0-9])-([A-Za-z0-9])\]\{(\d+)\}\$$/);
-        if (repeated?.[1] && repeated[3]) return [repeated[1].toUpperCase().repeat(Number(repeated[3]))];
+        const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+\}))+?)\$$/)?.[1];
+        const ranges = sequence ? [...sequence.matchAll(/\[([A-Za-z0-9])-[A-Za-z0-9]\](\+|\{(\d+)\})/g)] : [];
+        if (sequence?.includes("{") || ranges.length > 1) {
+          return [ranges.map((match) => match[1]?.repeat(match[3] ? Number(match[3]) : 1)).join("")];
+        }
         return pattern.split("|").flatMap((alternative) => {
           const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
           return match?.[1] ? [match[1]] : [];
@@ -893,8 +899,6 @@ function scalarMatches(value: unknown, schema: JsonSchema): boolean {
     if (typeof schema.exclusiveMaximum === "number" && value >= schema.exclusiveMaximum) return false;
     if (schema.multipleOf && Math.abs(value / schema.multipleOf - Math.round(value / schema.multipleOf)) > 1e-9)
       return false;
-  } else if (schema.multipleOf !== undefined || schema.minimum !== undefined || schema.maximum !== undefined) {
-    return false;
   }
   return true;
 }
