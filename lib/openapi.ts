@@ -793,9 +793,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
 }
 
 function scalarMatches(value: unknown, schema: JsonSchema): boolean {
-  const type = Array.isArray(schema.type) ? schema.type.filter((item) => item !== "null") : [schema.type];
-  if (type.includes("string")) {
-    if (typeof value !== "string") return false;
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+  if (types.includes("string") && typeof value !== "string") return false;
+  if ((types.includes("number") || types.includes("integer")) && typeof value !== "number") return false;
+  if (typeof value === "string") {
     if (!stringFormatMatches(value, schema.format)) return false;
     if (schema.minLength !== undefined && value.length < schema.minLength) return false;
     if (schema.maxLength !== undefined && value.length > schema.maxLength) return false;
@@ -807,8 +808,7 @@ function scalarMatches(value: unknown, schema: JsonSchema): boolean {
       }
     }
   }
-  if ((type.includes("number") || type.includes("integer")) && typeof value !== "number") return false;
-  if (type.includes("integer") && !Number.isInteger(value)) return false;
+  if (types.includes("integer") && !Number.isInteger(value)) return false;
   if (typeof value === "number") {
     const minimum = typeof schema.exclusiveMinimum === "number" ? schema.exclusiveMinimum : schema.minimum;
     const maximum = typeof schema.exclusiveMaximum === "number" ? schema.exclusiveMaximum : schema.maximum;
@@ -949,6 +949,11 @@ function schemaMatches(document: OpenApiDocument, value: unknown, input: JsonSch
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
     if (schema.required?.some((name) => !Object.hasOwn(record, name))) return false;
+    if (
+      schema.additionalProperties === false &&
+      Object.keys(record).some((name) => !Object.hasOwn(schema.properties ?? {}, name))
+    )
+      return false;
     if (
       Object.entries(schema.properties ?? {}).some(
         ([name, property]) =>
