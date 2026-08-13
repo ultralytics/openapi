@@ -241,6 +241,13 @@ describe("Python generator", () => {
       type: "object",
     };
     expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
+    createMedia[1].schema = {
+      allOf: [
+        { additionalProperties: { type: "string" }, properties: { a: { type: "string" } }, type: "object" },
+        { additionalProperties: { type: "number" }, properties: { b: { type: "number" } }, type: "object" },
+      ],
+    };
+    expect(sdkArguments(minimalDocument, create)).toMatchObject([{ name: "body", wholeBody: true }]);
     const minimalCurl = curlCodeSample(minimalDocument, create, {
       body: minimalBody,
       environment: "EXAMPLE_API_KEY",
@@ -742,6 +749,8 @@ describe("Python generator", () => {
     expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[A-Z]{2}\\d{2}$", type: "string" })).toBe(
       "AA00",
     );
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d{2,4}$", type: "string" })).toBe("AA00");
+    expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
       "2026-01-01T00:00:00.0Z",
     );

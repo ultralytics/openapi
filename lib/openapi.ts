@@ -459,8 +459,17 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
       : [],
   );
   const incompatibleClosedBody = Boolean((closed?.length && new Set(closed).size > 1) || closedVariants.length);
+  const constrainedComposedBody = Boolean(
+    bodySchema?.allOf?.some((item) => typeof objectSchema(document, item)?.additionalProperties === "object"),
+  );
   const exclusiveBody = Boolean(union?.length);
-  if (body?.properties && Object.keys(body.properties).length && !exclusiveBody && !incompatibleClosedBody) {
+  if (
+    body?.properties &&
+    Object.keys(body.properties).length &&
+    !exclusiveBody &&
+    !incompatibleClosedBody &&
+    !constrainedComposedBody
+  ) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;
       if (property.readOnly) continue;
@@ -953,9 +962,16 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         }
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
-        const mixedSequence = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\d\{(\d+)\}\$$/);
+        const mixedSequence = pattern.match(
+          /^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/,
+        );
         if (mixedSequence?.[1]) {
-          return [`${mixedSequence[1].repeat(Number(mixedSequence[2]))}${"0".repeat(Number(mixedSequence[3]))}`];
+          const prefix = mixedSequence[1].repeat(Number(mixedSequence[2]));
+          const count = Math.min(
+            Math.max(Number(mixedSequence[3] ?? 1), (schema.minLength ?? 0) - prefix.length, 1),
+            mixedSequence[4] ? Number(mixedSequence[4]) : Number.POSITIVE_INFINITY,
+          );
+          return [`${prefix}${"0".repeat(count)}`];
         }
         const sequence = pattern.match(/^\^((?:\[[A-Za-z0-9]-[A-Za-z0-9]\](?:\+|\{\d+(?:,\d*)?\}))+?)\$$/)?.[1];
         const ranges = sequence
