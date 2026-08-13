@@ -470,8 +470,8 @@ describe("Python generator", () => {
     const pathParameter = retrieve.parameters?.find((parameter) => parameter.in === "path");
     if (pathParameter) pathParameter.schema = { type: "integer" };
     const retrieveCurl = curlCodeSample(document, retrieve, { origin: "https://docs.example.com" });
-    expect(retrieveCurl).toStartWith("curl -g ");
-    expect(retrieveCurl).toContain("/widgets/{widgetId}");
+    expect(retrieveCurl).toStartWith("curl ");
+    expect(retrieveCurl).toContain("/widgets/1");
     expect(
       curlCodeSample(document, retrieve, {
         origin: "https://docs.example.com",
