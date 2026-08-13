@@ -710,6 +710,33 @@ describe("Python generator", () => {
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {
+        exclusiveMaximum: 0.25,
+        exclusiveMinimum: 0.15,
+        multipleOf: 0.1,
+        type: "number",
+      }),
+    ).toBe(0.2);
+    expect(
+      schemaExample(document, {
+        allOf: [{ type: ["string", "null"] }, { type: "null" }],
+      }),
+    ).toBeNull();
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 1,
+        propertyNames: { pattern: "^[0-9]{3}$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ "000": "example-000" });
+    expect(schemaExample(document, { format: "time", pattern: "^99:99:99Z$|^12:00:00Z$", type: "string" })).toBe(
+      "12:00:00Z",
+    );
+    expect(schemaExample(document, { format: "ipv6", pattern: "^::::$|^2001:db8::1$", type: "string" })).toBe(
+      "2001:db8::1",
+    );
+    expect(
+      schemaExample(document, {
         exclusiveMaximum: true,
         exclusiveMinimum: true,
         maximum: -0.5,

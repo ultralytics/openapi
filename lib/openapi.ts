@@ -741,11 +741,11 @@ function stringFormatMatches(value: string, format?: string): boolean {
     const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
     return Boolean(
       match?.[1] &&
-      dateValid(match[1]) &&
-      Number(match[2]) <= 23 &&
-      Number(match[3]) <= 59 &&
-      Number(match[4]) <= 59 &&
-      !Number.isNaN(Date.parse(value)),
+        dateValid(match[1]) &&
+        Number(match[2]) <= 23 &&
+        Number(match[3]) <= 59 &&
+        Number(match[4]) <= 59 &&
+        !Number.isNaN(Date.parse(value)),
     );
   }
   if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
@@ -758,8 +758,23 @@ function stringFormatMatches(value: string, format?: string): boolean {
     return (
       value.split(".").length === 4 && value.split(".").every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
     );
-  if (format === "ipv6") return value.includes(":") && /^[0-9a-f:]+$/i.test(value);
-  if (format === "time") return /^\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value);
+  if (format === "ipv6") {
+    const halves = value.split("::");
+    if (halves.length > 2) return false;
+    const groups = halves.flatMap((half) => (half ? half.split(":") : []));
+    if (groups.some((group) => !/^[0-9a-f]{1,4}$/i.test(group))) return false;
+    return halves.length === 2 ? groups.length < 8 : groups.length === 8;
+  }
+  if (format === "time") {
+    const match = value.match(/^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-](\d{2}):(\d{2}))$/);
+    return Boolean(
+      match &&
+        Number(match[1]) <= 23 &&
+        Number(match[2]) <= 59 &&
+        Number(match[3]) <= 59 &&
+        (!match[5] || (Number(match[5]) <= 23 && Number(match[6]) <= 59)),
+    );
+  }
   if (format === "duration") return /^P(?=\d|T\d)/.test(value);
   if (format === "uuid")
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -810,8 +825,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
     const candidates = [
       value,
       ...patterns.flatMap((pattern) => {
-        const repeated = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\$$/);
-        if (repeated?.[1] && repeated[2]) return [repeated[1].toUpperCase().repeat(Number(repeated[2]))];
+        const repeated = pattern.match(/^\^\[([A-Za-z0-9])-([A-Za-z0-9])\]\{(\d+)\}\$$/);
+        if (repeated?.[1] && repeated[3]) return [repeated[1].toUpperCase().repeat(Number(repeated[3]))];
         return pattern.split("|").flatMap((alternative) => {
           const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
           return match?.[1] ? [match[1]] : [];
@@ -897,8 +912,8 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   delete result.anyOf;
   delete result.oneOf;
   const typeSets = schemas.flatMap((schema) => {
-    const values = (Array.isArray(schema.type) ? schema.type : [schema.type]).filter(
-      (value): value is string => Boolean(value) && value !== "null",
+    const values = (Array.isArray(schema.type) ? schema.type : [schema.type]).filter((value): value is string =>
+      Boolean(value),
     );
     return values.length
       ? [new Set(values.flatMap((value) => (value === "number" ? ["integer", "number"] : [value])))]
@@ -1134,16 +1149,27 @@ export function schemaExample(
     ];
     const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
     const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
+    const round = (candidate: number) => Number(candidate.toPrecision(15));
     let value = 1;
     if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
-      value = minimum.value + (minimum.exclusive ? step : 0);
+      value = minimum.value;
+      if (type === "integer") value = Math.ceil(value);
+      if (multiple) value = round(Math.ceil(value / multiple) * multiple);
+      if (minimum.exclusive && value <= minimum.value) value = round(value + step);
+    } else {
+      if (type === "integer") value = Math.ceil(value);
+      if (multiple) value = round(Math.ceil(value / multiple) * multiple);
     }
-    if (type === "integer") value = Math.ceil(value);
-    if (multiple) value = Math.ceil(value / multiple) * multiple;
     if (maximum && (value > maximum.value || (maximum.exclusive && value >= maximum.value))) {
       value = maximum.value - (maximum.exclusive ? step : 0);
       if (type === "integer") value = maximum.exclusive ? Math.ceil(maximum.value) - 1 : Math.floor(maximum.value);
-      if (multiple) value = Math.floor(value / multiple) * multiple;
+      if (multiple) value = round(Math.floor(value / multiple) * multiple);
+    }
+    if (minimum && (value < minimum.value || (minimum.exclusive && value <= minimum.value))) {
+      value = minimum.value;
+      if (type === "integer") value = Math.ceil(value);
+      if (multiple) value = round(Math.ceil(value / multiple) * multiple);
+      if (minimum.exclusive && value <= minimum.value) value = round(value + step);
     }
     return value;
   }
