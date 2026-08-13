@@ -483,7 +483,7 @@ describe("Python generator", () => {
         origin: "https://docs.example.com",
         values: { "path:widgetId": "" },
       }),
-    ).toContain("/widgets/{widgetId}");
+    ).toContain("/widgets/");
     const session = getOperations(document).find((operation) => operation.path === "/sessions");
     expect(session).toBeDefined();
     if (!session) return;
@@ -731,6 +731,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^v[0-9]+$", type: "string" })).toBe("v0");
     expect(schemaExample(document, { pattern: "^key[0-9]{2}$", type: "string" })).toBe("key00");
     expect(schemaExample(document, { pattern: "^item-\\d+$", type: "string" })).toBe("item-0");
+    expect(schemaExample(document, { pattern: "^foo[0-9]{2}bar$", type: "string" })).toBe("foo00bar");
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");

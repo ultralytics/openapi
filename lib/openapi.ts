@@ -960,6 +960,12 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           );
           return [`${digitSuffix[1]}${"0".repeat(count)}`];
         }
+        const wrappedRange = pattern.match(
+          /^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}([A-Za-z0-9._-]+)\$$/,
+        );
+        if (wrappedRange?.[1] && wrappedRange[2]) {
+          return [`${wrappedRange[1]}${wrappedRange[2].repeat(Number(wrappedRange[3]))}${wrappedRange[4]}`];
+        }
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
         const mixedSequence = pattern.match(
@@ -1899,7 +1905,7 @@ export function curlCodeSample(
   let path = operation.path;
   for (const parameter of (operation.parameters ?? []).filter((item) => item.in === "path")) {
     const value = serializeSimplePath(parameterValueOrExample(parameter), parameter.explode, parameter.allowReserved);
-    if (value) path = path.replace(`{${parameter.name}}`, value);
+    path = path.replace(`{${parameter.name}}`, value);
   }
   const query = (operation.parameters ?? [])
     .filter((parameter) => parameter.in === "query" && (parameter.required || values[`query:${parameter.name}`]))
