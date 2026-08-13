@@ -1011,7 +1011,11 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             extra -= added;
           }
           return [
-            tokens.map((match, index) => (match[1] === "\\d" ? "0" : match[2]?.[0])?.repeat(counts[index])).join(""),
+            tokens
+              .map((match, index) =>
+                (match[1] === "\\d" || match[2]?.startsWith("\\d") ? "0" : match[2]?.[0])?.repeat(counts[index]),
+              )
+              .join(""),
           ];
         }
         return pattern.split("|").flatMap((alternative) => {
@@ -1575,6 +1579,9 @@ export function schemaExample(
               ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
               ...(/\d+$/.test(key)
                 ? [key.replace(/\d+$/, (digits) => String(Number(digits) + index - 1).padStart(digits.length, "0"))]
+                : []),
+              ...(key.match(/\d(?!.*\d)/)
+                ? [key.replace(/\d(?!.*\d)/, (digit) => String((Number(digit) + index - 1) % 10))]
                 : []),
               ...(/^[a-z]+$/.test(key)
                 ? [

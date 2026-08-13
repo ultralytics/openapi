@@ -79,6 +79,14 @@ describe("Python generator", () => {
       prefix: "",
     });
     expect(() => getAuthentication(multiple)).toThrow("Multiple authentication schemes");
+    const contentParameter = structuredClone(document);
+    const contentOperation = contentParameter.paths["/widgets"]?.get;
+    if (contentOperation) {
+      contentOperation.parameters = [
+        { content: { "application/json": { schema: { type: "string" } } }, in: "query", name: "filter" },
+      ];
+    }
+    expect(() => getOperations(contentParameter)).toThrow("Unsupported content parameter: query filter");
   });
 
   test("uses a configured package README", async () => {
@@ -768,6 +776,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
+    expect(schemaExample(document, { pattern: "^[\\dA-F]{2}[A-Z]{2}$", type: "string" })).toBe("00AA");
     expect(schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" })).toBe(
       "AA.AA.0",
     );
@@ -1016,6 +1025,14 @@ describe("Python generator", () => {
     expect(
       schemaExample(document, { additionalProperties: { type: "string" }, minProperties: 2, type: "object" }),
     ).toEqual({ key: "example-key", key2: "example-key2" });
+    expect(
+      schemaExample(document, {
+        additionalProperties: { type: "string" },
+        minProperties: 2,
+        propertyNames: { pattern: "^foo\\d{2}bar$", type: "string" },
+        type: "object",
+      }),
+    ).toEqual({ foo00bar: "example-foo00bar", foo01bar: "example-foo01bar" });
     expect(
       schemaExample(document, {
         anyOf: [
