@@ -412,6 +412,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { maxLength: 2, type: "string" }, 0, "iconLetter")).toBe("ex");
     expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("<pattern value>");
     expect(schemaExample(document, { pattern: "^[a-z0-9]+$", type: "string" }, 0, "model")).toBe("yolo26n");
+    expect(schemaExample(document, { pattern: "^[a-z]+$", type: "string" }, 0, "model")).toBe("example");
     expect(schemaExample(document, { maxLength: 6, pattern: "^yolo26n$|^yolo26$", type: "string" }, 0, "model")).toBe(
       "yolo26",
     );
@@ -424,6 +425,22 @@ describe("Python generator", () => {
     ).toBe("examplexxx");
     expect(schemaExample(document, { type: "null" })).toBeNull();
     expect(schemaExample(document, { type: ["null"] })).toBeNull();
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { minimum: 20, type: "integer" },
+          { minimum: 10, type: "integer" },
+        ],
+      }),
+    ).toBe(20);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { maximum: 20, type: "integer" },
+          { exclusiveMaximum: 10, type: "integer" },
+        ],
+      }),
+    ).toBe(1);
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {

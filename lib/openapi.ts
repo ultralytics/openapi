@@ -739,6 +739,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       ...(key === "model" ? ["yolo26n", "yolo26"] : []),
       ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
       ...(key === "region" ? ["us-east-1"] : []),
+      "example",
     ].map(constrainLength);
     return (
       candidates.find((candidate) => expressions.every((expression) => expression.test(candidate))) ?? "<pattern value>"
@@ -769,6 +770,28 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   const maximumLengths = schemas.flatMap((schema) => (schema.maxLength === undefined ? [] : [schema.maxLength]));
   if (minimumLengths.length) result.minLength = Math.max(...minimumLengths);
   if (maximumLengths.length) result.maxLength = Math.min(...maximumLengths);
+  const minimums = schemas.flatMap((schema) =>
+    typeof schema.exclusiveMinimum === "number"
+      ? [{ exclusive: true, value: schema.exclusiveMinimum }]
+      : schema.minimum === undefined
+        ? []
+        : [{ exclusive: schema.exclusiveMinimum === true, value: schema.minimum }],
+  );
+  const maximums = schemas.flatMap((schema) =>
+    typeof schema.exclusiveMaximum === "number"
+      ? [{ exclusive: true, value: schema.exclusiveMaximum }]
+      : schema.maximum === undefined
+        ? []
+        : [{ exclusive: schema.exclusiveMaximum === true, value: schema.maximum }],
+  );
+  const minimum = minimums.sort((a, b) => b.value - a.value || Number(b.exclusive) - Number(a.exclusive))[0];
+  const maximum = maximums.sort((a, b) => a.value - b.value || Number(b.exclusive) - Number(a.exclusive))[0];
+  delete result.minimum;
+  delete result.maximum;
+  delete result.exclusiveMinimum;
+  delete result.exclusiveMaximum;
+  if (minimum) result[minimum.exclusive ? "exclusiveMinimum" : "minimum"] = minimum.value;
+  if (maximum) result[maximum.exclusive ? "exclusiveMaximum" : "maximum"] = maximum.value;
   const patterns = [...new Set(schemas.flatMap((schema) => (schema.pattern ? [schema.pattern] : [])))];
   const type = Array.isArray(result.type) ? result.type.find((value: string) => value !== "null") : result.type;
   if (
