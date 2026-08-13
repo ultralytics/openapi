@@ -966,6 +966,9 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         if (wrappedRange?.[1] && wrappedRange[2]) {
           return [`${wrappedRange[1]}${wrappedRange[2].repeat(Number(wrappedRange[3]))}${wrappedRange[4]}`];
         }
+        const wrappedDigits = pattern.match(/^\^([A-Za-z0-9._-]+)\\d\{(\d+)\}([A-Za-z0-9._-]+)\$$/);
+        if (wrappedDigits?.[1])
+          return [`${wrappedDigits[1]}${"0".repeat(Number(wrappedDigits[2]))}${wrappedDigits[3]}`];
         const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
         if (grouped) return grouped.split("|");
         const mixedSequence = pattern.match(
@@ -985,6 +988,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         if (variableMixed) return [variableMixed[1] ? `${variableMixed[1]}0` : `0${variableMixed[2]}`];
         const rangeThenDigits = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\\d\{(\d+)\}\$$/);
         if (rangeThenDigits?.[1]) return [`${rangeThenDigits[1]}${"0".repeat(Number(rangeThenDigits[2]))}`];
+        const boundedRangeThenDigits = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)(?:,(\d*))?\}\\d\+\$$/);
+        if (boundedRangeThenDigits?.[1]) {
+          return [`${boundedRangeThenDigits[1].repeat(Number(boundedRangeThenDigits[2]))}0`];
+        }
         const digitsThenRange = pattern.match(/^\^\\d\{(\d+)\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\+\$$/);
         if (digitsThenRange?.[2]) return [`${"0".repeat(Number(digitsThenRange[1]))}${digitsThenRange[2]}`];
         const digitsThenBoundedRange = pattern.match(

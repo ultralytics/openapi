@@ -750,6 +750,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^key[0-9]{2}$", type: "string" })).toBe("key00");
     expect(schemaExample(document, { pattern: "^item-\\d+$", type: "string" })).toBe("item-0");
     expect(schemaExample(document, { pattern: "^foo[0-9]{2}bar$", type: "string" })).toBe("foo00bar");
+    expect(schemaExample(document, { pattern: "^foo\\d{2}bar$", type: "string" })).toBe("foo00bar");
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
     expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
@@ -773,6 +774,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
     expect(schemaExample(document, { pattern: "^\\d+[A-Z]+$", type: "string" })).toBe("0A");
     expect(schemaExample(document, { pattern: "^[A-Z]+\\d{2}$", type: "string" })).toBe("A00");
+    expect(schemaExample(document, { pattern: "^[A-Z]{2,4}\\d+$", type: "string" })).toBe("AA0");
     expect(schemaExample(document, { pattern: "^\\d{2}[A-Z]+$", type: "string" })).toBe("00A");
     expect(schemaExample(document, { pattern: "^\\d{2}[A-Z]{2,4}$", type: "string" })).toBe("00AA");
     expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
