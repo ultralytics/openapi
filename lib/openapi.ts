@@ -537,7 +537,15 @@ export function pythonCodeSample(
   bodyValue?: unknown,
 ): string {
   const request = requestMedia(operation);
-  const exampleBody = bodyValue !== undefined ? bodyValue : request ? requestBodyExampleValue(document, request) : null;
+  let exampleBody = bodyValue;
+  if (exampleBody === undefined && request) {
+    exampleBody =
+      request[1].example !== undefined
+        ? request[1].example
+        : request[0].startsWith("text/")
+          ? requestBodyExample(document, operation)
+          : requestBodyExampleValue(document, request);
+  }
   const bodyValues =
     exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
       ? (exampleBody as Record<string, unknown>)

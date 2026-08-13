@@ -173,6 +173,17 @@ describe("Python generator", () => {
     expect(createSample?.source).toContain('body={"labels": [{"bbox": [0.1, 0.2, 0.3, 0.4], "classId": 0}]}');
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
+    if (echoMedia) {
+      delete echoMedia[1].example;
+      echoMedia[1].schema = { properties: { value: { type: "integer" } }, type: "object" };
+    }
+    expect(
+      addPythonCodeSamples(source, {
+        client: config.python.client,
+        environment: config.apiKey.environment,
+        package: config.python.package,
+      }).paths["/echo"]?.post?.["x-codeSamples"]?.[0]?.source,
+    ).toContain('body="{\\n  \\"value\\": 1\\n}"');
 
     const incomplete = structuredClone(source);
     const incompleteQuery = incomplete.paths["/widgets/{widgetId}"]?.get?.parameters?.[0];
