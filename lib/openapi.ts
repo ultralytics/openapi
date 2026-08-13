@@ -451,9 +451,12 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   });
   const incompatibleClosedBody = Boolean(closed?.length && new Set(closed).size > 1);
   const exclusiveBody =
-    variants?.length &&
-    variants.every((variant) => variant?.required?.length) &&
-    variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name)));
+    Boolean(bodySchema?.oneOf?.length) ||
+    Boolean(
+      variants?.length &&
+        variants.every((variant) => variant?.required?.length) &&
+        variants.some((variant) => variant?.required?.some((name) => !body?.required?.includes(name))),
+    );
   if (body?.properties && !exclusiveBody && !incompatibleClosedBody) {
     for (const [name, schema] of Object.entries(body.properties)) {
       const property = resolveSchema(document, schema) ?? schema;

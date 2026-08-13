@@ -376,6 +376,17 @@ describe("Python generator", () => {
     const undescribedVariants = requestMedia(undescribedUnion)?.[1].schema?.oneOf;
     for (const variant of undescribedVariants ?? []) delete variant.description;
     expect(sdkArguments(minimalDocument, undescribedUnion)).toMatchObject([{ description: "Request body." }]);
+    const optionalClosedUnion = structuredClone(unionCreate);
+    const optionalClosedMedia = requestMedia(optionalClosedUnion);
+    if (optionalClosedMedia) {
+      optionalClosedMedia[1].schema = {
+        oneOf: [
+          { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
+          { additionalProperties: false, properties: { b: { type: "integer" } }, type: "object" },
+        ],
+      };
+    }
+    expect(sdkArguments(minimalDocument, optionalClosedUnion)).toMatchObject([{ name: "body", wholeBody: true }]);
     expect(
       curlCodeSample(minimalDocument, unionCreate, {
         body: unionBody,
