@@ -739,13 +739,13 @@ function stringFormatMatches(value: string, format?: string): boolean {
   if (format === "date") return dateValid(value);
   if (format === "date-time") {
     const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
-    return Boolean(
-      match?.[1] &&
+    if (!match?.[1]) return false;
+    return (
       dateValid(match[1]) &&
       Number(match[2]) <= 23 &&
       Number(match[3]) <= 59 &&
       Number(match[4]) <= 59 &&
-      !Number.isNaN(Date.parse(value)),
+      !Number.isNaN(Date.parse(value))
     );
   }
   if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
@@ -767,12 +767,12 @@ function stringFormatMatches(value: string, format?: string): boolean {
   }
   if (format === "time") {
     const match = value.match(/^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-](\d{2}):(\d{2}))$/);
-    return Boolean(
-      match &&
+    if (!match) return false;
+    return (
       Number(match[1]) <= 23 &&
       Number(match[2]) <= 59 &&
       Number(match[3]) <= 59 &&
-      (!match[5] || (Number(match[5]) <= 23 && Number(match[6]) <= 59)),
+      (!match[5] || (Number(match[5]) <= 23 && Number(match[6]) <= 59))
     );
   }
   if (format === "duration") return /^P(?=\d|T\d)/.test(value);
