@@ -123,7 +123,34 @@ describe("Python generator", () => {
     );
     const media = createWidget && requestMedia(createWidget);
     if (media) {
-      media[1].example = { description: null, name: "Widget", provider: "cloud", region: "us", settings: {} };
+      media[1].schema = {
+        anyOf: [
+          {
+            additionalProperties: false,
+            example: { labels: [{ bbox: [0.1, 0.2, 0.3, 0.4], classId: 0 }] },
+            properties: {
+              labels: {
+                items: {
+                  properties: {
+                    bbox: {
+                      items: { not: {} },
+                      prefixItems: Array.from({ length: 4 }, () => ({ type: "number" })),
+                      type: "array",
+                    },
+                    classId: { minimum: 0, type: "integer" },
+                  },
+                  required: ["classId"],
+                  type: "object",
+                },
+                type: "array",
+              },
+            },
+            required: ["labels"],
+            type: "object",
+          },
+          { properties: { metadata: { type: "object" } }, required: ["metadata"], type: "object" },
+        ],
+      };
     }
     const echo = getOperations(source).find((operation) => operation.path === "/echo");
     const echoMedia = echo && requestMedia(echo);
@@ -144,7 +171,7 @@ describe("Python generator", () => {
     expect(sample?.source).toContain("response = client.widgets.retrieve(");
     expect(sample?.source).toContain('widget_id="widget_123"');
     const createSample = decorated.paths["/widgets"]?.post?.["x-codeSamples"]?.[0];
-    expect(createSample?.source).toContain('body={"description": None');
+    expect(createSample?.source).toContain('body={"labels": [{"bbox": [0.1, 0.2, 0.3, 0.4], "classId": 0}]}');
     const echoSample = decorated.paths["/echo"]?.post?.["x-codeSamples"]?.[0];
     expect(echoSample?.source).toContain("body=None");
 
@@ -614,6 +641,13 @@ describe("Python generator", () => {
     ).toBe("examplexxx");
     expect(schemaExample(document, { type: "null" })).toBeNull();
     expect(schemaExample(document, { type: ["null"] })).toBeNull();
+    expect(
+      schemaExample(document, {
+        items: { not: {} },
+        prefixItems: Array.from({ length: 4 }, () => ({ type: "number" })),
+        type: "array",
+      }),
+    ).toEqual([1, 1, 1, 1]);
     expect(
       schemaExample(document, {
         allOf: [
