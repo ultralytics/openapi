@@ -910,7 +910,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
             Math.max(Number(repeatedClass[2] ?? 1), schema.minLength ?? 1),
             repeatedClass[3] ? Number(repeatedClass[3]) : Number.POSITIVE_INFINITY,
           );
-          return [repeatedClass[1][0]?.repeat(count) ?? ""];
+          const member = repeatedClass[1].startsWith("\\d") ? "0" : repeatedClass[1][0];
+          return [member?.repeat(count) ?? ""];
         }
         const repeatedLiteral = pattern.match(/^\^([A-Za-z0-9_-])(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
         if (repeatedLiteral?.[1]) {
@@ -1013,7 +1014,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
         : []),
       ...(schema.format === "hostname"
         ? Array.from({ length: 253 }, (_, index) => index + 1).map((length) => {
-            const labels = Math.ceil(length / 64);
+            const labels = Math.ceil((length + 1) / 64);
             let characters = length - labels + 1;
             return Array.from({ length: labels }, (_, index) => {
               const width = Math.min(63, characters - (labels - index - 1));
