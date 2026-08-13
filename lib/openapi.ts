@@ -703,19 +703,20 @@ export function objectSchema(document: OpenApiDocument, input: JsonSchema | unde
   };
 }
 
-function stringExample(schema: JsonSchema, name?: string): string {
+function stringExample(schema: JsonSchema, name?: string, patterns = schema.pattern ? [schema.pattern] : []): string {
   const key = name?.toLowerCase() ?? "";
   let value = name ? `example-${name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}` : "example";
-  if (key === "sourceurl") value = "https://example.com/dataset.zip";
-  else if (key === "region") value = "us-east-1";
-  else if (key === "model" || key === "basemodel") value = "yolo26n.pt";
-  else if (key === "data") value = "ul://jane-doe/datasets/coco8";
-  else if (schema.format === "date") value = "2026-01-01";
+  if (schema.format === "date") value = "2026-01-01";
   else if (schema.format === "date-time") value = "2026-01-01T00:00:00Z";
-  else if (schema.format === "email" || key === "client_email") value = "jane@example.com";
+  else if (schema.format === "email") value = "jane@example.com";
   else if (schema.format === "uri" || schema.format === "url") value = "https://example.com";
   else if (schema.format === "uuid") value = "123e4567-e89b-12d3-a456-426614174000";
   else if (schema.format === "binary") value = "path/to/file";
+  else if (key === "sourceurl") value = "https://example.com/dataset.zip";
+  else if (key === "region") value = "us-east-1";
+  else if (key === "model" || key === "basemodel") value = "yolo26n.pt";
+  else if (key === "data") value = "ul://jane-doe/datasets/coco8";
+  else if (key === "client_email") value = "jane@example.com";
   else if (key.includes("apikey") || key.includes("api_key")) value = "your-api-key";
   else if (key === "owner" || key === "username") value = "jane-doe";
   else if (key === "project" || key.endsWith("projectslug")) value = "example-project";
@@ -731,24 +732,34 @@ function stringExample(schema: JsonSchema, name?: string): string {
   else if (key.includes("color")) value = "#4f46e5";
   const constrainLength = (candidate: string) =>
     candidate.slice(0, schema.maxLength).padEnd(schema.minLength ?? 0, "x");
-  value = constrainLength(value);
-  const pattern = schema.pattern;
   try {
-    if (pattern && !new RegExp(pattern).test(value)) {
-      if (key === "model") {
-        const alternate = ["yolo26n", "yolo26"].map(constrainLength).find((item) => new RegExp(pattern).test(item));
-        if (alternate) return alternate;
-      }
-      return "<pattern value>";
-    }
+    const expressions = patterns.map((pattern) => new RegExp(pattern));
+    const candidates = [
+      value,
+      ...(key === "model" ? ["yolo26n", "yolo26"] : []),
+      ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
+      ...(key === "region" ? ["us-east-1"] : []),
+    ].map(constrainLength);
+    return (
+      candidates.find((candidate) => expressions.every((expression) => expression.test(candidate))) ?? "<pattern value>"
+    );
   } catch {
     return "<pattern value>";
   }
-  return value;
 }
 
-function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[]): JsonSchema {
-  const schemas = inputs.map((schema) => resolveSchema(document, schema) ?? schema);
+function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], name?: string): JsonSchema {
+  const flatten = (input: JsonSchema, depth = 0): JsonSchema[] => {
+    const schema = resolveSchema(document, input) ?? input;
+    if (depth > 8) return [schema];
+    const union = schema.oneOf ?? schema.anyOf;
+    return [
+      schema,
+      ...(schema.allOf ?? []).flatMap((item) => flatten(item, depth + 1)),
+      ...(union?.length ? flatten(union[0], depth + 1) : []),
+    ];
+  };
+  const schemas = inputs.flatMap((schema) => flatten(schema));
   const result = Object.assign({}, ...schemas);
   delete result.$ref;
   delete result.allOf;
@@ -758,6 +769,17 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[]): Js
   const maximumLengths = schemas.flatMap((schema) => (schema.maxLength === undefined ? [] : [schema.maxLength]));
   if (minimumLengths.length) result.minLength = Math.max(...minimumLengths);
   if (maximumLengths.length) result.maxLength = Math.min(...maximumLengths);
+  const patterns = [...new Set(schemas.flatMap((schema) => (schema.pattern ? [schema.pattern] : [])))];
+  const type = Array.isArray(result.type) ? result.type.find((value: string) => value !== "null") : result.type;
+  if (
+    type === "string" &&
+    result.example === undefined &&
+    result.default === undefined &&
+    result.const === undefined &&
+    !result.enum?.length
+  ) {
+    result.example = stringExample(result, name, patterns);
+  }
   return result;
 }
 
@@ -781,7 +803,7 @@ export function schemaExample(
       ? selectedSchema.type.find((value) => value !== "null")
       : selectedSchema.type;
     if (selectedType !== "object" && !selectedSchema.properties) {
-      return schemaExample(document, mergeScalarSchemas(document, [selectedSchema, schema]), depth + 1, name);
+      return schemaExample(document, mergeScalarSchemas(document, [selectedSchema, schema], name), depth + 1, name);
     }
     const selected = schemaExample(document, union[0], depth + 1, name);
     if (selected && typeof selected === "object" && !Array.isArray(selected) && schema.properties) {
@@ -793,7 +815,7 @@ export function schemaExample(
   if (schema.allOf?.length) {
     const object = objectSchema(document, schema);
     if (object?.properties) return schemaExample(document, { ...object, allOf: undefined }, depth + 1, name);
-    return schemaExample(document, mergeScalarSchemas(document, [schema, ...schema.allOf]), depth + 1, name);
+    return schemaExample(document, mergeScalarSchemas(document, [schema, ...schema.allOf], name), depth + 1, name);
   }
 
   const type = Array.isArray(schema.type) ? schema.type.find((value) => value !== "null") : schema.type;

@@ -404,6 +404,10 @@ describe("Python generator", () => {
   test("uses generic string examples", () => {
     expect(schemaExample(document, { type: "string" })).toBe("example");
     expect(schemaExample(document, { format: "email", type: "string" })).toBe("jane@example.com");
+    expect(schemaExample(document, { format: "date", type: "string" }, 0, "data")).toBe("2026-01-01");
+    expect(schemaExample(document, { format: "uuid", type: "string" }, 0, "model")).toBe(
+      "123e4567-e89b-12d3-a456-426614174000",
+    );
     expect(schemaExample(document, { type: "string" }, 0, "project")).toBe("example-project");
     expect(schemaExample(document, { maxLength: 2, type: "string" }, 0, "iconLetter")).toBe("ex");
     expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("<pattern value>");
@@ -413,6 +417,11 @@ describe("Python generator", () => {
     );
     expect(schemaExample(document, { minLength: 10, oneOf: [{ type: "string" }] })).toBe("examplexxx");
     expect(schemaExample(document, { allOf: [{ type: "string" }, { minLength: 10 }] })).toBe("examplexxx");
+    expect(
+      schemaExample(document, {
+        allOf: [{ allOf: [{ type: "string" }, { minLength: 10 }, { pattern: "^example" }] }, { pattern: "xxx$" }],
+      }),
+    ).toBe("examplexxx");
     expect(schemaExample(document, { type: "null" })).toBeNull();
     expect(schemaExample(document, { type: ["null"] })).toBeNull();
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
