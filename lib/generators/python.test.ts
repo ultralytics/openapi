@@ -458,6 +458,36 @@ describe("Python generator", () => {
         ],
       }),
     ).toBe(1.2);
+    expect(
+      schemaExample(document, {
+        allOf: [{ type: "integer" }, { maximum: 2.5, minimum: 1.5, type: "number" }],
+      }),
+    ).toBe(2);
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { enum: [1, 2], type: "integer" },
+          { multipleOf: 2, type: "integer" },
+        ],
+      }),
+    ).toBe(2);
+    expect(
+      schemaExample(document, {
+        anyOf: [
+          { pattern: "^a$", type: "string" },
+          { pattern: "^b$", type: "string" },
+        ],
+        pattern: "^b$",
+      }),
+    ).toBe("b");
+    expect(
+      schemaExample(document, {
+        allOf: [
+          { multipleOf: 1e-7, type: "number" },
+          { multipleOf: 0.3, type: "number" },
+        ],
+      }),
+    ).toBe(1.2);
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(
       schemaExample(document, {
