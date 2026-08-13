@@ -645,6 +645,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { minLength: 3, pattern: "^[0-9]+$", type: "string" })).toBe("000");
     expect(schemaExample(document, { pattern: "^[0-9]+$", type: "string" })).toBe("0");
     expect(schemaExample(document, { pattern: "^\\d+$", type: "string" })).toBe("0");
+    expect(schemaExample(document, { pattern: "^\\d{3}$", type: "string" })).toBe("000");
     expect(schemaExample(document, { pattern: "^$", type: "string" })).toBe("");
     expect(schemaExample(document, { type: "string" }, 0, "apiKey")).toBe("your-api-key");
     expect(schemaExample(document, { type: "string" }, 0, "baseModel")).toBe("yolo26n.pt");
@@ -834,6 +835,14 @@ describe("Python generator", () => {
     expect(schemaExample(document, { minimum: -Number.MAX_SAFE_INTEGER, type: "integer" })).toBe(1);
     expect(schemaExample(document, { maximum: 1.9, minimum: 1.5, type: ["integer", "number"] })).toBe(1.5);
     expect(schemaExample(document, { multipleOf: 0.3, type: "integer" })).toBe(3);
+    expect(
+      schemaExample(document, {
+        maxItems: 0,
+        minItems: 1,
+        pattern: "^a$",
+        type: ["array", "string"],
+      }),
+    ).toBe("a");
     expect(
       schemaExample(document, {
         exclusiveMaximum: 0.25,

@@ -849,7 +849,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
       "example",
       ...patterns.flatMap((pattern) => {
         if (pattern === "^$") return [""];
-        if (pattern === "^\\d+$") return ["0".repeat(Math.max(1, schema.minLength ?? 1))];
+        const digits = pattern.match(/^\^\\d(?:\{(\d+)\}|\+)\$$/);
+        if (digits) return ["0".repeat(digits[1] ? Number(digits[1]) : Math.max(1, schema.minLength ?? 1))];
         const suffixed = pattern.match(/^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\]\*\$$/);
         if (suffixed?.[1] && suffixed[2]) {
           return [`${suffixed[1]}${suffixed[2].repeat(Math.max(1, (schema.minLength ?? 0) - suffixed[1].length))}`];
@@ -1237,6 +1238,16 @@ export function schemaExample(
     return null;
   }
 
+  if (Array.isArray(schema.type)) {
+    const types = schema.type.filter((value) => value !== "null");
+    if (schema.type.includes("null") || types.some((value) => value !== "integer" && value !== "number")) {
+      for (const candidateType of schema.type) {
+        const candidate = schemaExample(document, { ...schema, type: candidateType }, depth + 1, name);
+        if (schemaMatches(document, candidate, schema)) return candidate;
+      }
+      return null;
+    }
+  }
   const type = Array.isArray(schema.type)
     ? schema.type.includes("number") &&
       schema.type.every((value) => value === "integer" || value === "number" || value === "null")
