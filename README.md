@@ -50,7 +50,7 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
 }
 ```
 
-`source`, `name`, `apiKey.environment`, and the `python` `client`, `package`, `project`, and `version` keys are required; everything else is optional. `python.install` defaults to `pip install <project>`, `python.readme` replaces the generated package README, `repository` fills the package URLs, and `docs.basePath` mounts the documentation under a sub-path. Relative paths resolve against the configuration file. The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
+`source`, `name`, `apiKey.environment`, and the `python` `client`, `package`, and `project` keys are required; everything else is optional. `python.version` defaults to the contract's `info.version` so one bump in the API releases the SDK, `python.install` defaults to `pip install <project>`, `python.readme` replaces the generated package README, `repository` fills the package URLs, and `docs.basePath` mounts the documentation under a sub-path. Relative paths resolve against the configuration file. The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
 Set `OPENAPI_CONFIG` to use a configuration outside this repository, such as a product-specific consumer:
 
 ```bash

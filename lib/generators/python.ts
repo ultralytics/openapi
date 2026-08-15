@@ -844,7 +844,7 @@ export async function generatePython(
   await Promise.all([
     Bun.write(
       `${output}/pyproject.toml`,
-      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\n${projectMetadata}\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
+      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version ?? document.info.version}"\n${projectMetadata}\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
     ),
     Bun.write(`${output}/README.md`, readme),
     Bun.write(`${output}/LICENSE`, licenseText),
