@@ -1984,7 +1984,7 @@ function parameterValue(document: OpenApiDocument, parameter: Parameter, value: 
 function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
   return Object.entries(values).flatMap(([name, value]) => {
     if (Array.isArray(value)) return value.map((item) => [name, item] as [string, unknown]);
-    if (value && typeof value === "object") return [[name, JSON.stringify(value)]];
+    if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
     return [[name, value]];
   });
 }
@@ -2100,7 +2100,7 @@ export function curlCodeSample(
         const value = parameterValueOrExample(parameter);
         return parameter.in === "cookie"
           ? `  --cookie ${shellQuote(serializeQueryParameter(parameter.name, value, "form", parameter.explode).replaceAll("&", "; "))}`
-          : `  -H ${shellQuote(`${parameter.name}: ${String(value)}`)}`;
+          : `  -H ${shellQuote(`${parameter.name}: ${typeof value === "string" ? value : serializeSimplePath(value, parameter.explode)}`)}`;
       }),
     request && request[0] !== "multipart/form-data" ? `  -H ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
     request && (request[0] === "application/json" || request[0].endsWith("+json")) && body
@@ -2186,7 +2186,9 @@ export function buildApiRequest(
   if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
   for (const parameter of parameters.filter((item) => item.in === "header")) {
     const value = values[`header:${parameter.name}`];
-    if (value) headers[parameter.name] = value;
+    if (!value) continue;
+    const parsed = parameterValue(document, parameter, value);
+    headers[parameter.name] = typeof parsed === "string" ? parsed : serializeSimplePath(parsed, parameter.explode);
   }
 
   let requestBody: BodyInit | undefined;
