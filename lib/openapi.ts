@@ -636,9 +636,9 @@ export function expandServerUrl(server: OpenApiServer): string {
 }
 
 export function getAuthentication(document: OpenApiDocument, operation: ApiOperation): ApiAuthentication | undefined {
-  const requirements = operation.security ?? document.security ?? [];
-  const names = new Set(requirements.flatMap((requirement) => Object.keys(requirement)));
-  for (const name of names) {
+  for (const requirement of operation.security ?? document.security ?? []) {
+    const [name, ...others] = Object.keys(requirement);
+    if (!name || others.length) continue;
     const scheme = document.components?.securitySchemes?.[name];
     if (scheme?.type === "apiKey" && scheme.in === "header" && scheme.name) return { header: scheme.name, prefix: "" };
     if (scheme?.type === "http" && scheme.scheme?.toLowerCase() === "bearer") {
