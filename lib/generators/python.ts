@@ -658,6 +658,7 @@ function clientSource(): string {
 import asyncio
 import json
 import time
+from collections.abc import Sequence
 from typing import Any
 from urllib.parse import quote
 
@@ -688,7 +689,7 @@ def _path_parameter(value: Any, *, explode: bool, allow_reserved: bool) -> str:
     if isinstance(value, dict):
         parts = [f"{encode(key)}={encode(item)}" for key, item in value.items()] if explode else [encode(item) for pair in value.items() for item in pair]
         return ",".join(parts)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return ",".join(encode(item) for item in value)
     return encode(value)
 
@@ -702,7 +703,7 @@ def _query_parameter(name: str, value: Any, *, style: str, explode: bool) -> lis
         if explode:
             return list(value.items())
         return [(name, ",".join(str(item) for pair in value.items() for item in pair))]
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         if style == "form" and explode:
             return [(name, item) for item in value]
         separator = " " if style == "spaceDelimited" else "|" if style == "pipeDelimited" else ","
