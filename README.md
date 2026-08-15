@@ -127,7 +127,7 @@ Ultralytics thrives on community collaboration, and we deeply value your contrib
 ## 📄 License
 
 - **AGPL-3.0 License**: The generator and documentation application are licensed under the [AGPL-3.0 License](LICENSE).
-- **Ultralytics Enterprise License**: For commercial use, request an [Ultralytics Enterprise License](https://www.ultralytics.com/license).
+- **Enterprise License**: Commercial licensing is available separately through [Ultralytics Licensing](https://www.ultralytics.com/license).
 
 Generated SDKs default to AGPL-3.0, and their licenses are configurable through `openapi.config.json`.
 
