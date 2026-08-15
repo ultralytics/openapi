@@ -127,7 +127,7 @@ Ultralytics 因社区协作而蓬勃发展，我们非常重视您的贡献！�
 ## 📄 许可证
 
 - **AGPL-3.0 许可证**：生成器和文档应用采用 [AGPL-3.0 许可证](LICENSE)。
-- **企业许可证**：商业许可证可通过 [Ultralytics Licensing](https://www.ultralytics.com/license) 单独获取。
+- **Ultralytics 企业许可证**：商业用途请申请 [Ultralytics 企业许可证](https://www.ultralytics.com/license)。
 
 生成的 SDK 默认采用 AGPL-3.0，其许可证可通过 `openapi.config.json` 配置。
 
