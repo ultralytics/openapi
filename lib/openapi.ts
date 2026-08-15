@@ -403,12 +403,14 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   const losers: ApiOperation[] = [];
   for (const group of groups.values()) {
     const [winner, ...rest] = [...group.filter((operation) => operation["x-sdk-method"] === undefined)].sort(
-      (left, right) => rank(left) - rank(right),
+      (left, right) =>
+        rank(left) - rank(right) || left.path.localeCompare(right.path) || left.method.localeCompare(right.method),
     );
     if (winner && rank(winner) < 2) claim(winner, candidates.get(winner)?.name ?? winner.method);
     else if (winner) losers.push(winner);
     losers.push(...rest);
   }
+  losers.sort((left, right) => left.path.localeCompare(right.path) || left.method.localeCompare(right.method));
   for (const operation of losers) {
     const { name, fallbacks } = candidates.get(operation) ?? { name: operation.method, fallbacks: [] };
     const group = groups.get(`${operation.resource}.${name}`) ?? [];
