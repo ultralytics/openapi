@@ -84,7 +84,7 @@ function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0):
   return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
 }
 
-function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): string {
+function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, collection = "list"): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
   const nullable = isNullable(document, schema);
@@ -104,7 +104,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): s
         `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
       );
     }
-    const types = [...new Set(variants.flatMap((item) => pythonType(document, item).split(" | ")))];
+    const types = [...new Set(variants.flatMap((item) => pythonType(document, item, collection).split(" | ")))];
     if (schema.oneOf === undefined && schema.anyOf && types.includes("Any")) return "Any";
     return result([...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | "));
   }
@@ -115,7 +115,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): s
   if (type === "integer") return result("int");
   if (type === "number") return result("float");
   if (type === "boolean") return result("bool");
-  if (type === "array") return result(`list[${pythonType(document, schema.items)}]`);
+  if (type === "array") return result(`${collection}[${pythonType(document, schema.items, collection)}]`);
   if (type === "object" || schema.properties) return result("dict[str, Any]");
   return result("Any");
 }
@@ -203,14 +203,16 @@ function docstring(document: OpenApiDocument, operation: PythonOperation, return
     `        """${pythonDocstringText((operation.summary ?? operation.name).replace(/\.$/, ""), "        ")}.`,
   ];
   if (operation.description) lines.push("", `        ${pythonDocstringText(operation.description, "        ")}`);
-  if (operation.arguments.length) {
-    lines.push("", "        Args:");
-    for (const argument of operation.arguments) {
-      lines.push(
-        `            ${argument.pythonName} (${pythonType(document, argument.schema)}${argument.required ? "" : ", optional"}): ${pythonDocstringText(argument.description, "                ")}`,
-      );
-    }
+  lines.push("", "        Args:");
+  for (const argument of operation.arguments) {
+    lines.push(
+      `            ${argument.pythonName} (${pythonType(document, argument.schema, "Sequence")}${argument.required ? "" : ", optional"}): ${pythonDocstringText(argument.description, "                ")}`,
+    );
   }
+  lines.push(
+    "            timeout (float | httpx.Timeout, optional): Request timeout override.",
+    "            extra_headers (dict[str, str], optional): Additional request headers.",
+  );
   lines.push("", "        Returns:", `            (${returnType}): The API response.`);
   lines.push(
     "",
@@ -228,16 +230,16 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const keywordArguments = [...required.filter((argument) => argument.location !== "path"), ...optional];
   const signature = [
     "self",
-    ...pathArguments.map((argument) => `${argument.pythonName}: ${pythonType(document, argument.schema)}`),
+    ...pathArguments.map((argument) => `${argument.pythonName}: ${pythonType(document, argument.schema, "Sequence")}`),
     ...(keywordArguments.length ? ["*"] : []),
     ...keywordArguments.map((argument) => {
-      const type = pythonType(document, argument.schema);
-      if (!argument.required && argument.location === "body") {
-        return `${argument.pythonName}: ${type} | NotGiven = NOT_GIVEN`;
-      }
-      const defaultValue = argument.required ? "" : " = None";
-      return `${argument.pythonName}: ${argument.required || type.split(" | ").includes("None") ? type : `${type} | None`}${defaultValue}`;
+      const type = pythonType(document, argument.schema, "Sequence");
+      return argument.required
+        ? `${argument.pythonName}: ${type}`
+        : `${argument.pythonName}: ${type} | NotGiven = NOT_GIVEN`;
     }),
+    "timeout: float | httpx.Timeout | None = None",
+    "extra_headers: dict[str, str] | None = None",
   ].join(", ");
   const returnType = operation.responseName ?? pythonType(document, operation.responseSchema);
   const serverOverride = operation.server && operation.server !== document.servers?.[0];
@@ -269,6 +271,8 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const json = operation.contentType === "application/json" || operation.contentType?.endsWith("+json");
   const authentication = getAuthentication(document, operation);
   const options = [
+    "timeout=timeout",
+    "extra_headers=extra_headers",
     relativeServer ? `server=${quote(server)}` : "",
     authentication ? `auth=(${quote(authentication.header)}, ${quote(authentication.prefix)})` : "",
     operation.responseText ? "text=True" : "",
@@ -292,9 +296,11 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
     cookies.length ? `cookies={${cookies.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}` : "",
     ["application/x-www-form-urlencoded", "multipart/form-data"].includes(operation.contentType ?? "") &&
     (data.length || multipartBody)
-      ? wholeBody
-        ? `data={key: value for key, value in ${wholeBody.pythonName}.items() if key not in ${JSON.stringify(multipartBinary)}}`
-        : `data={${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+      ? `data=_form_data(${
+          wholeBody
+            ? `{key: value for key, value in ${wholeBody.pythonName}.items() if key not in ${JSON.stringify(multipartBinary)}}`
+            : `{${data.map((item) => `${quote(item.name)}: ${item.pythonName}`).join(", ")}}`
+        }, multipart=${operation.contentType === "multipart/form-data" ? "True" : "False"})`
       : "",
     binary.length || multipartBinary.length
       ? wholeBody
@@ -334,18 +340,19 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
   const body = `${methods}\n${asyncMethods}`;
   const types = operations
     .flatMap((operation) => [
-      ...operation.arguments.map((argument) => pythonType(document, argument.schema)),
+      ...operation.arguments.map((argument) => pythonType(document, argument.schema, "Sequence")),
       operation.responseName ?? pythonType(document, operation.responseSchema),
     ])
     .join(" ")
     .replace(/"(?:[^"\\]|\\.)*"/g, "");
   const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(types));
-  const typingSource = `from typing import ${[...typingImports, "cast"].join(", ")}\n\n`;
+  const typingSource = `${/\bSequence\b/.test(types) ? "from collections.abc import Sequence\n" : ""}from typing import ${[...typingImports, "cast"].join(", ")}\n\nimport httpx\n\n`;
   const clientImports = [
     ...(body.includes("NotGiven") ? ["NOT_GIVEN"] : []),
     "AsyncAPIClient",
     ...(body.includes("NotGiven") ? ["NotGiven"] : []),
     "SyncAPIClient",
+    ...(body.includes("_form_data(") ? ["_form_data"] : []),
     ...(body.includes("_path_parameter(") ? ["_path_parameter"] : []),
     ...(body.includes("_query_parameter(") ? ["_query_parameter"] : []),
   ];
@@ -601,7 +608,7 @@ function apiClientSource(async: boolean): string {
 
     ${a}def request(self, method: str, path: str, **kwargs: Any) -> Any:
         retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
-        headers = _without_none(kwargs.get("headers")) or {}
+        headers = {**_without_none(kwargs.get("headers") or {}), **(kwargs.get("extra_headers") or {})}
         if self._api_key and (auth := kwargs.get("auth")):
             headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
         server = kwargs.get("server")
@@ -613,11 +620,12 @@ function apiClientSource(async: boolean): string {
                     url,
                     params=kwargs.get("params"),
                     headers=headers,
-                    cookies=_without_none(kwargs.get("cookies")),
-                    json=_without_not_given(kwargs.get("json")),
-                    data=_without_not_given(kwargs.get("data")),
+                    cookies=_without_none(kwargs.get("cookies") or {}) or None,
+                    json=_json_value(kwargs.get("json")),
+                    data=kwargs.get("data"),
                     files=_without_not_given(kwargs.get("files")),
                     content=_without_not_given(kwargs.get("content")),
+                    **({"timeout": timeout} if (timeout := kwargs.get("timeout")) is not None else {}),
                 )
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:
@@ -648,7 +656,9 @@ function clientSource(): string {
   return `from __future__ import annotations
 
 import asyncio
+import json
 import time
+from collections.abc import Sequence
 from typing import Any
 from urllib.parse import quote
 
@@ -679,13 +689,13 @@ def _path_parameter(value: Any, *, explode: bool, allow_reserved: bool) -> str:
     if isinstance(value, dict):
         parts = [f"{encode(key)}={encode(item)}" for key, item in value.items()] if explode else [encode(item) for pair in value.items() for item in pair]
         return ",".join(parts)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return ",".join(encode(item) for item in value)
     return encode(value)
 
 
 def _query_parameter(name: str, value: Any, *, style: str, explode: bool) -> list[tuple[str, Any]]:
-    if value is None:
+    if value is None or isinstance(value, NotGiven):
         return []
     if isinstance(value, dict):
         if style == "deepObject":
@@ -693,7 +703,7 @@ def _query_parameter(name: str, value: Any, *, style: str, explode: bool) -> lis
         if explode:
             return list(value.items())
         return [(name, ",".join(str(item) for pair in value.items() for item in pair))]
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         if style == "form" and explode:
             return [(name, item) for item in value]
         separator = " " if style == "spaceDelimited" else "|" if style == "pipeDelimited" else ","
@@ -701,14 +711,37 @@ def _query_parameter(name: str, value: Any, *, style: str, explode: bool) -> lis
     return [(name, value)]
 
 
-def _without_none(values: Any) -> Any:
-    return {key: value for key, value in values.items() if value is not None} if isinstance(values, dict) else values
+def _without_none(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None and not isinstance(value, NotGiven)}
 
 
 def _without_not_given(values: Any) -> Any:
     if isinstance(values, dict):
         return {key: value for key, value in values.items() if not isinstance(value, NotGiven)}
     return None if isinstance(values, NotGiven) else values
+
+
+def _json_value(value: Any) -> Any:
+    """Drop omitted values and turn any sequence into a list so the payload is JSON serializable."""
+    if isinstance(value, dict):
+        return {key: _json_value(item) for key, item in value.items() if not isinstance(item, NotGiven)}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [_json_value(item) for item in value]
+    return None if isinstance(value, NotGiven) else value
+
+
+def _form_data(values: dict[str, Any], *, multipart: bool) -> dict[str, Any]:
+    """Encode object fields as JSON parts for multipart bodies and as exploded fields for URL-encoded bodies."""
+    fields: dict[str, Any] = {}
+    for name, value in _without_not_given(values).items():
+        if isinstance(value, dict):
+            if multipart:
+                fields[name] = json.dumps(value)
+            else:
+                fields.update(value)
+        else:
+            fields[name] = value
+    return fields
 
 
 def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
@@ -727,6 +760,9 @@ ${apiClientSource(true)}`;
 
 const EXCEPTIONS_SOURCE = `from __future__ import annotations
 
+import json
+from typing import Any
+
 
 class APIError(Exception):
     """Error returned by the API."""
@@ -736,6 +772,14 @@ class APIError(Exception):
         self.body = body
         self.request_id = request_id
         super().__init__(f"API request failed with status {status_code}: {body}")
+
+    @property
+    def json(self) -> Any:
+        """Parsed JSON body, or None when the body is not JSON."""
+        try:
+            return json.loads(self.body)
+        except ValueError:
+            return None
 
 
 class APIConnectionError(Exception):
@@ -776,7 +820,7 @@ export async function generatePython(
   const licenseText = await Bun.file(license.file).text();
   const readme = config.python.readme
     ? await Bun.file(config.python.readme).text()
-    : `<div align="center">\n  <a href="https://www.ultralytics.com"><img src="https://raw.githubusercontent.com/ultralytics/assets/main/logo/Ultralytics_Logotype_Original.svg" width="320" alt="Ultralytics logo"></a>\n\n# 🔌 ${config.name} Python SDK\n\n[![PyPI - Version](https://img.shields.io/pypi/v/${config.python.project}?logo=pypi&logoColor=white)](https://pypi.org/project/${config.python.project}/)\n[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/${config.python.project}?logo=python&logoColor=gold)](https://pypi.org/project/${config.python.project}/)\n[![Ultralytics Discord](https://img.shields.io/discord/1089800235347353640?logo=discord&logoColor=white&label=Discord&color=blue)](https://discord.com/invite/ultralytics)\n[![Ultralytics Forums](https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue)](https://community.ultralytics.com)\n\n</div>\n\nTyped synchronous and asynchronous Python clients generated from the ${config.name} contract.\n\n## 🐍 Installation\n\n\`\`\`bash\n${config.python.install}\n\`\`\`\n\n## 🔑 Authentication\n\nPass your API key directly when creating a client:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}(api_key="YOUR_API_KEY")\n\`\`\`\n\nAlternatively, set \`${config.apiKey.environment}\` and omit the \`api_key\` argument.\n\n## 🚀 Usage\n\nResources are grouped under one client and support context-manager cleanup:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nwith ${config.python.client}() as client:\n    ${readmeExample ? `response = client.${readmeExample.resource}.${readmeExample.operation.name}()` : "..."}\n\`\`\`\n\nEvery resource is also available through the asynchronous client:\n\n\`\`\`python\nimport asyncio\n\nfrom ${config.python.package} import Async${config.python.client}\n\n\nasync def main():\n    async with Async${config.python.client}() as client:\n        ${readmeExample ? `response = await client.${readmeExample.resource}.${readmeExample.operation.name}()` : "..."}\n\n\nasyncio.run(main())\n\`\`\`\n\n## ✨ Features\n\n- Typed synchronous and asynchronous resource clients\n- Multipart uploads and custom HTTP clients\n- Automatic retries for temporary failures\n- Structured API and connection errors\n- Context-manager cleanup\n\n## 📄 License\n\nThis SDK is licensed under the [${license.id.replace("-only", "")} License](${license.url ?? "LICENSE"}). Commercial licensing is available through [Ultralytics Licensing](https://www.ultralytics.com/license).\n\n## 🤝 Community\n\nFor help and feedback, join the [Ultralytics community](https://community.ultralytics.com/) or [Discord](https://discord.com/invite/ultralytics).\n`;
+    : `<div align="center">\n\n# 🔌 ${config.name} Python SDK\n\n[![PyPI - Version](https://img.shields.io/pypi/v/${config.python.project}?logo=pypi&logoColor=white)](https://pypi.org/project/${config.python.project}/)\n[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/${config.python.project}?logo=python&logoColor=gold)](https://pypi.org/project/${config.python.project}/)\n\n</div>\n\nTyped synchronous and asynchronous Python clients generated from the ${config.name} contract.\n\n## 🐍 Installation\n\n\`\`\`bash\n${config.python.install}\n\`\`\`\n\n## 🔑 Authentication\n\nPass your API key directly when creating a client:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}(api_key="YOUR_API_KEY")\n\`\`\`\n\nAlternatively, set \`${config.apiKey.environment}\` and omit the \`api_key\` argument.\n\n## 🚀 Usage\n\nResources are grouped under one client and support context-manager cleanup:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nwith ${config.python.client}() as client:\n    ${readmeExample ? `response = client.${readmeExample.resource}.${readmeExample.operation.name}()` : "..."}\n\`\`\`\n\nEvery resource is also available through the asynchronous client:\n\n\`\`\`python\nimport asyncio\n\nfrom ${config.python.package} import Async${config.python.client}\n\n\nasync def main():\n    async with Async${config.python.client}() as client:\n        ${readmeExample ? `response = await client.${readmeExample.resource}.${readmeExample.operation.name}()` : "..."}\n\n\nasyncio.run(main())\n\`\`\`\n\n## ✨ Features\n\n- Typed synchronous and asynchronous resource clients\n- Multipart uploads and custom HTTP clients\n- Automatic retries for temporary failures\n- Structured API and connection errors\n- Context-manager cleanup\n\n## 📄 License\n\nThis SDK is licensed under the [${license.id.replace("-only", "")} License](${license.url ?? "LICENSE"}).\n${config.repository ? `\n## 🤝 Support\n\nFor bug reports and feature requests, open an issue at [${config.repository}/issues](${config.repository}/issues).\n` : ""}`;
   const projectUrls = config.repository
     ? `\n\n[project.urls]\nRepository = "${config.repository}"\nIssues = "${config.repository}/issues"`
     : "";

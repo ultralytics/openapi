@@ -94,6 +94,7 @@ interface OperationObject {
   summary?: string;
   tags?: string[];
   "x-codeSamples"?: Array<{ label: string; lang: string; source: string }>;
+  "x-sdk-method"?: string;
 }
 
 export interface OpenApiDocument {
@@ -186,7 +187,6 @@ const PYTHON_RESERVED = new Set([
   "elif",
   "else",
   "except",
-  "false",
   "finally",
   "for",
   "from",
@@ -196,14 +196,12 @@ const PYTHON_RESERVED = new Set([
   "in",
   "is",
   "lambda",
-  "none",
   "nonlocal",
   "not",
   "or",
   "pass",
   "raise",
   "return",
-  "true",
   "try",
   "while",
   "with",
@@ -225,8 +223,11 @@ export function sdkIdentifier(value: string): string {
       : `_${identifier}`;
 }
 
-export function allocateSdkIdentifiers(values: Array<{ location: string; name: string }>): string[] {
-  const used = new Set(["self"]);
+export function allocateSdkIdentifiers(
+  values: Array<{ location: string; name: string }>,
+  reserved: string[] = [],
+): string[] {
+  const used = new Set(["self", ...reserved]);
   return values.map(({ location, name: wireName }) => {
     const base = sdkIdentifier(wireName);
     let name = base;
@@ -285,83 +286,60 @@ function serializeQueryParameter(
   return pair(name, value);
 }
 
-function singular(value: string): string {
-  return value.endsWith("ies") ? `${value.slice(0, -3)}y` : value.endsWith("s") ? value.slice(0, -1) : value;
+const SDK_VERBS: Record<HttpMethod, string> = {
+  delete: "delete",
+  get: "retrieve",
+  head: "head",
+  options: "options",
+  patch: "update",
+  post: "create",
+  put: "update",
+  trace: "trace",
+};
+
+interface SdkMethodCandidates {
+  /** Preferred name: x-sdk-method, the static path leaf, or the CRUD verb for the HTTP method. */
+  name: string;
+  /** Fallbacks when the preferred name collides within the resource: leaf + parent segment, then verb + leaf. */
+  fallbacks: string[];
 }
 
-function summarySdkName(operation: OperationObject & { id: string; method: HttpMethod; tag: string }): string {
-  const words = sdkIdentifier(operation.summary ?? operation.id).split("_");
-  const sourceVerb = words.shift() ?? operation.method;
-  const verb =
-    sourceVerb === "get" || sourceVerb === "check" || sourceVerb === "download" || sourceVerb === "summarize"
-      ? "retrieve"
-      : sourceVerb === "view"
-        ? words.some((word) => word === "history" || word.endsWith("s"))
-          ? "list"
-          : "retrieve"
-        : sourceVerb;
-  const ignored = new Set(["a", "an", "new", "someone", "the", "to", "your"]);
-  const resource = singular(sdkIdentifier(operation.tag));
-  return sdkIdentifier([verb, ...words.filter((word) => !ignored.has(word) && singular(word) !== resource)].join("_"));
-}
-
-function sdkMethod(operation: OperationObject & { id: string; method: HttpMethod; path: string; tag: string }): string {
-  const segments = operation.path.split("/").filter(Boolean).slice(1);
-  if (
-    singular(sdkIdentifier(segments[0] ?? "")) !== singular(sdkIdentifier(operation.tag)) ||
-    (operation.method === "post" && /^get\b/i.test(operation.summary ?? ""))
-  ) {
-    return summarySdkName(operation);
+function sdkMethodCandidates(
+  operation: OperationObject & { method: HttpMethod; path: string; resource: string },
+): SdkMethodCandidates {
+  const override = operation["x-sdk-method"];
+  if (override !== undefined) {
+    if (!/^[a-z][a-z0-9_]*$/.test(override) || PYTHON_RESERVED.has(override)) {
+      throw new Error(`Invalid x-sdk-method for ${operation.path}: ${override}`);
+    }
+    return { name: override, fallbacks: [] };
   }
-  const hasId = segments.some((part) => part.startsWith("{"));
-  const suffix = segments.slice(1).filter((part) => !part.startsWith("{"));
-  const base =
-    operation.method === "get"
-      ? /^(list|view)\b/i.test(operation.summary ?? "")
-        ? "list"
-        : hasId || suffix.length
-          ? "retrieve"
-          : "list"
-      : operation.method === "post"
-        ? "create"
-        : operation.method === "put" || operation.method === "patch"
-          ? "update"
-          : operation.method === "delete"
-            ? "delete"
-            : operation.method;
-  if (!suffix.length) return base;
-  const action = suffix.at(-1) ?? "";
-  if (
-    operation.method === "post" &&
-    new Set([
-      "archive",
-      "cancel",
-      "check",
-      "clone",
-      "complete",
-      "create",
-      "delete",
-      "empty",
-      "ingest",
-      "merge",
-      "predict",
-      "redistribute",
-      "restore",
-      "revoke",
-      "start",
-      "stop",
-      "track-download",
-      "transfer-ownership",
-    ]).has(action)
-  ) {
-    return sdkIdentifier([action, ...suffix.slice(0, -1)].join("_"));
+  const segments = operation.path.split("/").filter(Boolean);
+  const isParameter = (segment: string) => segment.startsWith("{");
+  const resourceIndex = segments.findLastIndex((segment) => sdkIdentifier(segment) === operation.resource);
+  const rootIndex =
+    resourceIndex >= 0
+      ? resourceIndex
+      : segments.findLastIndex((segment, index) => !isParameter(segment) && isParameter(segments[index + 1] ?? ""));
+  const suffix = segments.slice(Math.max(rootIndex, 0) + 1).filter((segment) => !isParameter(segment));
+  const leaf = suffix.at(-1);
+  const verb = SDK_VERBS[operation.method];
+  if (leaf && (rootIndex >= 0 || !segments.some(isParameter))) {
+    const parent = suffix.at(-2);
+    return {
+      name: sdkIdentifier(leaf),
+      fallbacks: [...(parent ? [sdkIdentifier(`${leaf}_${parent}`)] : []), `${verb}_${sdkIdentifier(leaf)}`],
+    };
   }
-  return sdkIdentifier([base, ...suffix].join("_"));
+  if (operation.method === "get") {
+    const item = segments.some(isParameter) && !/^(list|view|search)\b/i.test(operation.summary ?? "");
+    return { name: item ? "retrieve" : "list", fallbacks: [] };
+  }
+  return { name: verb, fallbacks: [] };
 }
 
 export function getOperations(document: OpenApiDocument): ApiOperation[] {
   const operations: ApiOperation[] = [];
-  const names = new Map<string, Set<string>>();
   const ids = new Set<string>();
 
   for (const [path, pathItem] of Object.entries(document.paths)) {
@@ -371,7 +349,6 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
       const operation = value as OperationObject;
       const typedMethod = method as HttpMethod;
       const tag = operation.tags?.[0] ?? "Other";
-      const resource = sdkIdentifier(tag);
       const parameters = [...inherited];
       for (const parameter of (operation.parameters ?? []).map((item) => resolveParameter(document, item))) {
         const index = parameters.findIndex((item) => item.in === parameter.in && item.name === parameter.name);
@@ -388,6 +365,7 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
         path,
         parameters,
         requestBody: resolveRequestBody(document, operation.requestBody),
+        resource: sdkIdentifier(tag),
         responses: Object.fromEntries(
           Object.entries(operation.responses ?? {}).map(([status, response]) => [
             status,
@@ -397,26 +375,57 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
         server: operation.servers?.[0] ?? pathItem.servers?.[0] ?? document.servers?.[0],
         tag,
       };
-      const used = names.get(resource) ?? new Set<string>();
-      let name = sdkMethod(base);
-      if (used.has(name)) {
-        name = `${name}_${summarySdkName(base).replace(/^(retrieve|list|create|update|delete)_/, "")}`;
-        const candidate = name;
-        for (let index = 2; used.has(name); index += 1) name = `${candidate}_${index}`;
-      }
-      used.add(name);
-      names.set(resource, used);
-      operations.push({
-        ...base,
-        id: base.id,
-        method: typedMethod,
-        path,
-        parameters,
-        resource,
-        sdkMethod: name,
-        tag,
-      });
+      operations.push({ ...base, sdkMethod: "" });
     }
+  }
+
+  // Resolve names per resource: canonical names first, GET keeps the bare leaf, the rest fall back, then a suffix.
+  const candidates = new Map(operations.map((operation) => [operation, sdkMethodCandidates(operation)]));
+  const groups = new Map<string, ApiOperation[]>();
+  for (const operation of operations) {
+    const key = `${operation.resource}.${candidates.get(operation)?.name}`;
+    groups.set(key, [...(groups.get(key) ?? []), operation]);
+  }
+  const used = new Set<string>();
+  const claim = (operation: ApiOperation, ...names: string[]) => {
+    const preferred = names.find((name) => !used.has(`${operation.resource}.${name}`)) ?? names[0] ?? operation.method;
+    operation.sdkMethod = preferred;
+    for (let index = 2; used.has(`${operation.resource}.${operation.sdkMethod}`); index += 1) {
+      operation.sdkMethod = `${preferred}_${index}`;
+    }
+    used.add(`${operation.resource}.${operation.sdkMethod}`);
+  };
+  for (const operation of operations) {
+    const override = operation["x-sdk-method"];
+    if (override === undefined) continue;
+    if (used.has(`${operation.resource}.${override}`)) {
+      throw new Error(`Duplicate x-sdk-method for ${operation.resource}: ${override}`);
+    }
+    claim(operation, override);
+  }
+  const rank = (operation: ApiOperation) =>
+    candidates.get(operation)?.fallbacks.length === 0 ? 0 : operation.method === "get" ? 1 : 2;
+  const losers: ApiOperation[] = [];
+  for (const group of groups.values()) {
+    const [winner, ...rest] = [...group.filter((operation) => operation["x-sdk-method"] === undefined)].sort(
+      (left, right) =>
+        rank(left) - rank(right) || left.path.localeCompare(right.path) || left.method.localeCompare(right.method),
+    );
+    if (winner && rank(winner) < 2) claim(winner, candidates.get(winner)?.name ?? winner.method);
+    else if (winner) losers.push(winner);
+    losers.push(...rest);
+  }
+  losers.sort((left, right) => left.path.localeCompare(right.path) || left.method.localeCompare(right.method));
+  for (const operation of losers) {
+    const { name, fallbacks } = candidates.get(operation) ?? { name: operation.method, fallbacks: [] };
+    const group = groups.get(`${operation.resource}.${name}`) ?? [];
+    const samePath = group.some((other) => other !== operation && other.path === operation.path);
+    const sole = group.length === 1;
+    const [withParent, withVerb] = fallbacks.length === 2 ? fallbacks : [undefined, fallbacks[0]];
+    const ordered = (samePath ? [withVerb, withParent] : [withParent, withVerb]).filter(
+      (candidate): candidate is string => Boolean(candidate),
+    );
+    claim(operation, ...(sole ? [name] : []), ...ordered, name);
   }
 
   return operations;
@@ -515,7 +524,7 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
       wholeBody: true,
     });
   }
-  const names = allocateSdkIdentifiers(parameters);
+  const names = allocateSdkIdentifiers(parameters, ["extra_headers", "timeout"]);
   parameters.forEach((parameter, index) => {
     parameter.pythonName = names[index] ?? parameter.pythonName;
   });
@@ -858,7 +867,6 @@ function stringFormatMatches(value: string, format?: string): boolean {
 }
 
 function stringExample(schema: JsonSchema, name?: string, patterns = schema.pattern ? [schema.pattern] : []): string {
-  const key = name?.replace(/[-_]/g, "").toLowerCase() ?? "";
   const knownFormats = new Set([
     "binary",
     "byte",
@@ -897,29 +905,10 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
   else if (schema.format === "binary") value = "path/to/file";
   else if (schema.format === "byte") value = "ZXhhbXBsZQ==";
   else if (schema.format === "password") value = "example-password";
-  else if (key === "sourceurl") value = "https://example.com/dataset.zip";
-  else if (key === "region") value = "us-east-1";
-  else if (key === "model" || key === "basemodel") value = "yolo26n.pt";
-  else if (key === "data") value = "ul://jane-doe/datasets/coco8";
-  else if (key === "clientemail") value = "jane@example.com";
-  else if (key.includes("apikey")) value = "your-api-key";
-  else if (key === "owner" || key === "username") value = "jane-doe";
-  else if (key === "project" || key.endsWith("projectslug")) value = "example-project";
-  else if (key === "dataset") value = "coco8";
-  else if (key === "deployment") value = "example-deployment";
-  else if (key === "id" || key === "_id" || name?.endsWith("Id") || name?.endsWith("_id")) value = "resource-id";
-  else if (key.includes("url")) value = "https://example.com";
-  else if (key.includes("filename")) value = "image.jpg";
-  else if (key.includes("description")) value = "Example description";
-  else if (key === "name" || key.endsWith("name")) value = "Example name";
-  else if (key.includes("message")) value = "Operation completed";
-  else if (key.includes("hash")) value = "a1b2c3d4";
-  else if (key.includes("color")) value = "#4f46e5";
   try {
     const expressions = patterns.map((pattern) => new RegExp(pattern));
     const candidates = [
       value,
-      ...(key === "model" ? ["yolo26n", "yolo26"] : []),
       ...(patterns.some((pattern) => pattern.includes("[A-Z]+")) ? ["KEY"] : []),
       "example",
       ...patterns.flatMap((pattern) => {
@@ -929,186 +918,8 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           .map((alternative) => alternative.replace(/^\^/, "").replace(/\$$/, ""))
           .filter((alternative) => /^[a-zA-Z0-9._-]+$/.test(alternative));
         if (simple.length) return simple;
-        if (pattern === "^$") return [""];
-        const digits = pattern.match(/^\^\\d(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
-        if (digits) {
-          const count = Math.min(
-            Math.max(Number(digits[1] ?? 1), schema.minLength ?? (digits[1] === "0" ? 0 : 1)),
-            digits[2] ? Number(digits[2]) : Number.POSITIVE_INFINITY,
-          );
-          return ["0".repeat(count)];
-        }
-        const repeatedClass = pattern.match(/^\^\[([^\]]+)\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
-        if (repeatedClass?.[1]) {
-          const count = Math.min(
-            Math.max(Number(repeatedClass[2] ?? 1), schema.minLength ?? (repeatedClass[2] === "0" ? 0 : 1)),
-            repeatedClass[3] ? Number(repeatedClass[3]) : Number.POSITIVE_INFINITY,
-          );
-          const member = repeatedClass[1].startsWith("\\d") ? "0" : repeatedClass[1][0];
-          return [member?.repeat(count) ?? ""];
-        }
-        const repeatedLiteral = pattern.match(/^\^([A-Za-z0-9_-])(?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
-        if (repeatedLiteral?.[1]) {
-          const count = Math.min(
-            Math.max(Number(repeatedLiteral[2] ?? 1), schema.minLength ?? (repeatedLiteral[2] === "0" ? 0 : 1)),
-            repeatedLiteral[3] ? Number(repeatedLiteral[3]) : Number.POSITIVE_INFINITY,
-          );
-          return [repeatedLiteral[1].repeat(count)];
-        }
-        const repeatedRange = pattern.match(/^\^\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[+*])\$$/);
-        if (repeatedRange?.[1]) {
-          const count = Math.min(
-            Math.max(Number(repeatedRange[2] ?? 1), schema.minLength ?? (repeatedRange[2] === "0" ? 0 : 1)),
-            repeatedRange[3] ? Number(repeatedRange[3]) : Number.POSITIVE_INFINITY,
-          );
-          return [repeatedRange[1].repeat(count)];
-        }
-        const multiRange = pattern.match(
-          /^\^\[([A-Za-z0-9])-[A-Za-z0-9](?:[A-Za-z0-9]-[A-Za-z0-9])+\](?:\{(\d+)(?:,\d*)?\}|[+*])\$$/,
-        );
-        if (multiRange?.[1]) return [multiRange[1].repeat(Math.max(Number(multiRange[2] ?? 1), schema.minLength ?? 1))];
-        const suffixed = pattern.match(
-          /^\^([A-Za-z0-9._-]+)\[([A-Za-z0-9])-[A-Za-z0-9]\](?:\{(\d+)(?:,(\d*))?\}|[*+])\$$/,
-        );
-        if (suffixed?.[1] && suffixed[2]) {
-          const count = Math.min(
-            Math.max(Number(suffixed[3] ?? 1), (schema.minLength ?? 0) - suffixed[1].length, 1),
-            suffixed[4] ? Number(suffixed[4]) : Number.POSITIVE_INFINITY,
-          );
-          return [`${suffixed[1]}${suffixed[2].repeat(count)}`];
-        }
-        const digitSuffix = pattern.match(/^\^([A-Za-z0-9._-]+)\\d(?:\{(\d+)(?:,(\d*))?\}|[*+])\$$/);
-        if (digitSuffix?.[1]) {
-          const count = Math.min(
-            Math.max(Number(digitSuffix[2] ?? 1), (schema.minLength ?? 0) - digitSuffix[1].length, 1),
-            digitSuffix[3] ? Number(digitSuffix[3]) : Number.POSITIVE_INFINITY,
-          );
-          return [`${digitSuffix[1]}${"0".repeat(count)}`];
-        }
-        const wrappedToken = pattern.match(
-          /^\^([A-Za-z0-9._-]+)(\[([^\]]+)\]|\\d)(?:([+*])|\{(\d+)(?:,(\d*))?\})?([A-Za-z0-9._-]+)\$$/,
-        );
-        if (wrappedToken?.[1] && wrappedToken[7]) {
-          const minimum = Number(wrappedToken[5] ?? (wrappedToken[4] === "*" ? 0 : 1));
-          const maximum =
-            wrappedToken[4] || wrappedToken[6] === ""
-              ? Number.POSITIVE_INFINITY
-              : Number(wrappedToken[6] ?? wrappedToken[5] ?? 1);
-          const count = Math.min(
-            Math.max(minimum, (schema.minLength ?? 0) - wrappedToken[1].length - wrappedToken[7].length),
-            maximum,
-          );
-          const member = wrappedToken[2] === "\\d" || wrappedToken[3]?.startsWith("\\d") ? "0" : wrappedToken[3]?.[0];
-          return [`${wrappedToken[1]}${member?.repeat(count)}${wrappedToken[7]}`];
-        }
-        const grouped = pattern.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1];
-        if (grouped) return grouped.split("|");
-        const repeatedGroup = pattern.match(
-          /^\^\(\?:\[([A-Za-z0-9])-[A-Za-z0-9]\]\{(\d+)\}\\\.\)\{(\d+)(?:,(\d*))?\}\[([A-Za-z0-9])-[A-Za-z0-9]\]\$$/,
-        );
-        if (repeatedGroup?.[1] && repeatedGroup[5]) {
-          const width = Number(repeatedGroup[2]) + 1;
-          const count = Math.min(
-            Math.max(Number(repeatedGroup[3]), Math.ceil(((schema.minLength ?? 1) - 1) / width)),
-            repeatedGroup[4] ? Number(repeatedGroup[4]) : Number.POSITIVE_INFINITY,
-          );
-          return [`${`${repeatedGroup[1].repeat(Number(repeatedGroup[2]))}.`.repeat(count)}${repeatedGroup[5]}`];
-        }
-        const sequence = pattern.match(/^\^(.+)\$$/)?.[1];
-        const tokens = sequence
-          ? [...sequence.matchAll(/(\[([^\]]+)\]|\\d)([+*]|\{(\d+)(?:,(\d*))?\})?|\\([._-])|([A-Za-z0-9._-]+)/g)]
-          : [];
-        if (sequence && tokens.map((match) => match[0]).join("") === sequence) {
-          const counts = tokens.map((match) =>
-            match[6] || match[7]
-              ? ((match[6] ?? match[7])?.length ?? 0)
-              : Number(match[4] ?? (match[3] === "*" ? 0 : 1)),
-          );
-          let extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
-          for (const [index, match] of tokens.entries()) {
-            const count = counts[index] ?? 0;
-            const maximum =
-              match[6] || match[7]
-                ? count
-                : !match[3]
-                  ? 1
-                  : match[3] === "+" || match[3] === "*" || match[5] === ""
-                    ? Number.POSITIVE_INFINITY
-                    : Number(match[5] ?? match[4]);
-            const added = Math.min(extra, maximum - count);
-            counts[index] = count + added;
-            extra -= added;
-          }
-          return [
-            tokens
-              .map(
-                (match, index) =>
-                  match[6] ??
-                  match[7] ??
-                  (match[1] === "\\d" || match[2]?.startsWith("\\d")
-                    ? "0"
-                    : match[2]?.startsWith("\\w")
-                      ? "a"
-                      : match[2]?.startsWith("\\s")
-                        ? " "
-                        : match[2]?.[0]
-                  )?.repeat(counts[index] ?? 0),
-              )
-              .join(""),
-          ];
-        }
-        return pattern.split("|").flatMap((alternative) => {
-          const match = alternative.match(/^\^([a-zA-Z0-9._-]+)\$$/);
-          return match?.[1] ? [match[1]] : [];
-        });
+        return pattern === "^$" ? [""] : [];
       }),
-      ...(schema.format === "email" ? ["a@b.co", `${"a".repeat(Math.max(1, (schema.minLength ?? 6) - 5))}@b.co`] : []),
-      ...(schema.format === "date-time"
-        ? [`2026-01-01T00:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 22) - 21))}Z`]
-        : []),
-      ...(schema.format === "time" ? [`12:00:00.${"0".repeat(Math.max(1, (schema.minLength ?? 11) - 10))}Z`] : []),
-      ...(schema.format === "duration" ? [`P${"1".repeat(Math.max(1, (schema.minLength ?? 3) - 2))}D`] : []),
-      ...(schema.format === "uri" || schema.format === "url" ? ["http:x", "http://x", "https://x.co"] : []),
-      ...(schema.format === "ipv4"
-        ? ["1", "11", "111"].flatMap((a) =>
-            ["1", "11", "111"].flatMap((b) =>
-              ["1", "11", "111"].flatMap((c) => ["1", "11", "111"].map((d) => `${a}.${b}.${c}.${d}`)),
-            ),
-          )
-        : []),
-      ...(schema.format === "ipv6"
-        ? [
-            "::1",
-            ...Array.from({ length: 37 }, (_, index) => index + 3).flatMap((length) => {
-              for (let groups = 1; groups <= 7; groups += 1) {
-                let digits = length - (groups - 1) - 3;
-                if (digits < groups || digits > groups * 4) continue;
-                const widths = Array.from({ length: groups }, () => 1);
-                for (let group = 0; digits > groups && group < groups; group += 1) {
-                  const added = Math.min(3, digits - groups);
-                  widths[group] = (widths[group] ?? 0) + added;
-                  digits -= added;
-                }
-                return [`${widths.map((width) => "0".repeat(width)).join(":")}::1`];
-              }
-              return [];
-            }),
-            "2001:0db8:0000:0000:0000:0000:0000:0001",
-          ]
-        : []),
-      ...(schema.format === "hostname"
-        ? Array.from({ length: 253 }, (_, index) => index + 1).map((length) => {
-            const labels = Math.ceil((length + 1) / 64);
-            let characters = length - labels + 1;
-            return Array.from({ length: labels }, (_, index) => {
-              const width = Math.min(63, characters - (labels - index - 1));
-              characters -= width;
-              return "a".repeat(width);
-            }).join(".");
-          })
-        : []),
-      ...(key === "sourceurl" ? ["https://example.com/dataset.zip"] : []),
-      ...(key === "region" ? ["us-east-1"] : []),
     ].map(constrainLength);
     return (
       candidates.find(
@@ -1612,58 +1423,7 @@ export function schemaExample(
       const alternatives = (schema.propertyNames?.enum ?? []).filter(
         (candidate): candidate is string => typeof candidate === "string" && !values.has(candidate),
       );
-      const patternAlternatives = schema.propertyNames?.pattern
-        ?.match(/^\^\(([a-zA-Z0-9._|-]+)\)\$$/)?.[1]
-        ?.split("|")
-        .filter((candidate) => !values.has(candidate));
-      const candidates =
-        index === 1
-          ? [key, ...alternatives, ...(patternAlternatives ?? [])]
-          : [
-              ...alternatives,
-              ...(patternAlternatives ?? []),
-              `${key}${index}`,
-              `${key}${"X".repeat(index - 1)}`,
-              `${key}${"x".repeat(index - 1)}`,
-              `${key}${key.at(-1)?.repeat(index - 1)}`,
-              ...(/[a-z]$/.test(key)
-                ? [
-                    `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
-                  ]
-                : []),
-              ...(/[A-Z]$/.test(key)
-                ? [
-                    `${key.slice(0, -1)}${String.fromCharCode(65 + ((key.charCodeAt(key.length - 1) - 65 + index) % 26))}`,
-                  ]
-                : []),
-              `${key.slice(0, -1)}${String.fromCharCode(65 + (index % 26))}`,
-              ...(/^[0-9]+$/.test(key) ? [String(Number(key) + index - 1).padStart(key.length, "0")] : []),
-              ...(/\d+$/.test(key)
-                ? [key.replace(/\d+$/, (digits) => String(Number(digits) + index - 1).padStart(digits.length, "0"))]
-                : []),
-              ...(key.match(/\d(?!.*\d)/)
-                ? [key.replace(/\d(?!.*\d)/, (digit) => String((Number(digit) + index - 1) % 10))]
-                : []),
-              ...(/^[a-z]+$/.test(key)
-                ? [
-                    `${key.slice(0, -1)}${String.fromCharCode(97 + ((key.charCodeAt(key.length - 1) - 97 + index) % 26))}`,
-                  ]
-                : []),
-              ...(/^[A-Z]+$/.test(key)
-                ? [
-                    Array.from({ length: key.length }, (_, position) =>
-                      String.fromCharCode(65 + (Math.floor(index / 26 ** (key.length - position - 1)) % 26)),
-                    ).join(""),
-                  ]
-                : []),
-              ...(/^[a-z]+$/.test(key)
-                ? [
-                    Array.from({ length: key.length }, (_, position) =>
-                      String.fromCharCode(97 + (Math.floor(index / 26 ** (key.length - position - 1)) % 26)),
-                    ).join(""),
-                  ]
-                : []),
-            ];
+      const candidates = [...(index === 1 ? [key] : [`${key}${index}`]), ...alternatives];
       const property = candidates.find(
         (candidate) =>
           !values.has(candidate) && (!schema.propertyNames || schemaMatches(document, candidate, schema.propertyNames)),
@@ -2123,14 +1883,12 @@ export function buildApiRequest(
     body = "",
     files = {},
     origin,
-    serverOrigin,
     values = {},
   }: {
     apiKey?: string;
     body?: string;
     files?: Record<string, File>;
     origin: string;
-    serverOrigin?: string;
     values?: Record<string, string>;
   },
 ): { body?: BodyInit; headers: Record<string, string>; url: string } {
@@ -2166,10 +1924,7 @@ export function buildApiRequest(
     )
     .filter(Boolean)
     .join("&");
-  const configuredBaseUrl = resolveServerUrl(document, origin, operation);
-  const baseUrl = serverOrigin
-    ? new URL(new URL(configuredBaseUrl).pathname, `${serverOrigin}/`).toString().replace(/\/$/, "")
-    : configuredBaseUrl;
+  const baseUrl = resolveServerUrl(document, origin, operation);
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
   const request = requestMedia(operation);
   const success = successMedia(operation);

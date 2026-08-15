@@ -58,7 +58,7 @@ OPENAPI_CONFIG=../product/openapi.config.json bun run generate
 OPENAPI_CONFIG=../product/openapi.config.json bun run build
 ```
 
-对于相同的配置和契约，静态文档构建是确定性的。设置 `header` 可向生成的 Python、JavaScript、CSS、HTML 和 TOML 文件添加由使用方提供的源文件头。
+文档页眉标志和网站图标默认为 Ultralytics 标志；替换 `components/logo.tsx`、`app/icon.svg` 以及 `app/globals.css` 中的 `--brand-gradient-*` 令牌即可使用自己的品牌。对于相同的配置和契约，静态文档构建是确定性的。设置 `header` 可向生成的 Python、JavaScript、CSS、HTML 和 TOML 文件添加由使用方提供的源文件头。
 
 ## 🐍 Python
 
@@ -78,7 +78,7 @@ client = AsyncExample()
 widgets = await client.widgets.list()
 ```
 
-生成的软件包包含类型化资源和 `TypedDict` 响应、多部分上传、临时故障重试以及结构化 API 错误。它需要 Python 3.11 或更高版本。生成的软件包默认采用 AGPL-3.0；设置 `license.id` 和 `license.file` 可使用其他许可证。
+资源来自每个操作的第一个标签，方法名来自路径：资源之后的静态段（`client.deployments.health()`、`client.explore.search()`），若没有则为 `list`/`retrieve`/`create`/`update`/`delete`。在操作上设置 `x-sdk-method`（小写 Python 标识符，每个资源内唯一）可显式指定名称；产品特定的示例值应放在契约的 `example` 字段中。生成的软件包包含类型化资源和 `TypedDict` 响应、多部分上传、临时故障重试以及结构化 API 错误。它需要 Python 3.11 或更高版本。生成的软件包默认采用 AGPL-3.0；设置 `license.id` 和 `license.file` 可使用其他许可证。
 
 ## 🧩 一份契约，多种输出
 

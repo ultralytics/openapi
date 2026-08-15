@@ -58,7 +58,7 @@ OPENAPI_CONFIG=../product/openapi.config.json bun run generate
 OPENAPI_CONFIG=../product/openapi.config.json bun run build
 ```
 
-Static documentation builds are deterministic for the same configuration and contract. Set `header` to add a consumer-owned source header to generated Python, JavaScript, CSS, HTML, and TOML files.
+The documentation header mark and favicon are the Ultralytics logomark by default; replace `components/logo.tsx`, `app/icon.svg`, and the `--brand-gradient-*` tokens in `app/globals.css` to brand your own docs. Static documentation builds are deterministic for the same configuration and contract. Set `header` to add a consumer-owned source header to generated Python, JavaScript, CSS, HTML, and TOML files.
 
 ## 🐍 Python
 
@@ -78,7 +78,7 @@ client = AsyncExample()
 widgets = await client.widgets.list()
 ```
 
-The generated package includes typed resources and `TypedDict` responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.11 or newer. Generated packages default to AGPL-3.0; set `license.id` and `license.file` to use another license.
+Resources come from each operation's first tag and method names from the path: the static segment after the resource (`client.deployments.health()`, `client.explore.search()`) or `list`/`retrieve`/`create`/`update`/`delete` when there is none. Set `x-sdk-method` (a lowercase Python identifier, unique per resource) on an operation to choose a name explicitly; product-specific example values belong in the contract's `example` fields. The generated package includes typed resources and `TypedDict` responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.11 or newer. Generated packages default to AGPL-3.0; set `license.id` and `license.file` to use another license.
 
 ## 🧩 One Contract, Multiple Outputs
 
