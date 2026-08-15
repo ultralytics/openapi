@@ -2,6 +2,9 @@
 
 blank_issues_enabled: true
 contact_links:
+  - name: 📄 API Reference
+    url: https://platform.ultralytics.com/api/docs
+    about: Interactive Ultralytics Platform API reference with Python SDK examples
   - name: 💬 Forum
     url: https://community.ultralytics.com/
     about: Ask on Ultralytics Community Forum
