@@ -9,9 +9,7 @@ if (config.source.startsWith("http://")) throw new Error("Remote OpenAPI sources
 const text = config.source.startsWith("https://")
   ? await fetch(config.source, { redirect: "error" })
       .catch((error: Error) => {
-        throw new Error(
-          `Failed to fetch ${config.source} (redirects are rejected; use the final URL): ${error.message}`,
-        );
+        throw new Error(`Failed to fetch ${config.source}: ${error.message}`, { cause: error });
       })
       .then((response) => {
         if (!response.ok)

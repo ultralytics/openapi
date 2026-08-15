@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface OpenApiConfig {
   apiKey: { environment: string };
@@ -44,7 +45,7 @@ export function getConfig(): OpenApiConfig {
   if (missing) throw new Error(`${configPath} is missing ${missing}`);
   config.python.install ||= `pip install ${config.python.project}`;
   config.license ??= {
-    file: resolve("LICENSE"),
+    file: fileURLToPath(new URL("../LICENSE", import.meta.url)),
     id: "AGPL-3.0-only",
     url: "https://spdx.org/licenses/AGPL-3.0-only.html",
   };
