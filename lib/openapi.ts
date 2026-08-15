@@ -94,6 +94,7 @@ interface OperationObject {
   summary?: string;
   tags?: string[];
   "x-codeSamples"?: Array<{ label: string; lang: string; source: string }>;
+  "x-sdk-method"?: string;
 }
 
 export interface OpenApiDocument {
@@ -288,66 +289,58 @@ function serializeQueryParameter(
   return pair(name, value);
 }
 
-function singular(value: string): string {
-  return value.endsWith("ies") ? `${value.slice(0, -3)}y` : value.endsWith("s") ? value.slice(0, -1) : value;
+const SDK_VERBS: Record<HttpMethod, string> = {
+  delete: "delete",
+  get: "retrieve",
+  head: "head",
+  options: "options",
+  patch: "update",
+  post: "create",
+  put: "update",
+  trace: "trace",
+};
+
+interface SdkMethodCandidates {
+  /** Preferred name: x-sdk-method, the static path leaf, or the CRUD verb for the HTTP method. */
+  name: string;
+  /** Fallbacks when the preferred name collides within the resource: leaf + parent segment, then verb + leaf. */
+  fallbacks: string[];
 }
 
-function summarySdkName(operation: OperationObject & { id: string; method: HttpMethod; tag: string }): string {
-  const words = sdkIdentifier(operation.summary ?? operation.id).split("_");
-  const sourceVerb = words.shift() ?? operation.method;
-  const verb =
-    sourceVerb === "get" || sourceVerb === "check" || sourceVerb === "download" || sourceVerb === "summarize"
-      ? "retrieve"
-      : sourceVerb === "view"
-        ? words.some((word) => word === "history" || word.endsWith("s"))
-          ? "list"
-          : "retrieve"
-        : sourceVerb;
-  const ignored = new Set(["a", "an", "new", "someone", "the", "to", "your"]);
-  const resource = singular(sdkIdentifier(operation.tag));
-  return sdkIdentifier([verb, ...words.filter((word) => !ignored.has(word) && singular(word) !== resource)].join("_"));
-}
-
-function sdkMethod(operation: OperationObject & { id: string; method: HttpMethod; path: string; tag: string }): string {
-  const segments = operation.path.split("/").filter(Boolean).slice(1);
-  if (
-    singular(sdkIdentifier(segments[0] ?? "")) !== singular(sdkIdentifier(operation.tag)) ||
-    (operation.method === "post" && /^get\b/i.test(operation.summary ?? ""))
-  ) {
-    return summarySdkName(operation);
+function sdkMethodCandidates(
+  operation: OperationObject & { method: HttpMethod; path: string; resource: string },
+): SdkMethodCandidates {
+  const override = operation["x-sdk-method"];
+  if (override !== undefined) {
+    if (!/^[a-z_][a-z0-9_]*$/.test(override))
+      throw new Error(`Invalid x-sdk-method for ${operation.path}: ${override}`);
+    return { name: override, fallbacks: [] };
   }
-  const hasId = segments.some((part) => part.startsWith("{"));
-  const suffix = segments.slice(1).filter((part) => !part.startsWith("{"));
-  const base =
-    operation.method === "get"
-      ? /^(list|view)\b/i.test(operation.summary ?? "")
-        ? "list"
-        : hasId || suffix.length
-          ? "retrieve"
-          : "list"
-      : operation.method === "post"
-        ? "create"
-        : operation.method === "put" || operation.method === "patch"
-          ? "update"
-          : operation.method === "delete"
-            ? "delete"
-            : operation.method;
-  if (!suffix.length) return base;
-  const action = suffix.at(-1) ?? "";
-  if (
-    operation.method === "post" &&
-    new Set(["clone", "complete", "delete", "ingest", "merge", "predict", "redistribute", "restore", "start"]).has(
-      action,
-    )
-  ) {
-    return sdkIdentifier([action, ...suffix.slice(0, -1)].join("_"));
+  const segments = operation.path.split("/").filter(Boolean);
+  const isParameter = (segment: string) => segment.startsWith("{");
+  const rootIndex = Math.max(
+    segments.findLastIndex((segment) => sdkIdentifier(segment) === operation.resource),
+    segments.findLastIndex((segment, index) => !isParameter(segment) && isParameter(segments[index + 1] ?? "")),
+  );
+  const suffix = segments.slice(Math.max(rootIndex, 0) + 1).filter((segment) => !isParameter(segment));
+  const leaf = suffix.at(-1);
+  const verb = SDK_VERBS[operation.method];
+  if (leaf && (rootIndex >= 0 || !segments.some(isParameter))) {
+    const parent = suffix.at(-2);
+    return {
+      name: sdkIdentifier(leaf),
+      fallbacks: [...(parent ? [sdkIdentifier(`${leaf}_${parent}`)] : []), `${verb}_${sdkIdentifier(leaf)}`],
+    };
   }
-  return sdkIdentifier([base, ...suffix].join("_"));
+  if (operation.method === "get") {
+    const item = segments.some(isParameter) && !/^(list|view|search)\b/i.test(operation.summary ?? "");
+    return { name: item ? "retrieve" : "list", fallbacks: [] };
+  }
+  return { name: verb, fallbacks: [] };
 }
 
 export function getOperations(document: OpenApiDocument): ApiOperation[] {
   const operations: ApiOperation[] = [];
-  const names = new Map<string, Set<string>>();
   const ids = new Set<string>();
 
   for (const [path, pathItem] of Object.entries(document.paths)) {
@@ -357,7 +350,6 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
       const operation = value as OperationObject;
       const typedMethod = method as HttpMethod;
       const tag = operation.tags?.[0] ?? "Other";
-      const resource = sdkIdentifier(tag);
       const parameters = [...inherited];
       for (const parameter of (operation.parameters ?? []).map((item) => resolveParameter(document, item))) {
         const index = parameters.findIndex((item) => item.in === parameter.in && item.name === parameter.name);
@@ -374,6 +366,7 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
         path,
         parameters,
         requestBody: resolveRequestBody(document, operation.requestBody),
+        resource: sdkIdentifier(tag),
         responses: Object.fromEntries(
           Object.entries(operation.responses ?? {}).map(([status, response]) => [
             status,
@@ -383,25 +376,39 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
         server: operation.servers?.[0] ?? pathItem.servers?.[0] ?? document.servers?.[0],
         tag,
       };
-      const used = names.get(resource) ?? new Set<string>();
-      let name = sdkMethod(base);
-      if (used.has(name)) {
-        name = `${name}_${summarySdkName(base).replace(/^(retrieve|list|create|update|delete)_/, "")}`;
-        const candidate = name;
-        for (let index = 2; used.has(name); index += 1) name = `${candidate}_${index}`;
-      }
-      used.add(name);
-      names.set(resource, used);
-      operations.push({
-        ...base,
-        id: base.id,
-        method: typedMethod,
-        path,
-        parameters,
-        resource,
-        sdkMethod: name,
-        tag,
-      });
+      operations.push({ ...base, sdkMethod: "" });
+    }
+  }
+
+  // Resolve names per resource: canonical names first, GET keeps the bare leaf, the rest fall back, then a suffix.
+  const candidates = new Map(operations.map((operation) => [operation, sdkMethodCandidates(operation)]));
+  const groups = new Map<string, ApiOperation[]>();
+  for (const operation of operations) {
+    const key = `${operation.resource}.${candidates.get(operation)?.name}`;
+    groups.set(key, [...(groups.get(key) ?? []), operation]);
+  }
+  const used = new Set<string>();
+  const claim = (operation: ApiOperation, ...names: string[]) => {
+    const preferred = names.find((name) => !used.has(`${operation.resource}.${name}`)) ?? names[0] ?? operation.method;
+    operation.sdkMethod = preferred;
+    for (let index = 2; used.has(`${operation.resource}.${operation.sdkMethod}`); index += 1) {
+      operation.sdkMethod = `${preferred}_${index}`;
+    }
+    used.add(`${operation.resource}.${operation.sdkMethod}`);
+  };
+  for (const group of groups.values()) {
+    const rank = (operation: ApiOperation) =>
+      candidates.get(operation)?.fallbacks.length === 0 ? 0 : operation.method === "get" ? 1 : 2;
+    for (const operation of [...group].sort((left, right) => rank(left) - rank(right))) {
+      const { name, fallbacks } = candidates.get(operation) ?? { name: operation.method, fallbacks: [] };
+      const samePath = group.some((other) => other !== operation && other.path === operation.path);
+      const [withParent, withVerb] = fallbacks.length === 2 ? fallbacks : [undefined, fallbacks[0]];
+      const ordered = samePath ? [withVerb, withParent] : [withParent, withVerb];
+      claim(
+        operation,
+        ...(group.length === 1 || rank(operation) < 2 ? [name] : []),
+        ...(ordered.filter(Boolean) as string[]),
+      );
     }
   }
 
@@ -844,7 +851,6 @@ function stringFormatMatches(value: string, format?: string): boolean {
 }
 
 function stringExample(schema: JsonSchema, name?: string, patterns = schema.pattern ? [schema.pattern] : []): string {
-  const key = name?.replace(/[-_]/g, "").toLowerCase() ?? "";
   const knownFormats = new Set([
     "binary",
     "byte",
@@ -883,17 +889,6 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
   else if (schema.format === "binary") value = "path/to/file";
   else if (schema.format === "byte") value = "ZXhhbXBsZQ==";
   else if (schema.format === "password") value = "example-password";
-  else if (key.includes("email")) value = "jane@example.com";
-  else if (key.includes("apikey")) value = "your-api-key";
-  else if (key === "owner" || key === "username") value = "jane-doe";
-  else if (key === "id" || key === "_id" || name?.endsWith("Id") || name?.endsWith("_id")) value = "resource-id";
-  else if (key.includes("url")) value = "https://example.com";
-  else if (key.includes("filename")) value = "image.jpg";
-  else if (key.includes("description")) value = "Example description";
-  else if (key === "name" || key.endsWith("name")) value = "Example name";
-  else if (key.includes("message")) value = "Operation completed";
-  else if (key.includes("hash")) value = "a1b2c3d4";
-  else if (key.includes("color")) value = "#4f46e5";
   try {
     const expressions = patterns.map((pattern) => new RegExp(pattern));
     const candidates = [

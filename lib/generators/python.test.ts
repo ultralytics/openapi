@@ -203,7 +203,7 @@ describe("Python generator", () => {
       package: config.python.package,
     });
     expect(withoutPlaceholder.paths["/widgets/{widgetId}"]?.get?.["x-codeSamples"]?.[0]?.source).toContain(
-      'widget_id_query="resource-id"',
+      'widget_id_query="example-widget-id"',
     );
   });
 
@@ -277,7 +277,7 @@ describe("Python generator", () => {
       type: "object",
     };
     const minimalBody = requestBodyExample(minimalDocument, create);
-    expect(minimalBody).toBe('{\n  "name": "Example name"\n}');
+    expect(minimalBody).toBe('{\n  "name": "example-name"\n}');
     createMedia[1].schema = {
       allOf: [
         { additionalProperties: false, properties: { a: { type: "integer" } }, type: "object" },
@@ -779,7 +779,7 @@ describe("Python generator", () => {
           },
         ],
       }),
-    ).toEqual({ error: "example-error", failureId: "resource-id" });
+    ).toEqual({ error: "example-error", failureId: "example-failure-id" });
     expect(schemaExample(document, { exclusiveMaximum: 0.6, exclusiveMinimum: 0.5, type: "number" })).toBe(0.55);
     expect(
       schemaExample(document, {
@@ -828,7 +828,7 @@ describe("Python generator", () => {
     expect(schemaExample(document, { pattern: "foo", type: "string" })).toBe("foo");
     expect(schemaExample(document, { pattern: "foo|bar", type: "string" })).toBe("foo");
     expect(schemaExample(document, { pattern: "^foo", type: "string" })).toBe("foo");
-    expect(schemaExample(document, { type: "string" }, 0, "apiKey")).toBe("your-api-key");
+    expect(schemaExample(document, { type: "string" }, 0, "apiKey")).toBe("example-api-key");
     expect(
       schemaExample(document, {
         additionalProperties: false,
@@ -1228,31 +1228,31 @@ describe("Python generator", () => {
     expect(types).toContain("WidgetsRetrieveResponse = WidgetsRetrieveResponseValue | None");
     expect(types).toContain('"widget": NotRequired[WidgetsRetrieveResponseValue]');
     expect(types).toContain(
-      'UploadsUploadFileResponseVariant1 = TypedDict("UploadsUploadFileResponseVariant1", {"requestId": str, "success":',
+      'UploadsCreateResponseVariant1 = TypedDict("UploadsCreateResponseVariant1", {"requestId": str, "success":',
     );
     expect(types).toContain(
-      'UploadsUploadFileResponseVariant2 = TypedDict("UploadsUploadFileResponseVariant2", {"requestId": str, "failureId": str, "error": str, "retryAfter": NotRequired[int]}',
+      'UploadsCreateResponseVariant2 = TypedDict("UploadsCreateResponseVariant2", {"requestId": str, "failureId": str, "error": str, "retryAfter": NotRequired[int]}',
     );
     expect(types).toContain(
-      'UploadsUploadFileResponseVariant3 = TypedDict("UploadsUploadFileResponseVariant3", {"requestId": str, "failureId": str, "error": NotRequired[str], "retryAfter": int}',
+      'UploadsCreateResponseVariant3 = TypedDict("UploadsCreateResponseVariant3", {"requestId": str, "failureId": str, "error": NotRequired[str], "retryAfter": int}',
     );
     expect(types).toContain(
-      "UploadsUploadFileResponse = UploadsUploadFileResponseVariant1 | UploadsUploadFileResponseVariant2 | UploadsUploadFileResponseVariant3",
+      "UploadsCreateResponse = UploadsCreateResponseVariant1 | UploadsCreateResponseVariant2 | UploadsCreateResponseVariant3",
     );
     expect(types).toContain(
-      "UploadsUploadFileResponseVariant1PrimaryFailure = UploadsUploadFileResponseVariant1PrimaryFailureVariant1 | UploadsUploadFileResponseVariant1PrimaryFailureVariant2",
+      "UploadsCreateResponseVariant1PrimaryFailure = UploadsCreateResponseVariant1PrimaryFailureVariant1 | UploadsCreateResponseVariant1PrimaryFailureVariant2",
     );
     expect(types).toContain(
-      '"mixed": NotRequired[dict[str, Any] | str], "constrained": NotRequired[UploadsUploadFileResponseVariant1ConstrainedVariant1 | UploadsUploadFileResponseVariant1ConstrainedVariant2]',
+      '"mixed": NotRequired[dict[str, Any] | str], "constrained": NotRequired[UploadsCreateResponseVariant1ConstrainedVariant1 | UploadsCreateResponseVariant1ConstrainedVariant2]',
     );
     expect(types).toContain(
-      'UploadsUploadFileResponseVariant1ConstrainedVariant1 = TypedDict("UploadsUploadFileResponseVariant1ConstrainedVariant1", {"code": str, "message": NotRequired[str]})',
+      'UploadsCreateResponseVariant1ConstrainedVariant1 = TypedDict("UploadsCreateResponseVariant1ConstrainedVariant1", {"code": str, "message": NotRequired[str]})',
     );
     expect(types).toContain(
-      'UploadsUploadFileResponseVariant1ConstrainedVariant2 = TypedDict("UploadsUploadFileResponseVariant1ConstrainedVariant2", {"code": NotRequired[str], "message": str})',
+      'UploadsCreateResponseVariant1ConstrainedVariant2 = TypedDict("UploadsCreateResponseVariant1ConstrainedVariant2", {"code": NotRequired[str], "message": str})',
     );
     expect(types).toContain(
-      '"primaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure], "secondaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure]',
+      '"primaryFailure": NotRequired[UploadsCreateResponseVariant1PrimaryFailure], "secondaryFailure": NotRequired[UploadsCreateResponseVariant1PrimaryFailure]',
     );
     expect(widgets).toContain("def create(self, *, body: dict[str, Any], timeout:");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");
