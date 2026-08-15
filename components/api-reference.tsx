@@ -53,6 +53,24 @@ function operationSearchText(operation: ApiOperation) {
   return `${operation.method} ${operation.path} ${operation.summary ?? ""} ${operation.tag}`.toLowerCase();
 }
 
+function Markdown({ children }: { children: string }) {
+  return (
+    <div className="markdown">
+      <ReactMarkdown
+        components={{
+          a: ({ href, children: label }) => (
+            <a href={href} {...(/^[a-z][a-z\d+.-]*:/i.test(href ?? "") ? { rel: "noreferrer", target: "_blank" } : {})}>
+              {label}
+            </a>
+          ),
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function SchemaConstraintList({ document, schema }: { document: OpenApiDocument; schema: JsonSchema | undefined }) {
   return schemaConstraints(document, schema).map((constraint) => (
     <p className="text-xs text-muted-foreground" key={constraint}>
@@ -163,6 +181,7 @@ function OperationNavigation({
           >
             Overview
           </a>
+          {tags.size ? null : <p className="px-2 text-sm text-muted-foreground">No matching operations.</p>}
           {[...tags].map(([tag, taggedOperations]) => (
             <div key={tag}>
               <p className="mb-1 px-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{tag}</p>
@@ -180,7 +199,9 @@ function OperationNavigation({
                     <span className="w-10 shrink-0 font-mono text-[10px] font-semibold uppercase text-muted-foreground">
                       {operation.method}
                     </span>
-                    <span className="truncate">{operation.summary ?? operation.path}</span>
+                    <span className={cn("truncate", operation.deprecated && "line-through")}>
+                      {operation.summary ?? operation.path}
+                    </span>
                   </a>
                 ))}
               </div>
@@ -225,15 +246,16 @@ function SchemaFields({
 function OverviewPanel({
   document,
   environment,
+  operations,
   python,
   specUrl,
 }: {
   document: OpenApiDocument;
   environment: string;
+  operations: ApiOperation[];
   python: PythonExample;
   specUrl: string;
 }) {
-  const operations = getOperations(document);
   const tagDescriptions = new Map(document.tags?.map((tag) => [tag.name, tag.description]));
   const tags = new Map<string, number>();
   for (const operation of operations) tags.set(operation.tag, (tags.get(operation.tag) ?? 0) + 1);
@@ -255,7 +277,7 @@ function OverviewPanel({
           </h1>
           {document.info.description ? (
             <div className="mt-5 max-w-3xl text-sm leading-7 text-muted-foreground">
-              <ReactMarkdown>{document.info.description}</ReactMarkdown>
+              <Markdown>{document.info.description}</Markdown>
             </div>
           ) : null}
           <div className="mt-6 flex flex-wrap gap-3">
@@ -293,8 +315,8 @@ function OverviewPanel({
                   <CardTitle className="text-base">
                     {authentication.type === "http" ? (authentication.scheme ?? name) : (authentication.name ?? name)}
                   </CardTitle>
-                  <CardDescription className="[&_a]:text-link [&_a]:underline">
-                    <ReactMarkdown>{authentication.description ?? "Authentication required."}</ReactMarkdown>
+                  <CardDescription>
+                    <Markdown>{authentication.description ?? "Authentication required."}</Markdown>
                   </CardDescription>
                 </CardHeader>
               </Card>
@@ -321,8 +343,8 @@ function OverviewPanel({
               <Card key={tag}>
                 <CardHeader>
                   <CardTitle className="text-base">{tag}</CardTitle>
-                  <CardDescription className="[&_a]:text-link [&_a]:underline">
-                    <ReactMarkdown>{tagDescriptions.get(tag) ?? `${count} API operations`}</ReactMarkdown>
+                  <CardDescription>
+                    <Markdown>{tagDescriptions.get(tag) ?? `${count} API operations`}</Markdown>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="text-xs text-muted-foreground">{count} operations</CardContent>
@@ -354,7 +376,6 @@ function OperationPanel({
   const [result, setResult] = useState("");
   const [status, setStatus] = useState<number>();
   const [sending, setSending] = useState(false);
-  const [origin, setOrigin] = useState("http://localhost:3000");
   const parameters = operation.parameters ?? [];
   const hasCookieParameters = parameters.some((parameter) => parameter.in === "cookie");
   const request = requestMedia(operation);
@@ -365,11 +386,11 @@ function OperationPanel({
   const success = successMedia(operation);
   const responseSchema = successSchema(document, operation);
   const examples = useMemo(
-    () => codeExamples(document, operation, body, environment, files, origin, python, values),
-    [body, document, environment, files, operation, origin, python, values],
+    () => codeExamples(document, operation, body, environment, files, window.location.origin, python, values),
+    [body, document, environment, files, operation, python, values],
   );
 
-  useEffect(() => setOrigin(window.location.origin), []);
+  useEffect(() => window.document.getElementById("main-content")?.focus({ preventScroll: true }), []);
 
   function setParameter(location: string, name: string, value: string) {
     setValues((current) => ({ ...current, [`${location}:${name}`]: value }));
@@ -414,18 +435,19 @@ function OperationPanel({
   }
 
   return (
-    <main className="min-w-0 flex-1 px-5 py-8 lg:px-10" id="main-content">
+    <main className="min-w-0 flex-1 px-5 py-8 outline-none lg:px-10" id="main-content" tabIndex={-1}>
       <div className="mx-auto grid max-w-6xl gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)]">
         <div className="min-w-0 space-y-8">
           <section>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Badge variant={METHOD_VARIANTS[operation.method]}>{operation.method.toUpperCase()}</Badge>
               <code className="break-all font-mono text-sm">{operation.path}</code>
+              {operation.deprecated ? <Badge variant="outline">deprecated</Badge> : null}
             </div>
             <h1 className="font-heading text-3xl font-semibold tracking-tight">{operation.summary ?? operation.id}</h1>
             {operation.description ? (
-              <div className="mt-4 text-sm leading-7 text-muted-foreground [&_a]:text-link [&_a]:underline">
-                <ReactMarkdown>{operation.description}</ReactMarkdown>
+              <div className="mt-4 text-sm leading-7 text-muted-foreground">
+                <Markdown>{operation.description}</Markdown>
               </div>
             ) : null}
           </section>
@@ -526,7 +548,7 @@ function OperationPanel({
               ))}
             </div>
             {responseSchema ? <SchemaFields direction="response" document={document} schema={responseSchema} /> : null}
-            {success ? (
+            {success && (success[1].example !== undefined || responseSchema) ? (
               <CodeBlock
                 code={JSON.stringify(success[1].example ?? schemaExample(document, responseSchema), null, 2)}
               />
@@ -588,21 +610,21 @@ function OperationPanel({
 
 export function ApiReference({
   apiKeyEnvironment,
+  document,
   python,
   specUrl,
 }: {
   apiKeyEnvironment: string;
+  document: OpenApiDocument;
   python: PythonExample;
   specUrl: string;
 }) {
   const [apiKey, setApiKey] = useState("");
-  const [document, setDocument] = useState<OpenApiDocument>();
-  const [error, setError] = useState("");
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
   const deferredQuery = useDeferredValue(query);
-  const operations = useMemo(() => (document ? getOperations(document) : []), [document]);
+  const operations = useMemo(() => getOperations(document), [document]);
   const filtered = useMemo(() => {
     const normalized = deferredQuery.trim().toLowerCase();
     return normalized
@@ -621,18 +643,6 @@ export function ApiReference({
   }, [filtered]);
 
   useEffect(() => {
-    fetch(specUrl)
-      .then((response) => {
-        if (!response.ok) throw new Error(`Failed to load ${specUrl}: ${response.status}`);
-        return response.json();
-      })
-      .then((value: OpenApiDocument) => setDocument(value))
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : "Failed to load OpenAPI document"),
-      );
-  }, [specUrl]);
-
-  useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -647,7 +657,8 @@ export function ApiReference({
 
     function selectFromHash() {
       const hash = window.location.hash.slice(1);
-      setSelectedId(hash.startsWith("operation=") ? decodeURIComponent(hash.slice("operation=".length)) : undefined);
+      const id = hash.startsWith("operation=") ? decodeURIComponent(hash.slice("operation=".length)) : undefined;
+      setSelectedId(operations.some((operation) => operation.id === id) ? id : undefined);
       setNavigationOpen(false);
       window.scrollTo(0, 0);
     }
@@ -658,16 +669,8 @@ export function ApiReference({
       window.removeEventListener("keydown", focusSearch);
       window.removeEventListener("hashchange", selectFromHash);
     };
-  }, []);
+  }, [operations]);
 
-  if (error) return <div className="p-8 text-sm text-destructive">{error}</div>;
-  if (!document) {
-    return (
-      <div aria-live="polite" className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        <LoaderCircleIcon aria-hidden="true" className="mr-2 size-4 animate-spin" /> Loading API reference…
-      </div>
-    );
-  }
   const hasAuthentication = operations.some((operation) => getAuthentication(document, operation));
 
   return (
@@ -692,7 +695,7 @@ export function ApiReference({
             className="flex min-w-0 items-center gap-3 rounded-md focus-visible:ring-2 focus-visible:ring-ring"
             href="#overview"
           >
-            <div className="size-7 rounded-lg bg-linear-to-br from-(--ultralytics-logo-gradient-start) to-(--ultralytics-logo-gradient-end)" />
+            <div className="size-7 rounded-lg bg-linear-to-br from-(--brand-gradient-start) to-(--brand-gradient-end)" />
             <div className="min-w-0">
               <p className="truncate font-heading text-sm font-semibold">{document.info.title}</p>
               <p className="text-xs text-muted-foreground">API {document.info.version}</p>
@@ -729,7 +732,13 @@ export function ApiReference({
             python={python}
           />
         ) : (
-          <OverviewPanel document={document} environment={apiKeyEnvironment} python={python} specUrl={specUrl} />
+          <OverviewPanel
+            document={document}
+            environment={apiKeyEnvironment}
+            operations={operations}
+            python={python}
+            specUrl={specUrl}
+          />
         )}
       </div>
     </div>
