@@ -254,7 +254,7 @@ export function serializeSimplePath(value: unknown, explode = false, allowReserv
   return encode(value);
 }
 
-export function serializeQueryParameter(
+function serializeQueryParameter(
   name: string,
   value: unknown,
   style = "form",
@@ -361,6 +361,7 @@ function sdkMethod(operation: OperationObject & { id: string; method: HttpMethod
 export function getOperations(document: OpenApiDocument): ApiOperation[] {
   const operations: ApiOperation[] = [];
   const names = new Map<string, Set<string>>();
+  const ids = new Set<string>();
 
   for (const [path, pathItem] of Object.entries(document.paths)) {
     const inherited = (pathItem.parameters ?? []).map((parameter) => resolveParameter(document, parameter));
@@ -376,9 +377,12 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
         if (index === -1) parameters.push(parameter);
         else parameters[index] = parameter;
       }
+      let id = operation.operationId ?? `${typedMethod}-${path}`;
+      for (let index = 2; ids.has(id); index += 1) id = `${operation.operationId ?? `${typedMethod}-${path}`}-${index}`;
+      ids.add(id);
       const base = {
         ...operation,
-        id: operation.operationId ?? `${typedMethod}-${path}`,
+        id,
         method: typedMethod,
         path,
         parameters,
@@ -395,7 +399,7 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
       const used = names.get(resource) ?? new Set<string>();
       let name = sdkMethod(base);
       if (used.has(name)) {
-        name = `${name}_${summarySdkName(base).replace(/^(get|list|create|update|delete)_/, "")}`;
+        name = `${name}_${summarySdkName(base).replace(/^(retrieve|list|create|update|delete)_/, "")}`;
         const candidate = name;
         for (let index = 2; used.has(name); index += 1) name = `${candidate}_${index}`;
       }
@@ -576,7 +580,7 @@ export function pythonCodeSample(
 
 export function addPythonCodeSamples(document: OpenApiDocument, config: PythonCodeSampleConfig): OpenApiDocument {
   for (const operation of getOperations(document)) {
-    const target = document.paths[operation.path][operation.method];
+    const target = document.paths[operation.path]?.[operation.method];
     if (!target) continue;
     const existing = (target["x-codeSamples"] ?? []).filter((sample) => sample.label !== "Python SDK");
     const source = pythonCodeSample(document, operation, config);
@@ -678,16 +682,16 @@ export function resolveSchema(
   return {
     ...resolved,
     ...siblings,
-    properties:
-      resolved?.properties || siblings.properties ? { ...resolved?.properties, ...siblings.properties } : undefined,
-    required:
-      resolved?.required || siblings.required
-        ? [...new Set([...(resolved?.required ?? []), ...(siblings.required ?? [])])]
-        : undefined,
+    ...(resolved?.properties || siblings.properties
+      ? { properties: { ...resolved?.properties, ...siblings.properties } }
+      : {}),
+    ...(resolved?.required || siblings.required
+      ? { required: [...new Set([...(resolved?.required ?? []), ...(siblings.required ?? [])])] }
+      : {}),
   };
 }
 
-export function schemasEqual(left: unknown, right: unknown): boolean {
+function schemasEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
     return (
@@ -1029,16 +1033,17 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
           );
           let extra = Math.max(0, (schema.minLength ?? 0) - counts.reduce((total, count) => total + count, 0));
           for (const [index, match] of tokens.entries()) {
+            const count = counts[index] ?? 0;
             const maximum =
               match[6] || match[7]
-                ? counts[index]
+                ? count
                 : !match[3]
                   ? 1
                   : match[3] === "+" || match[3] === "*" || match[5] === ""
                     ? Number.POSITIVE_INFINITY
                     : Number(match[5] ?? match[4]);
-            const added = Math.min(extra, maximum - counts[index]);
-            counts[index] += added;
+            const added = Math.min(extra, maximum - count);
+            counts[index] = count + added;
             extra -= added;
           }
           return [
@@ -1054,7 +1059,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
                       : match[2]?.startsWith("\\s")
                         ? " "
                         : match[2]?.[0]
-                  )?.repeat(counts[index]),
+                  )?.repeat(counts[index] ?? 0),
               )
               .join(""),
           ];
@@ -1088,7 +1093,7 @@ function stringExample(schema: JsonSchema, name?: string, patterns = schema.patt
                 const widths = Array.from({ length: groups }, () => 1);
                 for (let group = 0; digits > groups && group < groups; group += 1) {
                   const added = Math.min(3, digits - groups);
-                  widths[group] += added;
+                  widths[group] = (widths[group] ?? 0) + added;
                   digits -= added;
                 }
                 return [`${widths.map((width) => "0".repeat(width)).join(":")}::1`];
@@ -1190,7 +1195,7 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
       : [];
   });
   if (typeSets.length) {
-    const types = [...typeSets[0]].filter((value) => typeSets.every((items) => items.has(value)));
+    const types = [...(typeSets[0] ?? [])].filter((value) => typeSets.every((items) => items.has(value)));
     if (types.includes("number") && types.includes("integer")) types.splice(types.indexOf("integer"), 1);
     result.type = types.length === 1 ? types[0] : types;
   }
@@ -1231,7 +1236,7 @@ function mergeScalarSchemas(document: OpenApiDocument, inputs: JsonSchema[], nam
   if (multiples.length) {
     const decimals = Math.max(
       ...multiples.map((value) => {
-        const [coefficient, exponent = "0"] = String(value).toLowerCase().split("e");
+        const [coefficient = "", exponent = "0"] = String(value).toLowerCase().split("e");
         return Math.max(0, (coefficient.split(".")[1] ?? "").length - Number(exponent));
       }),
     );
@@ -1529,7 +1534,7 @@ export function schemaExample(
     const multiple = schema.multipleOf && schema.multipleOf > 0 ? schema.multipleOf : undefined;
     const alignment = (() => {
       if (!multiple || type !== "integer") return multiple;
-      const [coefficient, exponent = "0"] = String(multiple).toLowerCase().split("e");
+      const [coefficient = "", exponent = "0"] = String(multiple).toLowerCase().split("e");
       const scale = 10 ** Math.max(0, (coefficient.split(".")[1] ?? "").length - Number(exponent));
       const numerator = Math.round(multiple * scale);
       const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
@@ -1965,7 +1970,7 @@ export function requestBodyExample(document: OpenApiDocument, operation: ApiOper
   return request[0].startsWith("text/") && typeof example === "string" ? example : JSON.stringify(example, null, 2);
 }
 
-export function parameterValue(document: OpenApiDocument, parameter: Parameter, value: string): unknown {
+function parameterValue(document: OpenApiDocument, parameter: Parameter, value: string): unknown {
   const schema = resolveSchema(document, parameter.schema);
   const type = Array.isArray(schema?.type) ? schema.type.find((item) => item !== "null") : schema?.type;
   if (type !== "array" && type !== "object" && !schema?.properties) return value;
@@ -1976,10 +1981,10 @@ export function parameterValue(document: OpenApiDocument, parameter: Parameter, 
   }
 }
 
-export function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
+function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
   return Object.entries(values).flatMap(([name, value]) => {
     if (Array.isArray(value)) return value.map((item) => [name, item] as [string, unknown]);
-    if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
+    if (value && typeof value === "object") return [[name, JSON.stringify(value)]];
     return [[name, value]];
   });
 }
@@ -2032,6 +2037,7 @@ export function curlCodeSample(
         parameter.allowReserved,
       ),
     )
+    .filter(Boolean)
     .join("&");
   const baseUrl = resolveServerUrl(document, origin, operation);
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}${query ? `?${query}` : ""}`;
@@ -2094,7 +2100,7 @@ export function curlCodeSample(
         const value = parameterValueOrExample(parameter);
         return parameter.in === "cookie"
           ? `  --cookie ${shellQuote(serializeQueryParameter(parameter.name, value, "form", parameter.explode).replaceAll("&", "; "))}`
-          : `  -H ${shellQuote(`${parameter.name}: ${serializeSimplePath(value, parameter.explode)}`)}`;
+          : `  -H ${shellQuote(`${parameter.name}: ${String(value)}`)}`;
       }),
     request && request[0] !== "multipart/form-data" ? `  -H ${shellQuote(`Content-Type: ${request[0]}`)}` : "",
     request && (request[0] === "application/json" || request[0].endsWith("+json")) && body
@@ -2165,6 +2171,7 @@ export function buildApiRequest(
         parameter.allowReserved,
       ),
     )
+    .filter(Boolean)
     .join("&");
   const configuredBaseUrl = resolveServerUrl(document, origin, operation);
   const baseUrl = serverOrigin
@@ -2179,8 +2186,7 @@ export function buildApiRequest(
   if (request && request[0] !== "multipart/form-data") headers["Content-Type"] = request[0];
   for (const parameter of parameters.filter((item) => item.in === "header")) {
     const value = values[`header:${parameter.name}`];
-    if (value)
-      headers[parameter.name] = serializeSimplePath(parameterValue(document, parameter, value), parameter.explode);
+    if (value) headers[parameter.name] = value;
   }
 
   let requestBody: BodyInit | undefined;
