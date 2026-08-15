@@ -84,7 +84,7 @@ function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0):
   return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
 }
 
-function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): string {
+function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, collection = "list"): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
   const nullable = isNullable(document, schema);
@@ -104,7 +104,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): s
         `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
       );
     }
-    const types = [...new Set(variants.flatMap((item) => pythonType(document, item).split(" | ")))];
+    const types = [...new Set(variants.flatMap((item) => pythonType(document, item, collection).split(" | ")))];
     if (schema.oneOf === undefined && schema.anyOf && types.includes("Any")) return "Any";
     return result([...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | "));
   }
@@ -115,7 +115,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): s
   if (type === "integer") return result("int");
   if (type === "number") return result("float");
   if (type === "boolean") return result("bool");
-  if (type === "array") return result(`Sequence[${pythonType(document, schema.items)}]`);
+  if (type === "array") return result(`${collection}[${pythonType(document, schema.items, collection)}]`);
   if (type === "object" || schema.properties) return result("dict[str, Any]");
   return result("Any");
 }
@@ -206,7 +206,7 @@ function docstring(document: OpenApiDocument, operation: PythonOperation, return
   lines.push("", "        Args:");
   for (const argument of operation.arguments) {
     lines.push(
-      `            ${argument.pythonName} (${pythonType(document, argument.schema)}${argument.required ? "" : ", optional"}): ${pythonDocstringText(argument.description, "                ")}`,
+      `            ${argument.pythonName} (${pythonType(document, argument.schema, "Sequence")}${argument.required ? "" : ", optional"}): ${pythonDocstringText(argument.description, "                ")}`,
     );
   }
   lines.push(
@@ -230,10 +230,10 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   const keywordArguments = [...required.filter((argument) => argument.location !== "path"), ...optional];
   const signature = [
     "self",
-    ...pathArguments.map((argument) => `${argument.pythonName}: ${pythonType(document, argument.schema)}`),
+    ...pathArguments.map((argument) => `${argument.pythonName}: ${pythonType(document, argument.schema, "Sequence")}`),
     ...(keywordArguments.length ? ["*"] : []),
     ...keywordArguments.map((argument) => {
-      const type = pythonType(document, argument.schema);
+      const type = pythonType(document, argument.schema, "Sequence");
       return argument.required
         ? `${argument.pythonName}: ${type}`
         : `${argument.pythonName}: ${type} | NotGiven = NOT_GIVEN`;
@@ -340,7 +340,7 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
   const body = `${methods}\n${asyncMethods}`;
   const types = operations
     .flatMap((operation) => [
-      ...operation.arguments.map((argument) => pythonType(document, argument.schema)),
+      ...operation.arguments.map((argument) => pythonType(document, argument.schema, "Sequence")),
       operation.responseName ?? pythonType(document, operation.responseSchema),
     ])
     .join(" ")
@@ -584,7 +584,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   const typing = ["Any", "Literal", "NotRequired", "TypedDict"].filter((name) =>
     new RegExp(`\\b${name}\\b`).test(code),
   );
-  const typingImport = `${/\bSequence\b/.test(code) ? "from collections.abc import Sequence\n" : ""}${typing.length ? `from typing import ${typing.join(", ")}\n` : ""}`;
+  const typingImport = typing.length ? `from typing import ${typing.join(", ")}\n` : "";
   return `from __future__ import annotations\n\n${typingImport}\n${body}\n`;
 }
 
