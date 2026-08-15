@@ -337,7 +337,8 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
       ...operation.arguments.map((argument) => pythonType(document, argument.schema)),
       operation.responseName ?? pythonType(document, operation.responseSchema),
     ])
-    .join(" ");
+    .join(" ")
+    .replace(/"(?:[^"\\]|\\.)*"/g, "");
   const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(types));
   const typingSource = `from typing import ${[...typingImports, "cast"].join(", ")}\n\n`;
   const clientImports = [
@@ -572,8 +573,9 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     }
   }
   const body = classes.join("\n\n\n");
+  const code = body.replace(/"(?:[^"\\]|\\.)*"/g, "");
   const typing = ["Any", "Literal", "NotRequired", "TypedDict"].filter((name) =>
-    new RegExp(`\\b${name}\\b`).test(body),
+    new RegExp(`\\b${name}\\b`).test(code),
   );
   const typingImport = typing.length ? `from typing import ${typing.join(", ")}\n` : "";
   return `from __future__ import annotations\n\n${typingImport}\n${body}\n`;
