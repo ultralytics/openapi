@@ -31,8 +31,8 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   --link: oklch(0.546 0.245 262.881);
-  --brand-gradient-start: oklch(0.7 0.05 250);
-  --brand-gradient-end: oklch(0.35 0.08 265);
+  --brand-gradient-start: #09dbf0;
+  --brand-gradient-end: #0b23a9;
 }
 
 @media (prefers-color-scheme: dark) {

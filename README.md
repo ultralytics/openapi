@@ -58,7 +58,7 @@ OPENAPI_CONFIG=../product/openapi.config.json bun run generate
 OPENAPI_CONFIG=../product/openapi.config.json bun run build
 ```
 
-Static documentation builds are deterministic for the same configuration and contract. Set `header` to add a consumer-owned source header to generated Python, JavaScript, CSS, HTML, and TOML files.
+The documentation header mark and favicon are the Ultralytics logomark by default; replace `components/logo.tsx`, `app/icon.svg`, and the `--brand-gradient-*` tokens in `app/globals.css` to brand your own docs. Static documentation builds are deterministic for the same configuration and contract. Set `header` to add a consumer-owned source header to generated Python, JavaScript, CSS, HTML, and TOML files.
 
 ## 🐍 Python
 

@@ -6,6 +6,7 @@ import { CheckIcon, CopyIcon, KeyRoundIcon, LoaderCircleIcon, MenuIcon, PlayIcon
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
+import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -694,7 +695,7 @@ export function ApiReference({
             className="flex min-w-0 items-center gap-3 rounded-md focus-visible:ring-2 focus-visible:ring-ring"
             href="#overview"
           >
-            <div className="size-7 rounded-lg bg-linear-to-br from-(--brand-gradient-start) to-(--brand-gradient-end)" />
+            <Logo className="size-7 shrink-0" />
             <div className="min-w-0">
               <p className="truncate font-heading text-sm font-semibold">{document.info.title}</p>
               <p className="text-xs text-muted-foreground">API {document.info.version}</p>

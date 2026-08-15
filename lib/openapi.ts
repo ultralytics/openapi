@@ -316,10 +316,11 @@ function sdkMethodCandidates(
   }
   const segments = operation.path.split("/").filter(Boolean);
   const isParameter = (segment: string) => segment.startsWith("{");
-  const rootIndex = Math.max(
-    segments.findLastIndex((segment) => sdkIdentifier(segment) === operation.resource),
-    segments.findLastIndex((segment, index) => !isParameter(segment) && isParameter(segments[index + 1] ?? "")),
-  );
+  const resourceIndex = segments.findLastIndex((segment) => sdkIdentifier(segment) === operation.resource);
+  const rootIndex =
+    resourceIndex >= 0
+      ? resourceIndex
+      : segments.findLastIndex((segment, index) => !isParameter(segment) && isParameter(segments[index + 1] ?? ""));
   const suffix = segments.slice(Math.max(rootIndex, 0) + 1).filter((segment) => !isParameter(segment));
   const leaf = suffix.at(-1);
   const verb = SDK_VERBS[operation.method];
@@ -397,21 +398,27 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
   for (const operation of operations) {
     if (operation["x-sdk-method"] !== undefined) claim(operation, operation["x-sdk-method"]);
   }
+  const rank = (operation: ApiOperation) =>
+    candidates.get(operation)?.fallbacks.length === 0 ? 0 : operation.method === "get" ? 1 : 2;
+  const losers: ApiOperation[] = [];
   for (const group of groups.values()) {
-    const rank = (operation: ApiOperation) =>
-      candidates.get(operation)?.fallbacks.length === 0 ? 0 : operation.method === "get" ? 1 : 2;
-    for (const operation of [...group].sort((left, right) => rank(left) - rank(right))) {
-      if (operation["x-sdk-method"] !== undefined) continue;
-      const { name, fallbacks } = candidates.get(operation) ?? { name: operation.method, fallbacks: [] };
-      const samePath = group.some((other) => other !== operation && other.path === operation.path);
-      const [withParent, withVerb] = fallbacks.length === 2 ? fallbacks : [undefined, fallbacks[0]];
-      const ordered = samePath ? [withVerb, withParent] : [withParent, withVerb];
-      claim(
-        operation,
-        ...(group.length === 1 || rank(operation) < 2 ? [name] : []),
-        ...(ordered.filter(Boolean) as string[]),
-      );
-    }
+    const [winner, ...rest] = [...group.filter((operation) => operation["x-sdk-method"] === undefined)].sort(
+      (left, right) => rank(left) - rank(right),
+    );
+    if (winner && rank(winner) < 2) claim(winner, candidates.get(winner)?.name ?? winner.method);
+    else if (winner) losers.push(winner);
+    losers.push(...rest);
+  }
+  for (const operation of losers) {
+    const { name, fallbacks } = candidates.get(operation) ?? { name: operation.method, fallbacks: [] };
+    const group = groups.get(`${operation.resource}.${name}`) ?? [];
+    const samePath = group.some((other) => other !== operation && other.path === operation.path);
+    const sole = group.length === 1;
+    const [withParent, withVerb] = fallbacks.length === 2 ? fallbacks : [undefined, fallbacks[0]];
+    const ordered = (samePath ? [withVerb, withParent] : [withParent, withVerb]).filter(
+      (candidate): candidate is string => Boolean(candidate),
+    );
+    claim(operation, ...(sole ? [name] : []), ...ordered, name);
   }
 
   return operations;

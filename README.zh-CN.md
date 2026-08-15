@@ -58,7 +58,7 @@ OPENAPI_CONFIG=../product/openapi.config.json bun run generate
 OPENAPI_CONFIG=../product/openapi.config.json bun run build
 ```
 
-对于相同的配置和契约，静态文档构建是确定性的。设置 `header` 可向生成的 Python、JavaScript、CSS、HTML 和 TOML 文件添加由使用方提供的源文件头。
+文档页眉标志和网站图标默认为 Ultralytics 标志；替换 `components/logo.tsx`、`app/icon.svg` 以及 `app/globals.css` 中的 `--brand-gradient-*` 令牌即可使用自己的品牌。对于相同的配置和契约，静态文档构建是确定性的。设置 `header` 可向生成的 Python、JavaScript、CSS、HTML 和 TOML 文件添加由使用方提供的源文件头。
 
 ## 🐍 Python
 
