@@ -621,7 +621,7 @@ function apiClientSource(async: boolean): string {
                     params=kwargs.get("params"),
                     headers=headers,
                     cookies=_without_none(kwargs.get("cookies") or {}) or None,
-                    json=_without_not_given(kwargs.get("json")),
+                    json=_json_value(kwargs.get("json")),
                     data=kwargs.get("data"),
                     files=_without_not_given(kwargs.get("files")),
                     content=_without_not_given(kwargs.get("content")),
@@ -719,6 +719,15 @@ def _without_not_given(values: Any) -> Any:
     if isinstance(values, dict):
         return {key: value for key, value in values.items() if not isinstance(value, NotGiven)}
     return None if isinstance(values, NotGiven) else values
+
+
+def _json_value(value: Any) -> Any:
+    """Drop omitted values and turn any sequence into a list so the payload is JSON serializable."""
+    if isinstance(value, dict):
+        return {key: _json_value(item) for key, item in value.items() if not isinstance(item, NotGiven)}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [_json_value(item) for item in value]
+    return None if isinstance(value, NotGiven) else value
 
 
 def _form_data(values: dict[str, Any], *, multipart: bool) -> dict[str, Any]:

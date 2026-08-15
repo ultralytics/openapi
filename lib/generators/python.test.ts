@@ -1165,7 +1165,7 @@ describe("Python generator", () => {
     expect(runtime).toContain('content=_without_not_given(kwargs.get("content"))');
     expect(runtime).toContain("class NotGiven:");
     expect(runtime).toContain("if not isinstance(value, NotGiven)");
-    expect(runtime).toContain('json=_without_not_given(kwargs.get("json"))');
+    expect(runtime).toContain('json=_json_value(kwargs.get("json"))');
     expect(runtime).toContain("raise APIError(");
     expect(runtime).toContain('media_type.endswith("+json")');
     expect(uploads).toContain('auth=("Authorization", "Bearer ")');
