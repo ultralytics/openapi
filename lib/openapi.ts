@@ -83,6 +83,7 @@ export interface MediaType {
 }
 
 interface OperationObject {
+  deprecated?: boolean;
   description?: string;
   operationId?: string;
   parameters?: ParameterInput[];
