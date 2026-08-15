@@ -29,20 +29,28 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
 {
   "source": "path/to/openapi.json",
   "name": "Example API",
+  "repository": "https://github.com/example/example-api",
   "apiKey": { "environment": "EXAMPLE_API_KEY" },
   "docs": { "basePath": "/reference" },
-  "license": { "id": "AGPL-3.0-only", "file": "LICENSE" },
+  "header": "Example API - https://example.com/license",
+  "license": { "id": "AGPL-3.0-only", "file": "LICENSE", "url": "https://spdx.org/licenses/AGPL-3.0-only.html" },
   "python": {
+    "authors": [{ "name": "Example", "email": "hello@example.com" }],
+    "classifiers": ["Programming Language :: Python :: 3 :: Only"],
     "client": "Example",
+    "description": "Typed Python SDK for Example API",
     "install": "pip install example-api-sdk",
+    "keywords": ["api-client", "openapi", "sdk"],
     "package": "example_api",
     "project": "example-api-sdk",
+    "readme": "README.python.md",
+    "requiresPython": ">=3.11",
     "version": "0.1.0"
   }
 }
 ```
 
-The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
+`source`, `name`, `apiKey.environment`, and the `python` `client`, `package`, `project`, and `version` keys are required; everything else is optional. `python.install` defaults to `pip install <project>`, `python.readme` replaces the generated package README, `repository` fills the package URLs, and `docs.basePath` mounts the documentation under a sub-path. Relative paths resolve against the configuration file. The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
 Set `OPENAPI_CONFIG` to use a configuration outside this repository, such as a product-specific consumer:
 
 ```bash
@@ -101,6 +109,7 @@ bun run generate # Python SDK in generated/python
 Useful checks:
 
 ```bash
+bun run sync
 bun run typecheck
 bun run lint
 bun run knip

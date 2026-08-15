@@ -801,11 +801,7 @@ export async function generatePython(
   const readmeExample = [...resources]
     .flatMap(([resource, operations]) => operations.map((operation) => ({ operation, resource })))
     .find(({ operation }) => operation.method === "get" && operation.arguments.every((argument) => !argument.required));
-  const license = config.license ?? {
-    file: "LICENSE",
-    id: "AGPL-3.0-only",
-    url: "https://spdx.org/licenses/AGPL-3.0-only.html",
-  };
+  const license = config.license;
   const licenseText = await Bun.file(license.file).text();
   const readme = config.python.readme
     ? await Bun.file(config.python.readme).text()
