@@ -186,7 +186,10 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       arguments: sdkArguments(document, operation),
       contentType: requestMedia(operation)?.[0],
       name,
-      responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
+      responseName:
+        responseSchema && pythonType(document, responseSchema) !== "None"
+          ? `${pascal(operation.tag)}${pascal(name)}Response`
+          : undefined,
       responseSchema,
       responseText: isTextResponse(document, media),
     });
@@ -556,10 +559,10 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       const schema = objectSchema(document, operation.responseSchema);
       const nullableObject = !!schema?.properties && !!response && isNullable(document, response);
       const modelName = nullableObject ? `${operation.responseName}Value` : operation.responseName;
-      if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
-        references.set(operation.responseSchema.$ref, modelName);
-      }
       if (schema?.properties) {
+        if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
+          references.set(operation.responseSchema.$ref, modelName);
+        }
         addModel(schema, modelName);
         if (nullableObject) classes.push(`${operation.responseName} = ${modelName} | None`);
       } else if (operation.responseSchema) {
@@ -574,6 +577,69 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   );
   const typingImport = typing.length ? `from typing import ${typing.join(", ")}\n` : "";
   return `from __future__ import annotations\n\n${typingImport}\n${body}\n`;
+}
+
+function apiClientSource(async: boolean): string {
+  const a = async ? "async " : "";
+  const w = async ? "await " : "";
+  return `class ${async ? "Async" : "Sync"}APIClient:
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        base_url: str,
+        timeout: float | httpx.Timeout,
+        max_retries: int,
+        http_client: httpx.${async ? "Async" : ""}Client | None,
+    ) -> None:
+        self._client = http_client or httpx.${async ? "Async" : ""}Client(timeout=timeout)
+        self._base_url = httpx.URL(f"{base_url.rstrip('/')}/")
+        self._api_key = api_key
+        self._max_retries = max_retries
+
+    ${a}def request(self, method: str, path: str, **kwargs: Any) -> Any:
+        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
+        headers = _without_none(kwargs.get("headers")) or {}
+        if self._api_key and (auth := kwargs.get("auth")):
+            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
+        server = kwargs.get("server")
+        url = self._base_url.join(f"{server.rstrip('/')}/{path.lstrip('/')}" if server else path.lstrip("/"))
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = ${w}self._client.request(
+                    method,
+                    url,
+                    params=kwargs.get("params"),
+                    headers=headers,
+                    cookies=_without_none(kwargs.get("cookies")),
+                    json=_without_not_given(kwargs.get("json")),
+                    data=_without_not_given(kwargs.get("data")),
+                    files=_without_not_given(kwargs.get("files")),
+                    content=_without_not_given(kwargs.get("content")),
+                )
+            except httpx.HTTPError as error:
+                if not retryable or attempt == self._max_retries:
+                    raise APIConnectionError(str(error)) from error
+                ${w}${async ? "asyncio" : "time"}.sleep(_retry_delay(None, attempt))
+                continue
+            if retryable and attempt < self._max_retries and (response.status_code in {408, 409, 429} or response.status_code >= 500):
+                ${w}${async ? "asyncio" : "time"}.sleep(_retry_delay(response, attempt))
+                continue
+            if response.is_error:
+                raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
+            if response.status_code == 204 or not response.content:
+                return None
+            media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+            if media_type == "application/json" or media_type.endswith("+json"):
+                return response.json()
+            if kwargs.get("text") or media_type.startswith("text/"):
+                return response.text
+            return response.content
+        raise APIConnectionError("Request was not attempted")
+
+    ${a}def close(self) -> None:
+        ${w}self._client.${async ? "aclose" : "close"}()
+`;
 }
 
 function clientSource(): string {
@@ -592,12 +658,19 @@ from ._exceptions import APIConnectionError, APIError
 class NotGiven:
     """Sentinel for omitted request values."""
 
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "NOT_GIVEN"
+
 
 NOT_GIVEN = NotGiven()
 
 
 def _path_parameter(value: Any, *, explode: bool, allow_reserved: bool) -> str:
     safe = ":/?#[]@!$&'()*+,;=" if allow_reserved else ""
+
     def encode(item: Any) -> str:
         return quote(str(item), safe=safe)
 
@@ -639,129 +712,15 @@ def _without_not_given(values: Any) -> Any:
 def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
     if response is not None:
         try:
-            return min(max(float(response.headers.get("retry-after", "")), 0), 60)
+            return min(max(float(response.headers.get("retry-after", "")), 0.0), 60.0)
         except ValueError:
             pass
-    return min(0.5 * (2**attempt), 8)
+    return min(0.5 * 2.0**attempt, 8.0)
 
 
-class SyncAPIClient:
-    def __init__(
-        self,
-        *,
-        api_key: str | None,
-        base_url: str,
-        timeout: float | httpx.Timeout,
-        max_retries: int,
-        http_client: httpx.Client | None,
-    ) -> None:
-        self._client = http_client or httpx.Client(timeout=timeout)
-        self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
-        self._api_key = api_key
-        self._max_retries = max_retries
+${apiClientSource(false)}
 
-    def request(self, method: str, path: str, **kwargs: Any) -> Any:
-        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
-        headers = _without_none(kwargs.get("headers")) or {}
-        if self._api_key and (auth := kwargs.get("auth")):
-            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
-        request_path = self._client.base_url.join(f"{kwargs['server'].rstrip('/')}/{path.lstrip('/')}") if kwargs.get("server") else path.lstrip("/")
-        for attempt in range(self._max_retries + 1):
-            try:
-                response = self._client.request(
-                    method,
-                    request_path,
-                    params=_without_none(kwargs.get("params")),
-                    headers=headers,
-                    cookies=_without_none(kwargs.get("cookies")),
-                    json=_without_not_given(kwargs.get("json")),
-                    data=_without_not_given(kwargs.get("data")),
-                    files=_without_not_given(kwargs.get("files")),
-                    content=_without_not_given(kwargs.get("content")),
-                )
-            except httpx.HTTPError as error:
-                if not retryable or attempt == self._max_retries:
-                    raise APIConnectionError(str(error)) from error
-                time.sleep(_retry_delay(None, attempt))
-                continue
-            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
-                break
-            if attempt == self._max_retries:
-                break
-            time.sleep(_retry_delay(response, attempt))
-        if response.is_error:
-            raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
-        if response.status_code == 204 or not response.content:
-            return None
-        media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-        if media_type == "application/json" or media_type.endswith("+json"):
-            return response.json()
-        if kwargs.get("text") or media_type.startswith("text/"):
-            return response.text
-        return response.content
-
-    def close(self) -> None:
-        self._client.close()
-
-
-class AsyncAPIClient:
-    def __init__(
-        self,
-        *,
-        api_key: str | None,
-        base_url: str,
-        timeout: float | httpx.Timeout,
-        max_retries: int,
-        http_client: httpx.AsyncClient | None,
-    ) -> None:
-        self._client = http_client or httpx.AsyncClient(timeout=timeout)
-        self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
-        self._api_key = api_key
-        self._max_retries = max_retries
-
-    async def request(self, method: str, path: str, **kwargs: Any) -> Any:
-        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
-        headers = _without_none(kwargs.get("headers")) or {}
-        if self._api_key and (auth := kwargs.get("auth")):
-            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
-        request_path = self._client.base_url.join(f"{kwargs['server'].rstrip('/')}/{path.lstrip('/')}") if kwargs.get("server") else path.lstrip("/")
-        for attempt in range(self._max_retries + 1):
-            try:
-                response = await self._client.request(
-                    method,
-                    request_path,
-                    params=_without_none(kwargs.get("params")),
-                    headers=headers,
-                    cookies=_without_none(kwargs.get("cookies")),
-                    json=_without_not_given(kwargs.get("json")),
-                    data=_without_not_given(kwargs.get("data")),
-                    files=_without_not_given(kwargs.get("files")),
-                    content=_without_not_given(kwargs.get("content")),
-                )
-            except httpx.HTTPError as error:
-                if not retryable or attempt == self._max_retries:
-                    raise APIConnectionError(str(error)) from error
-                await asyncio.sleep(_retry_delay(None, attempt))
-                continue
-            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
-                break
-            if attempt == self._max_retries:
-                break
-            await asyncio.sleep(_retry_delay(response, attempt))
-        if response.is_error:
-            raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
-        if response.status_code == 204 or not response.content:
-            return None
-        media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-        if media_type == "application/json" or media_type.endswith("+json"):
-            return response.json()
-        if kwargs.get("text") or media_type.startswith("text/"):
-            return response.text
-        return response.content
-
-    async def close(self) -> None:
-        await self._client.aclose()
-`;
+${apiClientSource(true)}`;
 }
 
 const EXCEPTIONS_SOURCE = `from __future__ import annotations
@@ -866,7 +825,7 @@ export async function generatePython(
   await Bun.write(`${root}/resources/__init__.py`, `${resourceExports.sort().join("\n")}\n`);
   await Bun.write(
     `${root}/__init__.py`,
-    `from ._exceptions import APIConnectionError, APIError\nfrom .async_client import Async${config.python.client}\nfrom .client import ${config.python.client}\n\n__all__ = ["APIConnectionError", "APIError", "Async${config.python.client}", "${config.python.client}"]\n`,
+    `from ._client import NOT_GIVEN, NotGiven\nfrom ._exceptions import APIConnectionError, APIError\nfrom .async_client import Async${config.python.client}\nfrom .client import ${config.python.client}\n\n__all__ = ${JSON.stringify(["NOT_GIVEN", ...["APIConnectionError", "APIError", `Async${config.python.client}`, "NotGiven", config.python.client].sort()])}\n`,
   );
   return [...resources.values()].reduce((count, operations) => count + operations.length, 0);
 }
