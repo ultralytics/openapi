@@ -396,7 +396,12 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
     used.add(`${operation.resource}.${operation.sdkMethod}`);
   };
   for (const operation of operations) {
-    if (operation["x-sdk-method"] !== undefined) claim(operation, operation["x-sdk-method"]);
+    const override = operation["x-sdk-method"];
+    if (override === undefined) continue;
+    if (used.has(`${operation.resource}.${override}`)) {
+      throw new Error(`Duplicate x-sdk-method for ${operation.resource}: ${override}`);
+    }
+    claim(operation, override);
   }
   const rank = (operation: ApiOperation) =>
     candidates.get(operation)?.fallbacks.length === 0 ? 0 : operation.method === "get" ? 1 : 2;
