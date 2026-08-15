@@ -78,7 +78,15 @@ describe("Python generator", () => {
       header: "X-API-Key",
       prefix: "",
     });
-    expect(() => getAuthentication(multiple)).toThrow("Multiple authentication schemes");
+    if (multiple.components?.securitySchemes && multiple.paths["/widgets"]?.get) {
+      multiple.components.securitySchemes.oauth = { type: "oauth2" };
+      multiple.paths["/widgets"].get.security = [{ oauth: [] }];
+    }
+    const oauthOperation = getOperations(multiple).find((item) => item.method === "get" && item.path === "/widgets");
+    expect(oauthOperation && getAuthentication(multiple, oauthOperation)).toBeUndefined();
+    await expect(generatePython(multiple, config, join(output, "oauth"))).rejects.toThrow(
+      "Unsupported authentication scheme: GET /widgets",
+    );
     const contentParameter = structuredClone(document);
     const contentOperation = contentParameter.paths["/widgets"]?.get;
     if (contentOperation) {

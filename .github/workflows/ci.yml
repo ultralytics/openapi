@@ -6,6 +6,7 @@ permissions:
   contents: read
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -17,9 +18,15 @@ jobs:
   Test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -27,7 +34,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - uses: ultralytics/actions/setup-uv@main
 
@@ -35,7 +42,11 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generate SDKs
-        run: bun run generate
+        run: |
+          bun run generate
+          cp -R generated generated.first
+          bun run generate
+          diff --recursive generated.first generated
 
       - name: Check application
         run: |

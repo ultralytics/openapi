@@ -84,7 +84,7 @@ function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0):
   return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
 }
 
-function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
+function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
   const nullable = isNullable(document, schema);
@@ -104,7 +104,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
         `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
       );
     }
-    const types = [...new Set(variants.flatMap((item) => pythonType(document, item, true).split(" | ")))];
+    const types = [...new Set(variants.flatMap((item) => pythonType(document, item).split(" | ")))];
     if (schema.oneOf === undefined && schema.anyOf && types.includes("Any")) return "Any";
     return result([...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | "));
   }
@@ -115,8 +115,8 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   if (type === "integer") return result("int");
   if (type === "number") return result("float");
   if (type === "boolean") return result("bool");
-  if (type === "array") return result(`list[${pythonType(document, schema.items, true)}]`);
-  if (type === "object" || schema.properties) return result(nested ? "dict[str, Any]" : "dict[str, Any]");
+  if (type === "array") return result(`list[${pythonType(document, schema.items)}]`);
+  if (type === "object" || schema.properties) return result("dict[str, Any]");
   return result("Any");
 }
 
@@ -135,6 +135,14 @@ function responseMode(document: OpenApiDocument, media: [string, MediaType]): "b
 }
 
 function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
+  const requirements = operation.security ?? document.security ?? [];
+  if (
+    requirements.length &&
+    requirements.every((requirement) => Object.keys(requirement).length) &&
+    !getAuthentication(document, operation)
+  ) {
+    throw new Error(`Unsupported authentication scheme: ${operation.method.toUpperCase()} ${operation.path}`);
+  }
   const unsupported = (operation.parameters ?? []).find(
     (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
   );
@@ -178,7 +186,10 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       arguments: sdkArguments(document, operation),
       contentType: requestMedia(operation)?.[0],
       name,
-      responseName: responseSchema ? `${pascal(operation.tag)}${pascal(name)}Response` : undefined,
+      responseName:
+        responseSchema && pythonType(document, responseSchema) !== "None"
+          ? `${pascal(operation.tag)}${pascal(name)}Response`
+          : undefined,
       responseSchema,
       responseText: isTextResponse(document, media),
     });
@@ -188,7 +199,9 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
 }
 
 function docstring(document: OpenApiDocument, operation: PythonOperation, returnType: string): string {
-  const lines = [`        """${pythonDocstringText(operation.summary ?? operation.name, "        ")}.`];
+  const lines = [
+    `        """${pythonDocstringText((operation.summary ?? operation.name).replace(/\.$/, ""), "        ")}.`,
+  ];
   if (operation.description) lines.push("", `        ${pythonDocstringText(operation.description, "        ")}`);
   if (operation.arguments.length) {
     lines.push("", "        Args:");
@@ -319,9 +332,15 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
   const methods = operations.map((operation) => methodSource(document, operation, false)).join("\n\n");
   const asyncMethods = operations.map((operation) => methodSource(document, operation, true)).join("\n\n");
   const body = `${methods}\n${asyncMethods}`;
-  const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
-  if (body.includes("cast(")) typingImports.push("cast");
-  const typingSource = typingImports.length ? `from typing import ${typingImports.sort().join(", ")}\n\n` : "";
+  const types = operations
+    .flatMap((operation) => [
+      ...operation.arguments.map((argument) => pythonType(document, argument.schema)),
+      operation.responseName ?? pythonType(document, operation.responseSchema),
+    ])
+    .join(" ")
+    .replace(/"(?:[^"\\]|\\.)*"/g, "");
+  const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(types));
+  const typingSource = `from typing import ${[...typingImports, "cast"].join(", ")}\n\n`;
   const clientImports = [
     ...(body.includes("NotGiven") ? ["NOT_GIVEN"] : []),
     "AsyncAPIClient",
@@ -480,7 +499,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       }
       return result(type);
     }
-    if (!union && (schema.oneOf?.length || schema.anyOf?.length)) return pythonType(document, schema, true);
+    if (!union && (schema.oneOf?.length || schema.anyOf?.length)) return pythonType(document, schema);
     const object = objectSchema(document, schema);
     if (object?.properties) {
       addModel(object, name);
@@ -491,7 +510,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (type === "object" && typeof schema.additionalProperties === "object") {
       return result(`dict[str, ${modelType(schema.additionalProperties, `${name}Value`)}]`);
     }
-    return pythonType(document, schema, true);
+    return pythonType(document, schema);
   }
 
   function addModel(schema: JsonSchema, name: string) {
@@ -541,10 +560,10 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       const schema = objectSchema(document, operation.responseSchema);
       const nullableObject = !!schema?.properties && !!response && isNullable(document, response);
       const modelName = nullableObject ? `${operation.responseName}Value` : operation.responseName;
-      if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
-        references.set(operation.responseSchema.$ref, modelName);
-      }
       if (schema?.properties) {
+        if (operation.responseSchema?.$ref && !references.has(operation.responseSchema.$ref)) {
+          references.set(operation.responseSchema.$ref, modelName);
+        }
         addModel(schema, modelName);
         if (nullableObject) classes.push(`${operation.responseName} = ${modelName} | None`);
       } else if (operation.responseSchema) {
@@ -554,16 +573,81 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     }
   }
   const body = classes.join("\n\n\n");
+  const code = body.replace(/"(?:[^"\\]|\\.)*"/g, "");
   const typing = ["Any", "Literal", "NotRequired", "TypedDict"].filter((name) =>
-    new RegExp(`\\b${name}\\b`).test(body),
+    new RegExp(`\\b${name}\\b`).test(code),
   );
   const typingImport = typing.length ? `from typing import ${typing.join(", ")}\n` : "";
   return `from __future__ import annotations\n\n${typingImport}\n${body}\n`;
 }
 
+function apiClientSource(async: boolean): string {
+  const a = async ? "async " : "";
+  const w = async ? "await " : "";
+  return `class ${async ? "Async" : "Sync"}APIClient:
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        base_url: str,
+        timeout: float | httpx.Timeout,
+        max_retries: int,
+        http_client: httpx.${async ? "Async" : ""}Client | None,
+    ) -> None:
+        self._client = http_client or httpx.${async ? "Async" : ""}Client(timeout=timeout)
+        self._base_url = httpx.URL(f"{base_url.rstrip('/')}/")
+        self._api_key = api_key
+        self._max_retries = max_retries
+
+    ${a}def request(self, method: str, path: str, **kwargs: Any) -> Any:
+        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
+        headers = _without_none(kwargs.get("headers")) or {}
+        if self._api_key and (auth := kwargs.get("auth")):
+            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
+        server = kwargs.get("server")
+        url = self._base_url.join(f"{server.rstrip('/')}/{path.lstrip('/')}" if server else path.lstrip("/"))
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = ${w}self._client.request(
+                    method,
+                    url,
+                    params=kwargs.get("params"),
+                    headers=headers,
+                    cookies=_without_none(kwargs.get("cookies")),
+                    json=_without_not_given(kwargs.get("json")),
+                    data=_without_not_given(kwargs.get("data")),
+                    files=_without_not_given(kwargs.get("files")),
+                    content=_without_not_given(kwargs.get("content")),
+                )
+            except httpx.HTTPError as error:
+                if not retryable or attempt == self._max_retries:
+                    raise APIConnectionError(str(error)) from error
+                ${w}${async ? "asyncio" : "time"}.sleep(_retry_delay(None, attempt))
+                continue
+            if retryable and attempt < self._max_retries and (response.status_code in {408, 409, 429} or response.status_code >= 500):
+                ${w}${async ? "asyncio" : "time"}.sleep(_retry_delay(response, attempt))
+                continue
+            if response.is_error:
+                raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
+            if response.status_code == 204 or not response.content:
+                return None
+            media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+            if media_type == "application/json" or media_type.endswith("+json"):
+                return response.json()
+            if kwargs.get("text") or media_type.startswith("text/"):
+                return response.text
+            return response.content
+        raise APIConnectionError("Request was not attempted")
+
+    ${a}def close(self) -> None:
+        ${w}self._client.${async ? "aclose" : "close"}()
+`;
+}
+
 function clientSource(): string {
   return `from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 from urllib.parse import quote
@@ -576,12 +660,19 @@ from ._exceptions import APIConnectionError, APIError
 class NotGiven:
     """Sentinel for omitted request values."""
 
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "NOT_GIVEN"
+
 
 NOT_GIVEN = NotGiven()
 
 
 def _path_parameter(value: Any, *, explode: bool, allow_reserved: bool) -> str:
     safe = ":/?#[]@!$&'()*+,;=" if allow_reserved else ""
+
     def encode(item: Any) -> str:
         return quote(str(item), safe=safe)
 
@@ -623,135 +714,15 @@ def _without_not_given(values: Any) -> Any:
 def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
     if response is not None:
         try:
-            return min(max(float(response.headers.get("retry-after", "")), 0), 60)
+            return min(max(float(response.headers.get("retry-after", "")), 0.0), 60.0)
         except ValueError:
             pass
-    return min(0.5 * (2**attempt), 8)
+    return min(0.5 * 2.0**attempt, 8.0)
 
 
-class SyncAPIClient:
-    def __init__(
-        self,
-        *,
-        api_key: str | None,
-        base_url: str,
-        timeout: float | httpx.Timeout,
-        max_retries: int,
-        http_client: httpx.Client | None,
-    ) -> None:
-        self._client = http_client or httpx.Client(
-            base_url=f"{base_url.rstrip('/')}/",
-            timeout=timeout,
-        )
-        self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
-        self._api_key = api_key
-        self._max_retries = max_retries
+${apiClientSource(false)}
 
-    def request(self, method: str, path: str, **kwargs: Any) -> Any:
-        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
-        headers = _without_none(kwargs.get("headers")) or {}
-        if self._api_key and (auth := kwargs.get("auth")):
-            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
-        request_path = self._client.base_url.join(f"{kwargs['server'].rstrip('/')}/{path.lstrip('/')}") if kwargs.get("server") else path.lstrip("/")
-        for attempt in range(self._max_retries + 1):
-            try:
-                response = self._client.request(
-                    method,
-                    request_path,
-                    params=_without_none(kwargs.get("params")),
-                    headers=headers,
-                    cookies=_without_none(kwargs.get("cookies")),
-                    json=_without_not_given(kwargs.get("json")),
-                    data=_without_not_given(kwargs.get("data")),
-                    files=_without_not_given(kwargs.get("files")),
-                    content=_without_not_given(kwargs.get("content")),
-                )
-            except httpx.HTTPError as error:
-                if not retryable or attempt == self._max_retries:
-                    raise APIConnectionError(str(error)) from error
-                time.sleep(_retry_delay(None, attempt))
-                continue
-            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
-                break
-            if attempt == self._max_retries:
-                break
-            time.sleep(_retry_delay(response, attempt))
-        if response.is_error:
-            raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
-        if response.status_code == 204 or not response.content:
-            return None
-        media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-        if media_type == "application/json" or media_type.endswith("+json"):
-            return response.json()
-        if kwargs.get("text") or media_type.startswith("text/"):
-            return response.text
-        return response.content
-
-    def close(self) -> None:
-        self._client.close()
-
-
-class AsyncAPIClient:
-    def __init__(
-        self,
-        *,
-        api_key: str | None,
-        base_url: str,
-        timeout: float | httpx.Timeout,
-        max_retries: int,
-        http_client: httpx.AsyncClient | None,
-    ) -> None:
-        self._client = http_client or httpx.AsyncClient(
-            base_url=f"{base_url.rstrip('/')}/",
-            timeout=timeout,
-        )
-        self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
-        self._api_key = api_key
-        self._max_retries = max_retries
-
-    async def request(self, method: str, path: str, **kwargs: Any) -> Any:
-        retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}
-        headers = _without_none(kwargs.get("headers")) or {}
-        if self._api_key and (auth := kwargs.get("auth")):
-            headers.setdefault(auth[0], f"{auth[1]}{self._api_key}")
-        request_path = self._client.base_url.join(f"{kwargs['server'].rstrip('/')}/{path.lstrip('/')}") if kwargs.get("server") else path.lstrip("/")
-        for attempt in range(self._max_retries + 1):
-            try:
-                response = await self._client.request(
-                    method,
-                    request_path,
-                    params=_without_none(kwargs.get("params")),
-                    headers=headers,
-                    cookies=_without_none(kwargs.get("cookies")),
-                    json=_without_not_given(kwargs.get("json")),
-                    data=_without_not_given(kwargs.get("data")),
-                    files=_without_not_given(kwargs.get("files")),
-                    content=_without_not_given(kwargs.get("content")),
-                )
-            except httpx.HTTPError as error:
-                if not retryable or attempt == self._max_retries:
-                    raise APIConnectionError(str(error)) from error
-                await __import__("asyncio").sleep(_retry_delay(None, attempt))
-                continue
-            if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
-                break
-            if attempt == self._max_retries:
-                break
-            await __import__("asyncio").sleep(_retry_delay(response, attempt))
-        if response.is_error:
-            raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
-        if response.status_code == 204 or not response.content:
-            return None
-        media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-        if media_type == "application/json" or media_type.endswith("+json"):
-            return response.json()
-        if kwargs.get("text") or media_type.startswith("text/"):
-            return response.text
-        return response.content
-
-    async def close(self) -> None:
-        await self._client.aclose()
-`;
+${apiClientSource(true)}`;
 }
 
 const EXCEPTIONS_SOURCE = `from __future__ import annotations
@@ -801,11 +772,7 @@ export async function generatePython(
   const readmeExample = [...resources]
     .flatMap(([resource, operations]) => operations.map((operation) => ({ operation, resource })))
     .find(({ operation }) => operation.method === "get" && operation.arguments.every((argument) => !argument.required));
-  const license = config.license ?? {
-    file: "LICENSE",
-    id: "AGPL-3.0-only",
-    url: "https://spdx.org/licenses/AGPL-3.0-only.html",
-  };
+  const license = config.license;
   const licenseText = await Bun.file(license.file).text();
   const readme = config.python.readme
     ? await Bun.file(config.python.readme).text()
@@ -856,7 +823,7 @@ export async function generatePython(
   await Bun.write(`${root}/resources/__init__.py`, `${resourceExports.sort().join("\n")}\n`);
   await Bun.write(
     `${root}/__init__.py`,
-    `from ._exceptions import APIConnectionError, APIError\nfrom .async_client import Async${config.python.client}\nfrom .client import ${config.python.client}\n\n__all__ = ["APIConnectionError", "APIError", "Async${config.python.client}", "${config.python.client}"]\n`,
+    `from ._client import NOT_GIVEN, NotGiven\nfrom ._exceptions import APIConnectionError, APIError\nfrom .async_client import Async${config.python.client}\nfrom .client import ${config.python.client}\n\n__all__ = ${JSON.stringify(["NOT_GIVEN", ...["APIConnectionError", "APIError", `Async${config.python.client}`, "NotGiven", config.python.client].sort()])}\n`,
   );
   return [...resources.values()].reduce((count, operations) => count + operations.length, 0);
 }

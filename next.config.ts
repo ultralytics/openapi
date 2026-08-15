@@ -14,6 +14,7 @@ const buildInputs = [
   "bun.lock",
   "package.json",
   "next.config.ts",
+  "postcss.config.mjs",
   configPath,
   "public/openapi.json",
 ];

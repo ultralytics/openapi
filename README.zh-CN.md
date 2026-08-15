@@ -29,20 +29,28 @@ Ultralytics OpenAPI 可从声明为 OpenAPI 3.0 至 3.2.0 的规范中读取 `GE
 {
   "source": "path/to/openapi.json",
   "name": "Example API",
+  "repository": "https://github.com/example/example-api",
   "apiKey": { "environment": "EXAMPLE_API_KEY" },
   "docs": { "basePath": "/reference" },
-  "license": { "id": "AGPL-3.0-only", "file": "LICENSE" },
+  "header": "Example API - https://example.com/license",
+  "license": { "id": "AGPL-3.0-only", "file": "LICENSE", "url": "https://spdx.org/licenses/AGPL-3.0-only.html" },
   "python": {
+    "authors": [{ "name": "Example", "email": "hello@example.com" }],
+    "classifiers": ["Programming Language :: Python :: 3 :: Only"],
     "client": "Example",
+    "description": "Typed Python SDK for Example API",
     "install": "pip install example-api-sdk",
+    "keywords": ["api-client", "openapi", "sdk"],
     "package": "example_api",
     "project": "example-api-sdk",
+    "readme": "README.python.md",
+    "requiresPython": ">=3.11",
     "version": "0.1.0"
   }
 }
 ```
 
-第一个 OpenAPI 服务器将成为 SDK 的默认基础 URL。HTTP Bearer 认证和基于请求头的 API 密钥均派生自 `components.securitySchemes`。
+`source`、`name`、`apiKey.environment` 以及 `python` 中的 `client`、`package`、`project` 和 `version` 为必填项，其余均为可选。`python.install` 默认为 `pip install <project>`，`python.readme` 会替换生成包的 README，`repository` 用于填充包的 URL，`docs.basePath` 可将文档挂载到子路径。相对路径相对于配置文件解析。第一个 OpenAPI 服务器将成为 SDK 的默认基础 URL。HTTP Bearer 认证和基于请求头的 API 密钥均派生自 `components.securitySchemes`。
 设置 `OPENAPI_CONFIG` 可使用此仓库之外的配置，例如产品专属的使用方配置：
 
 ```bash
@@ -101,6 +109,7 @@ bun run generate # 在 generated/python 中生成 Python SDK
 常用检查：
 
 ```bash
+bun run sync
 bun run typecheck
 bun run lint
 bun run knip
