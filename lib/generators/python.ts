@@ -136,7 +136,11 @@ function responseMode(document: OpenApiDocument, media: [string, MediaType]): "b
 
 function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
   const requirements = operation.security ?? document.security ?? [];
-  if (requirements.some((requirement) => Object.keys(requirement).length) && !getAuthentication(document, operation)) {
+  if (
+    requirements.length &&
+    requirements.every((requirement) => Object.keys(requirement).length) &&
+    !getAuthentication(document, operation)
+  ) {
     throw new Error(`Unsupported authentication scheme: ${operation.method.toUpperCase()} ${operation.path}`);
   }
   const unsupported = (operation.parameters ?? []).find(
