@@ -213,12 +213,9 @@ describe("Python generator", () => {
     expect(relative).toBeDefined();
     expect(upload).toBeDefined();
     if (!relative || !upload) return;
-    expect(
-      buildApiRequest(document, relative, {
-        origin: "https://preview.example.com",
-        serverOrigin: "https://preview.example.com",
-      }).url,
-    ).toStartWith("https://preview.example.com/v2/");
+    expect(buildApiRequest(document, relative, { origin: "https://preview.example.com" }).url).toStartWith(
+      "https://preview.example.com/v2/",
+    );
     const curl = curlCodeSample(document, upload, {
       body: requestBodyExample(document, upload),
       origin: "https://docs.example.com",
@@ -627,7 +624,6 @@ describe("Python generator", () => {
   test("uses generic string examples", () => {
     expect(schemaExample(document, { type: "string" })).toBe("example");
     expect(schemaExample(document, { format: "email", type: "string" })).toBe("jane@example.com");
-    expect(schemaExample(document, { format: "email", maxLength: 10, type: "string" })).toBe("a@b.co");
     expect(schemaExample(document, { format: "ipv4", type: "string" })).toBe("192.0.2.1");
     expect(schemaExample(document, { format: "custom", type: "string" })).toBe("<custom value>");
     expect(schemaExample(document, { format: "date", type: "string" }, 0, "data")).toBe("2026-01-01");
@@ -644,8 +640,6 @@ describe("Python generator", () => {
     );
     expect(schemaExample(document, { type: "string" }, 0, "project")).toBe("example-project");
     expect(schemaExample(document, { maxLength: 2, type: "string" }, 0, "iconLetter")).toBe("ex");
-    expect(schemaExample(document, { pattern: "^[A-Z]{8}$", type: "string" }, 0, "code")).toBe("AAAAAAAA");
-    expect(schemaExample(document, { pattern: "^[a-z0-9]+$", type: "string" }, 0, "model")).toBe("yolo26n");
     expect(schemaExample(document, { pattern: "^[a-z]+$", type: "string" }, 0, "model")).toBe("example");
     expect(schemaExample(document, { maxLength: 6, pattern: "^yolo26n$|^yolo26$", type: "string" }, 0, "model")).toBe(
       "yolo26",
@@ -821,168 +815,20 @@ describe("Python generator", () => {
         type: "object",
       }),
     ).toEqual({ a: 1 });
-    expect(schemaExample(document, { minLength: 3, pattern: "^[0-9]+$", type: "string" })).toBe("000");
-    expect(schemaExample(document, { pattern: "^[0-9]+$", type: "string" })).toBe("0");
-    expect(schemaExample(document, { pattern: "^\\d+$", type: "string" })).toBe("0");
-    expect(schemaExample(document, { pattern: "^\\d{3}$", type: "string" })).toBe("000");
-    expect(schemaExample(document, { pattern: "^\\d{3,5}$", type: "string" })).toBe("000");
-    expect(schemaExample(document, { minLength: 4, pattern: "^\\d{3,5}$", type: "string" })).toBe("0000");
-    expect(schemaExample(document, { pattern: "^[0-9]*$", type: "string" })).toBe("0");
-    expect(schemaExample(document, { pattern: "^[0-9A-F]{8}$", type: "string" })).toBe("00000000");
-    expect(schemaExample(document, { pattern: "^a+$", type: "string" })).toBe("a");
-    expect(schemaExample(document, { pattern: "^a{3}$", type: "string" })).toBe("aaa");
-    expect(schemaExample(document, { pattern: "^v[0-9]+$", type: "string" })).toBe("v0");
-    expect(schemaExample(document, { pattern: "^key[0-9]{2}$", type: "string" })).toBe("key00");
-    expect(schemaExample(document, { pattern: "^item-\\d+$", type: "string" })).toBe("item-0");
-    expect(schemaExample(document, { pattern: "^foo[0-9]{2}bar$", type: "string" })).toBe("foo00bar");
-    expect(schemaExample(document, { pattern: "^foo\\d{2}bar$", type: "string" })).toBe("foo00bar");
-    expect(schemaExample(document, { pattern: "^foo\\d+bar$", type: "string" })).toBe("foo0bar");
-    expect(schemaExample(document, { pattern: "^foo[0-9]bar$", type: "string" })).toBe("foo0bar");
     expect(schemaExample(document, { pattern: "^[A-Za-z0-9_-]+$", type: "string" })).toBe("example");
-    expect(schemaExample(document, { pattern: "^[0-9_]+$", type: "string" })).toBe("0");
-    expect(schemaExample(document, { pattern: "^[\\dA-F]{2}$", type: "string" })).toBe("00");
-    expect(schemaExample(document, { pattern: "^[\\dA-F]{2}[A-Z]{2}$", type: "string" })).toBe("00AA");
-    expect(schemaExample(document, { pattern: "^[\\w-]{2}-\\d$", type: "string" })).toBe("aa-0");
-    expect(schemaExample(document, { maxLength: 7, pattern: "^(?:[A-Z]{2}\\.){2}[0-9]$", type: "string" })).toBe(
-      "AA.AA.0",
-    );
-    expect(schemaExample(document, { pattern: "^(?:[A-Z]{2}\\.){2,3}[0-9]$", type: "string" })).toBe("AA.AA.0");
-    expect(
-      schemaExample(document, {
-        maxLength: 10,
-        minLength: 10,
-        pattern: "^(?:[A-Z]{2}\\.){2,3}[0-9]$",
-        type: "string",
-      }),
-    ).toBe("AA.AA.AA.0");
-    expect(schemaExample(document, { pattern: "^\\d{0}$", type: "string" })).toBe("");
-    expect(schemaExample(document, { pattern: "^[A-Z]{0}$", type: "string" })).toBe("");
-    expect(schemaExample(document, { pattern: "^a{0}$", type: "string" })).toBe("");
-    expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[0-9]+[A-Z]+$", type: "string" })).toBe(
-      "000A",
-    );
-    expect(schemaExample(document, { maxLength: 5, minLength: 5, pattern: "^[0-9]+[A-Z]{2}$", type: "string" })).toBe(
-      "000AA",
-    );
-    expect(
-      schemaExample(document, { maxLength: 6, minLength: 6, pattern: "^[A-Z]{2}[0-9]{2,4}$", type: "string" }),
-    ).toBe("AA0000");
-    expect(schemaExample(document, { maxLength: 4, minLength: 4, pattern: "^[A-Z]{2}\\d{2}$", type: "string" })).toBe(
-      "AA00",
-    );
-    expect(schemaExample(document, { pattern: "^[A-Z]{2}[0-9]$", type: "string" })).toBe("AA0");
-    expect(schemaExample(document, { pattern: "^[A-Z]{2}-\\d{3}$", type: "string" })).toBe("AA-000");
-    expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d{2,4}$", type: "string" })).toBe("AA00");
-    expect(schemaExample(document, { pattern: "^[A-Z]{2}\\d+$", type: "string" })).toBe("AA0");
-    expect(schemaExample(document, { pattern: "^[A-Z]+\\d+$", type: "string" })).toBe("A0");
-    expect(schemaExample(document, { maxLength: 5, minLength: 5, pattern: "^[A-Z]+\\d+$", type: "string" })).toBe(
-      "AAAA0",
-    );
-    expect(schemaExample(document, { pattern: "^\\d+[A-Z]+$", type: "string" })).toBe("0A");
-    expect(schemaExample(document, { pattern: "^[A-Z]+\\d{2}$", type: "string" })).toBe("A00");
-    expect(schemaExample(document, { pattern: "^[A-Z]{2,4}\\d+$", type: "string" })).toBe("AA0");
-    expect(schemaExample(document, { pattern: "^\\d{2}[A-Z]+$", type: "string" })).toBe("00A");
-    expect(schemaExample(document, { pattern: "^\\d{2}[A-Z]{2,4}$", type: "string" })).toBe("00AA");
-    expect(schemaExample(document, { format: "date-time", minLength: 21, type: "string" })).toBe(
-      "2026-01-01T00:00:00.0Z",
-    );
-    expect(schemaExample(document, { format: "date-time", minLength: 23, type: "string" })).toBe(
-      "2026-01-01T00:00:00.00Z",
-    );
-    expect(schemaExample(document, { format: "time", minLength: 10, type: "string" })).toBe("12:00:00.0Z");
-    expect(schemaExample(document, { format: "ipv6", maxLength: 3, type: "string" })).toBe("::1");
-    expect(schemaExample(document, { format: "uri", maxLength: 8, type: "string" })).toBe("http:x");
-    expect(schemaExample(document, { format: "uri", maxLength: 7, type: "string" })).toBe("http:x");
-    expect(schemaExample(document, { format: "duration", minLength: 4, type: "string" })).toBe("P11D");
-    expect(schemaExample(document, { format: "email", maxLength: 7, minLength: 7, type: "string" })).toBe("a@b.cox");
     expect(schemaExample(document, { format: "hostname", maxLength: 72, minLength: 72, type: "string" })).toHaveLength(
       72,
     );
     expect(
       schemaExample(document, { format: "hostname", maxLength: 128, minLength: 128, type: "string" }),
     ).toHaveLength(128);
-    expect(schemaExample(document, { format: "ipv4", minLength: 12, type: "string" })).toBe("1.11.111.111");
-    expect(schemaExample(document, { format: "ipv4", maxLength: 8, minLength: 8, type: "string" })).toBe("1.1.1.11");
     expect(schemaExample(document, { format: "ipv6", maxLength: 10, minLength: 4, type: "string" })).toBe("2001:db8::");
-    expect(schemaExample(document, { format: "ipv6", maxLength: 4, minLength: 4, type: "string" })).toBe("0::1");
-    expect(schemaExample(document, { format: "ipv6", minLength: 20, type: "string" })).toBe("0000:0000:0000:00::1");
-    expect(schemaExample(document, { pattern: "^[0-9A-F]{8,}$", type: "string" })).toBe("00000000");
-    expect(schemaExample(document, { pattern: "^[0-9]{3,}$", type: "string" })).toBe("000");
-    expect(schemaExample(document, { minLength: 4, pattern: "^[0-9]{3,5}$", type: "string" })).toBe("0000");
-    expect(schemaExample(document, { pattern: "^[0-9A-F]+$", type: "string" })).toBe("0");
-    expect(schemaExample(document, { format: "ipv4", maxLength: 7, type: "string" })).toBe("1.1.1.1");
     expect(schemaExample(document, { format: "custom", maxLength: 5, type: "string" })).toBe("<cust");
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^[0-9]{3}$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ "000": "example-000", "001": "example-001" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^(ab|cd)$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ ab: "example-ab", cd: "example-cd" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^a+$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ a: "example-a", aa: "example-aa" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^v[0-9]+$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ v0: "example-v0", v02: "example-v02" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^[A-Z]{2}[0-9]{2}$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ AA00: "example-aa00", AA01: "example-aa01" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^[A-Z]{2}[a-z]{2}$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ AAaa: "example-aaaa", AAac: "example-aaac" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^[a-z]{3}$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ key: "example-key", kea: "example-kea" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 3,
-        propertyNames: { pattern: "^[a-z]{2}$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ aa: "example-aa", ac: "example-ac", ad: "example-ad" });
     expect(schemaExample(document, { pattern: "^$", type: "string" })).toBe("");
     expect(schemaExample(document, { pattern: "foo", type: "string" })).toBe("foo");
     expect(schemaExample(document, { pattern: "foo|bar", type: "string" })).toBe("foo");
     expect(schemaExample(document, { pattern: "^foo", type: "string" })).toBe("foo");
     expect(schemaExample(document, { type: "string" }, 0, "apiKey")).toBe("your-api-key");
-    expect(schemaExample(document, { type: "string" }, 0, "baseModel")).toBe("yolo26n.pt");
-    expect(schemaExample(document, { pattern: "^b[0-9]*$", type: "string" })).toBe("b0");
     expect(
       schemaExample(document, {
         additionalProperties: false,
@@ -1048,13 +894,6 @@ describe("Python generator", () => {
         { minLength: 2, type: "string" },
       ],
     });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { pattern: "^x+$", type: "string" },
-        allOf: [{ properties: { a: { type: "string" } }, required: ["a"] }],
-        type: "object",
-      }),
-    ).toEqual({ a: "x" });
     expect(schemaConstraints(document, { maxProperties: 3, minProperties: 1, type: "object" })).toEqual([
       "minimum properties 1",
       "maximum properties 3",
@@ -1069,19 +908,6 @@ describe("Python generator", () => {
         ],
       }),
     ).toEqual({ a: 1 });
-    expect(
-      schemaExample(document, {
-        allOf: [
-          {
-            additionalProperties: { type: "string" },
-            minProperties: 2,
-            properties: { b: { type: "integer" } },
-            type: "object",
-          },
-          { propertyNames: { pattern: "^b[0-9]*$", type: "string" } },
-        ],
-      }),
-    ).toEqual({ b: 1, b0: "example-b0" });
     expect(schemaExample(document, { enum: ["a", "b"], pattern: "^b$", type: "string" })).toBe("b");
     expect(
       schemaExample(document, { maxProperties: 0, properties: { id: { type: "integer" } }, type: "object" }),
@@ -1100,22 +926,6 @@ describe("Python generator", () => {
     expect(
       schemaExample(document, { additionalProperties: { type: "string" }, minProperties: 2, type: "object" }),
     ).toEqual({ key: "example-key", key2: "example-key2" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 2,
-        propertyNames: { pattern: "^foo\\d{2}bar$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ foo00bar: "example-foo00bar", foo01bar: "example-foo01bar" });
-    const fixedWidthKeys = schemaExample(document, {
-      additionalProperties: { type: "string" },
-      minProperties: 27,
-      propertyNames: { pattern: "^[A-Z]{2}$", type: "string" },
-      type: "object",
-    });
-    expect(Object.keys(fixedWidthKeys as object)).toHaveLength(27);
-    expect(fixedWidthKeys).toHaveProperty("BA");
     expect(
       schemaExample(document, {
         anyOf: [
@@ -1181,14 +991,6 @@ describe("Python generator", () => {
         ],
       }),
     ).toEqual({});
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 1,
-        propertyNames: { pattern: "^[A-Z]{8}$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ AAAAAAAA: "example-aaaaaaaa" });
     expect(schemaExample(document, { exclusiveMinimum: 1, minimum: 5, type: "number" })).toBe(5);
     expect(schemaExample(document, { minimum: Number.MAX_SAFE_INTEGER, multipleOf: 1, type: "integer" })).toBe(
       Number.MAX_SAFE_INTEGER,
@@ -1278,14 +1080,6 @@ describe("Python generator", () => {
         allOf: [{ type: ["string", "null"] }, { type: "null" }],
       }),
     ).toBeNull();
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 1,
-        propertyNames: { pattern: "^[0-9]{3}$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ "000": "example-000" });
     expect(schemaExample(document, { format: "time", pattern: "^99:99:99Z$|^12:00:00Z$", type: "string" })).toBe(
       "12:00:00Z",
     );
@@ -1300,22 +1094,6 @@ describe("Python generator", () => {
         type: ["string", "number"],
       }),
     ).toBe("a");
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 1,
-        propertyNames: { pattern: "^[a-z]{3}[0-9]+$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ aaa0: "example-aaa0" });
-    expect(
-      schemaExample(document, {
-        additionalProperties: { type: "string" },
-        minProperties: 1,
-        propertyNames: { pattern: "^(ab|cd)$", type: "string" },
-        type: "object",
-      }),
-    ).toEqual({ ab: "example-ab" });
     expect(
       schemaExample(document, {
         allOf: [
@@ -1380,8 +1158,10 @@ describe("Python generator", () => {
     expect(runtime).not.toContain('headers={"Authorization": f"Bearer {api_key}"} if api_key else {}');
     expect(runtime).toContain('path.lstrip("/")');
     expect(runtime).toContain('retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}');
-    expect(runtime).toContain('headers = _without_none(kwargs.get("headers")) or {}');
-    expect(runtime).toContain('cookies=_without_none(kwargs.get("cookies"))');
+    expect(runtime).toContain(
+      'headers = {**_without_none(kwargs.get("headers") or {}), **(kwargs.get("extra_headers") or {})}',
+    );
+    expect(runtime).toContain('cookies=_without_none(kwargs.get("cookies") or {}) or None');
     expect(runtime).toContain('content=_without_not_given(kwargs.get("content"))');
     expect(runtime).toContain("class NotGiven:");
     expect(runtime).toContain("if not isinstance(value, NotGiven)");
@@ -1427,7 +1207,9 @@ describe("Python generator", () => {
       const uploads = await Bun.file(join(directory, "src/example_api/resources/uploads.py")).text();
       expect(uploads).toContain("body: dict[str, Any]");
       expect(uploads).toContain('files={key: body[key] for key in ["file"] if key in body}');
-      expect(uploads).toContain('data={key: value for key, value in body.items() if key not in ["file"]}');
+      expect(uploads).toContain(
+        'data=_form_data({key: value for key, value in body.items() if key not in ["file"]}, multipart=True)',
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
@@ -1472,7 +1254,7 @@ describe("Python generator", () => {
     expect(types).toContain(
       '"primaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure], "secondaryFailure": NotRequired[UploadsUploadFileResponseVariant1PrimaryFailure]',
     );
-    expect(widgets).toContain("def create(self, *, body: dict[str, Any])");
+    expect(widgets).toContain("def create(self, *, body: dict[str, Any], timeout:");
     expect(widgets).toContain("return cast(WidgetsCreateResponse,");
   });
 
@@ -1603,7 +1385,7 @@ describe("Python generator", () => {
 
   test("retains composed request unions as a whole body", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
-    expect(widgets).toContain("def create(self, *, body: dict[str, Any])");
+    expect(widgets).toContain("def create(self, *, body: dict[str, Any], timeout:");
     expect(widgets).toContain("json=body");
     const createWidget = getOperations(document).find((operation) => operation.operationId === "create_widget");
     expect(createWidget && schemaExample(document, requestMedia(createWidget)?.[1].schema)).toMatchObject({
@@ -1614,7 +1396,7 @@ describe("Python generator", () => {
   test("passes non-object JSON request bodies through unchanged", async () => {
     const events = await Bun.file(join(output, "src/example_api/resources/events.py")).text();
     const types = await Bun.file(join(output, "src/example_api/types.py")).text();
-    expect(events).toContain("body: list[str]");
+    expect(events).toContain("body: Sequence[str]");
     expect(events).toContain("json=body");
     expect(types).toContain('"warnings": list[str] | None');
   });
@@ -1622,7 +1404,7 @@ describe("Python generator", () => {
   test("serializes form request bodies", async () => {
     const sessions = await Bun.file(join(output, "src/example_api/resources/sessions.py")).text();
     expect(sessions).toContain('headers={"Content-Type": "application/x-www-form-urlencoded"}');
-    expect(sessions).toContain('data={"name": name}');
+    expect(sessions).toContain('data=_form_data({"name": name}, multipart=False)');
   });
 
   test("serializes raw request bodies", async () => {

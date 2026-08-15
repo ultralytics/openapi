@@ -404,7 +404,6 @@ function OperationPanel({
         body,
         files,
         origin: window.location.origin,
-        serverOrigin: window.location.origin,
         values,
       });
     } catch (error) {
