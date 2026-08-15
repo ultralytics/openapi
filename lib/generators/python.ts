@@ -811,6 +811,10 @@ export async function generatePython(
   output: string,
 ): Promise<number> {
   const resources = prepare(document);
+  const version = config.python.version ?? document.info.version;
+  if (!/^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$/.test(version)) {
+    throw new Error(`Set python.version: contract version "${version}" is not a valid Python package version`);
+  }
   const root = `${output}/src/${config.python.package}`;
   const baseUrl = resolveServerUrl(document);
   const readmeExample = [...resources]
@@ -844,7 +848,7 @@ export async function generatePython(
   await Promise.all([
     Bun.write(
       `${output}/pyproject.toml`,
-      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${config.python.version}"\n${projectMetadata}\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
+      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${version}"\n${projectMetadata}\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
     ),
     Bun.write(`${output}/README.md`, readme),
     Bun.write(`${output}/LICENSE`, licenseText),

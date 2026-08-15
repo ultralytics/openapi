@@ -50,7 +50,7 @@ Ultralytics OpenAPI 可从声明为 OpenAPI 3.0 至 3.2.0 的规范中读取 `GE
 }
 ```
 
-`source`、`name`、`apiKey.environment` 以及 `python` 中的 `client`、`package`、`project` 和 `version` 为必填项，其余均为可选。`python.install` 默认为 `pip install <project>`，`python.readme` 会替换生成包的 README，`repository` 用于填充包的 URL，`docs.basePath` 可将文档挂载到子路径。相对路径相对于配置文件解析。第一个 OpenAPI 服务器将成为 SDK 的默认基础 URL。HTTP Bearer 认证和基于请求头的 API 密钥均派生自 `components.securitySchemes`。
+`source`、`name`、`apiKey.environment` 以及 `python` 中的 `client`、`package` 和 `project` 为必填项，其余均为可选。`python.version` 默认为契约的 `info.version`，因此在 API 中升版一次即可发布 SDK；`python.install` 默认为 `pip install <project>`，`python.readme` 会替换生成包的 README，`repository` 用于填充包的 URL，`docs.basePath` 可将文档挂载到子路径。相对路径相对于配置文件解析。第一个 OpenAPI 服务器将成为 SDK 的默认基础 URL。HTTP Bearer 认证和基于请求头的 API 密钥均派生自 `components.securitySchemes`。
 设置 `OPENAPI_CONFIG` 可使用此仓库之外的配置，例如产品专属的使用方配置：
 
 ```bash

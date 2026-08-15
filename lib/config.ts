@@ -23,7 +23,7 @@ export interface OpenApiConfig {
     project: string;
     readme?: string;
     requiresPython?: string;
-    version: string;
+    version?: string;
   };
   source: string;
 }
@@ -38,7 +38,6 @@ export function getConfig(): OpenApiConfig {
     "python.client": config.python?.client,
     "python.package": config.python?.package,
     "python.project": config.python?.project,
-    "python.version": config.python?.version,
     source: config.source,
   };
   const missing = Object.entries(required).find(([, value]) => !value)?.[0];
