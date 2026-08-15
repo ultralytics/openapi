@@ -394,10 +394,14 @@ export function getOperations(document: OpenApiDocument): ApiOperation[] {
     }
     used.add(`${operation.resource}.${operation.sdkMethod}`);
   };
+  for (const operation of operations) {
+    if (operation["x-sdk-method"] !== undefined) claim(operation, operation["x-sdk-method"]);
+  }
   for (const group of groups.values()) {
     const rank = (operation: ApiOperation) =>
       candidates.get(operation)?.fallbacks.length === 0 ? 0 : operation.method === "get" ? 1 : 2;
     for (const operation of [...group].sort((left, right) => rank(left) - rank(right))) {
+      if (operation["x-sdk-method"] !== undefined) continue;
       const { name, fallbacks } = candidates.get(operation) ?? { name: operation.method, fallbacks: [] };
       const samePath = group.some((other) => other !== operation && other.path === operation.path);
       const [withParent, withVerb] = fallbacks.length === 2 ? fallbacks : [undefined, fallbacks[0]];
