@@ -78,7 +78,7 @@ client = AsyncExample()
 widgets = await client.widgets.list()
 ```
 
-Resources come from each operation's first tag and method names from the path: the static segment after the resource (`client.deployments.health()`, `client.explore.search()`) or `list`/`retrieve`/`create`/`update`/`delete` when there is none. Set `x-sdk-method` on an operation to choose a name explicitly; product-specific example values belong in the contract's `example` fields. The generated package includes typed resources and `TypedDict` responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.11 or newer. Generated packages default to AGPL-3.0; set `license.id` and `license.file` to use another license.
+Resources come from each operation's first tag and method names from the path: the static segment after the resource (`client.deployments.health()`, `client.explore.search()`) or `list`/`retrieve`/`create`/`update`/`delete` when there is none. Set `x-sdk-method` (a lowercase Python identifier, unique per resource) on an operation to choose a name explicitly; product-specific example values belong in the contract's `example` fields. The generated package includes typed resources and `TypedDict` responses, multipart uploads, retries for temporary failures, and structured API errors. It requires Python 3.11 or newer. Generated packages default to AGPL-3.0; set `license.id` and `license.file` to use another license.
 
 ## 🧩 One Contract, Multiple Outputs
 

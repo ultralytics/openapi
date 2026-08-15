@@ -309,7 +309,7 @@ function sdkMethodCandidates(
 ): SdkMethodCandidates {
   const override = operation["x-sdk-method"];
   if (override !== undefined) {
-    if (!/^[a-z_][a-z0-9_]*$/.test(override) || PYTHON_RESERVED.has(override)) {
+    if (!/^[a-z][a-z0-9_]*$/.test(override) || PYTHON_RESERVED.has(override)) {
       throw new Error(`Invalid x-sdk-method for ${operation.path}: ${override}`);
     }
     return { name: override, fallbacks: [] };

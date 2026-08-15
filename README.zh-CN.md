@@ -78,7 +78,7 @@ client = AsyncExample()
 widgets = await client.widgets.list()
 ```
 
-资源来自每个操作的第一个标签，方法名来自路径：资源之后的静态段（`client.deployments.health()`、`client.explore.search()`），若没有则为 `list`/`retrieve`/`create`/`update`/`delete`。在操作上设置 `x-sdk-method` 可显式指定名称；产品特定的示例值应放在契约的 `example` 字段中。生成的软件包包含类型化资源和 `TypedDict` 响应、多部分上传、临时故障重试以及结构化 API 错误。它需要 Python 3.11 或更高版本。生成的软件包默认采用 AGPL-3.0；设置 `license.id` 和 `license.file` 可使用其他许可证。
+资源来自每个操作的第一个标签，方法名来自路径：资源之后的静态段（`client.deployments.health()`、`client.explore.search()`），若没有则为 `list`/`retrieve`/`create`/`update`/`delete`。在操作上设置 `x-sdk-method`（小写 Python 标识符，每个资源内唯一）可显式指定名称；产品特定的示例值应放在契约的 `example` 字段中。生成的软件包包含类型化资源和 `TypedDict` 响应、多部分上传、临时故障重试以及结构化 API 错误。它需要 Python 3.11 或更高版本。生成的软件包默认采用 AGPL-3.0；设置 `license.id` 和 `license.file` 可使用其他许可证。
 
 ## 🧩 一份契约，多种输出
 
