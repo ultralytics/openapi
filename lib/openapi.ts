@@ -635,25 +635,17 @@ export function expandServerUrl(server: OpenApiServer): string {
   return server.url.replace(/{([^}]+)}/g, (_, name: string) => server.variables?.[name]?.default ?? `{${name}}`);
 }
 
-export function getAuthentication(document: OpenApiDocument, operation?: ApiOperation): ApiAuthentication | undefined {
-  const requirements = operation
-    ? (operation.security ?? document.security ?? [])
-    : getOperations(document).flatMap((item) => item.security ?? document.security ?? []);
-  const names = new Set(requirements.flatMap((requirement) => Object.keys(requirement)));
-  const authentications = [...names].flatMap((name) => {
+export function getAuthentication(document: OpenApiDocument, operation: ApiOperation): ApiAuthentication | undefined {
+  for (const requirement of operation.security ?? document.security ?? []) {
+    const [name, ...others] = Object.keys(requirement);
+    if (!name || others.length) continue;
     const scheme = document.components?.securitySchemes?.[name];
-    if (scheme?.type === "apiKey" && scheme.in === "header" && scheme.name) {
-      return [{ header: scheme.name, prefix: "" }];
-    }
+    if (scheme?.type === "apiKey" && scheme.in === "header" && scheme.name) return { header: scheme.name, prefix: "" };
     if (scheme?.type === "http" && scheme.scheme?.toLowerCase() === "bearer") {
-      return [{ header: "Authorization", prefix: "Bearer " }];
+      return { header: "Authorization", prefix: "Bearer " };
     }
-    return [];
-  });
-  if (authentications.length !== names.size) throw new Error("Unsupported authentication scheme");
-  const unique = [...new Map(authentications.map((item) => [`${item.header}:${item.prefix}`, item])).values()];
-  if (unique.length > 1) throw new Error("Multiple authentication schemes require separate generated clients");
-  return unique[0];
+  }
+  return undefined;
 }
 
 export function getAuthenticationMode(document: OpenApiDocument, operation: ApiOperation): ApiAuthenticationMode {

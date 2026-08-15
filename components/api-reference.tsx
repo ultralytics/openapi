@@ -78,7 +78,7 @@ function codeExamples(
   values: Record<string, string>,
 ) {
   const request = requestMedia(operation);
-  let bodyValue: unknown = request ? schemaExample(document, request[1].schema) : undefined;
+  let bodyValue: unknown;
   try {
     bodyValue = JSON.parse(body);
   } catch {
@@ -370,14 +370,6 @@ function OperationPanel({
   );
 
   useEffect(() => setOrigin(window.location.origin), []);
-
-  useEffect(() => {
-    setValues({});
-    setBody(requestBodyExample(document, operation));
-    setFiles({});
-    setResult("");
-    setStatus(undefined);
-  }, [document, operation]);
 
   function setParameter(location: string, name: string, value: string) {
     setValues((current) => ({ ...current, [`${location}:${name}`]: value }));
@@ -732,6 +724,7 @@ export function ApiReference({
             apiKey={apiKey}
             document={document}
             environment={apiKeyEnvironment}
+            key={selected.id}
             operation={selected}
             python={python}
           />

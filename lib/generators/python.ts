@@ -84,7 +84,7 @@ function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0):
   return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
 }
 
-function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, nested = false): string {
+function pythonType(document: OpenApiDocument, input: JsonSchema | undefined): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
   const nullable = isNullable(document, schema);
@@ -104,7 +104,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
         `${nonNull.length ? `Literal[${nonNull.map(quote).join(", ")}]` : ""}${values.includes(null) ? `${nonNull.length ? " | " : ""}None` : ""}`,
       );
     }
-    const types = [...new Set(variants.flatMap((item) => pythonType(document, item, true).split(" | ")))];
+    const types = [...new Set(variants.flatMap((item) => pythonType(document, item).split(" | ")))];
     if (schema.oneOf === undefined && schema.anyOf && types.includes("Any")) return "Any";
     return result([...types.filter((type) => type !== "None"), ...types.filter((type) => type === "None")].join(" | "));
   }
@@ -115,8 +115,8 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, ne
   if (type === "integer") return result("int");
   if (type === "number") return result("float");
   if (type === "boolean") return result("bool");
-  if (type === "array") return result(`list[${pythonType(document, schema.items, true)}]`);
-  if (type === "object" || schema.properties) return result(nested ? "dict[str, Any]" : "dict[str, Any]");
+  if (type === "array") return result(`list[${pythonType(document, schema.items)}]`);
+  if (type === "object" || schema.properties) return result("dict[str, Any]");
   return result("Any");
 }
 
@@ -135,6 +135,14 @@ function responseMode(document: OpenApiDocument, media: [string, MediaType]): "b
 }
 
 function validateOperation(document: OpenApiDocument, operation: ApiOperation): void {
+  const requirements = operation.security ?? document.security ?? [];
+  if (
+    requirements.length &&
+    requirements.every((requirement) => Object.keys(requirement).length) &&
+    !getAuthentication(document, operation)
+  ) {
+    throw new Error(`Unsupported authentication scheme: ${operation.method.toUpperCase()} ${operation.path}`);
+  }
   const unsupported = (operation.parameters ?? []).find(
     (parameter) => parameter.in === "path" && parameter.style && parameter.style !== "simple",
   );
@@ -188,7 +196,9 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
 }
 
 function docstring(document: OpenApiDocument, operation: PythonOperation, returnType: string): string {
-  const lines = [`        """${pythonDocstringText(operation.summary ?? operation.name, "        ")}.`];
+  const lines = [
+    `        """${pythonDocstringText((operation.summary ?? operation.name).replace(/\.$/, ""), "        ")}.`,
+  ];
   if (operation.description) lines.push("", `        ${pythonDocstringText(operation.description, "        ")}`);
   if (operation.arguments.length) {
     lines.push("", "        Args:");
@@ -319,9 +329,14 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
   const methods = operations.map((operation) => methodSource(document, operation, false)).join("\n\n");
   const asyncMethods = operations.map((operation) => methodSource(document, operation, true)).join("\n\n");
   const body = `${methods}\n${asyncMethods}`;
-  const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(body));
-  if (body.includes("cast(")) typingImports.push("cast");
-  const typingSource = typingImports.length ? `from typing import ${typingImports.sort().join(", ")}\n\n` : "";
+  const types = operations
+    .flatMap((operation) => [
+      ...operation.arguments.map((argument) => pythonType(document, argument.schema)),
+      operation.responseName ?? pythonType(document, operation.responseSchema),
+    ])
+    .join(" ");
+  const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(types));
+  const typingSource = `from typing import ${[...typingImports, "cast"].join(", ")}\n\n`;
   const clientImports = [
     ...(body.includes("NotGiven") ? ["NOT_GIVEN"] : []),
     "AsyncAPIClient",
@@ -480,7 +495,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       }
       return result(type);
     }
-    if (!union && (schema.oneOf?.length || schema.anyOf?.length)) return pythonType(document, schema, true);
+    if (!union && (schema.oneOf?.length || schema.anyOf?.length)) return pythonType(document, schema);
     const object = objectSchema(document, schema);
     if (object?.properties) {
       addModel(object, name);
@@ -491,7 +506,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
     if (type === "object" && typeof schema.additionalProperties === "object") {
       return result(`dict[str, ${modelType(schema.additionalProperties, `${name}Value`)}]`);
     }
-    return pythonType(document, schema, true);
+    return pythonType(document, schema);
   }
 
   function addModel(schema: JsonSchema, name: string) {
@@ -564,6 +579,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
 function clientSource(): string {
   return `from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 from urllib.parse import quote
@@ -639,10 +655,7 @@ class SyncAPIClient:
         max_retries: int,
         http_client: httpx.Client | None,
     ) -> None:
-        self._client = http_client or httpx.Client(
-            base_url=f"{base_url.rstrip('/')}/",
-            timeout=timeout,
-        )
+        self._client = http_client or httpx.Client(timeout=timeout)
         self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
         self._api_key = api_key
         self._max_retries = max_retries
@@ -701,10 +714,7 @@ class AsyncAPIClient:
         max_retries: int,
         http_client: httpx.AsyncClient | None,
     ) -> None:
-        self._client = http_client or httpx.AsyncClient(
-            base_url=f"{base_url.rstrip('/')}/",
-            timeout=timeout,
-        )
+        self._client = http_client or httpx.AsyncClient(timeout=timeout)
         self._client.base_url = httpx.URL(f"{base_url.rstrip('/')}/")
         self._api_key = api_key
         self._max_retries = max_retries
@@ -731,13 +741,13 @@ class AsyncAPIClient:
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:
                     raise APIConnectionError(str(error)) from error
-                await __import__("asyncio").sleep(_retry_delay(None, attempt))
+                await asyncio.sleep(_retry_delay(None, attempt))
                 continue
             if not retryable or (response.status_code not in {408, 409, 429} and response.status_code < 500):
                 break
             if attempt == self._max_retries:
                 break
-            await __import__("asyncio").sleep(_retry_delay(response, attempt))
+            await asyncio.sleep(_retry_delay(response, attempt))
         if response.is_error:
             raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
         if response.status_code == 204 or not response.content:
