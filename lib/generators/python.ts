@@ -84,6 +84,11 @@ function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0):
   return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
 }
 
+function pythonArrayItemType(document: OpenApiDocument, schema: JsonSchema, collection = "list"): string {
+  const items = schema.items ? [schema.items] : (schema.prefixItems ?? []);
+  return [...new Set(items.map((item) => pythonType(document, item, collection)))].join(" | ") || "Any";
+}
+
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, collection = "list"): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
@@ -115,7 +120,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, co
   if (type === "integer") return result("int");
   if (type === "number") return result("float");
   if (type === "boolean") return result("bool");
-  if (type === "array") return result(`${collection}[${pythonType(document, schema.items, collection)}]`);
+  if (type === "array") return result(`${collection}[${pythonArrayItemType(document, schema, collection)}]`);
   if (type === "object" || schema.properties) return result("dict[str, Any]");
   return result("Any");
 }
@@ -513,7 +518,10 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
       return result(name);
     }
     const type = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
-    if (type === "array") return result(`list[${modelType(schema.items, `${name}Item`)}]`);
+    if (type === "array") {
+      const itemType = schema.items ? modelType(schema.items, `${name}Item`) : pythonArrayItemType(document, schema);
+      return result(`list[${itemType}]`);
+    }
     if (type === "object" && typeof schema.additionalProperties === "object") {
       return result(`dict[str, ${modelType(schema.additionalProperties, `${name}Value`)}]`);
     }

@@ -43,6 +43,7 @@
           "metadata": {
             "anyOf": [{ "type": "object", "properties": { "source": { "type": "string" } } }, { "type": "null" }]
           },
+          "shape": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }] },
           "opaque": { "anyOf": [{}, { "type": "null" }] },
           "exclusiveOpaque": { "oneOf": [{}, { "type": "string" }], "anyOf": [{}] }
         }

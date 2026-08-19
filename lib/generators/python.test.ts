@@ -1223,6 +1223,7 @@ describe("Python generator", () => {
     expect(types).toContain('"widgetId": str');
     expect(types).toContain('"displayName": str | None');
     expect(types).toContain('"metadata": NotRequired[WidgetsRetrieveResponseValueMetadata | None]');
+    expect(types).toContain('"shape": NotRequired[list[float]]');
     expect(types).toContain('"opaque": NotRequired[Any]');
     expect(types).toContain('"exclusiveOpaque": NotRequired[Any | str | None]');
     expect(types).toContain("WidgetsRetrieveResponse = WidgetsRetrieveResponseValue | None");
