@@ -6,7 +6,7 @@ contact_links:
     url: https://platform.ultralytics.com/api/docs
     about: Interactive Ultralytics Platform API reference with Python SDK examples
   - name: 💬 Forum
-    url: https://community.ultralytics.com/
+    url: https://community.ultralytics.com
     about: Ask on Ultralytics Community Forum
   - name: 🎧 Discord
     url: https://ultralytics.com/discord
