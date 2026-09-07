@@ -102,7 +102,8 @@ describe("Python generator", () => {
     try {
       const source = join(directory, "cli.py");
       const target = join(directory, "generated");
-      const runtime = "def main():\n    print(MULTIPART_FILES)\n    return 0\n";
+      const runtime =
+        '"""Consumer-owned launcher."""\nfrom __future__ import annotations\n\nfrom _cli_metadata import MULTIPART_FILES\n\ndef main():\n    print(MULTIPART_FILES)\n    return 7\n\nif __name__ == "__main__":\n    raise SystemExit(main())\n';
       await Bun.write(source, runtime);
       const cliConfig = { ...config, python: { ...config.python, cli: { command: "example", source } } };
       const fixture = structuredClone(document);
@@ -112,18 +113,17 @@ describe("Python generator", () => {
       schema.minProperties = 1;
       await generatePython(fixture, cliConfig, target);
       const root = join(target, "src", config.python.package);
-      expect((await Bun.file(join(root, "cli.py")).text()).startsWith(runtime)).toBe(true);
+      expect(await Bun.file(join(root, "cli.py")).text()).toBe(runtime);
       const result = Bun.spawnSync(["python3", join(root, "cli.py")]);
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode).toBe(7);
       expect(result.stdout.toString().trim()).toBe("{'uploads.create': ['file']}");
       expect(await Bun.file(join(target, "pyproject.toml")).text()).toContain(
         `"example" = "${config.python.package}.cli:main"`,
       );
       await generatePython(document, config, target);
       expect(await Bun.file(join(root, "cli.py")).exists()).toBe(false);
+      expect(await Bun.file(join(root, "_cli_metadata.py")).exists()).toBe(false);
       expect(await Bun.file(join(target, "pyproject.toml")).text()).not.toContain("[project.scripts]");
-      await Bun.write(source, `${runtime}\nif __name__ == "__main__":\n    main()\n`);
-      await expect(generatePython(fixture, cliConfig, target)).rejects.toThrow("must not reference __main__");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

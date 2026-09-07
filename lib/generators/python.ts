@@ -834,9 +834,6 @@ export async function generatePython(
   const licenseText = await Bun.file(license.file).text();
   const authProvider = config.python.authProvider ? await Bun.file(config.python.authProvider).text() : undefined;
   const cli = config.python.cli ? await Bun.file(config.python.cli.source).text() : undefined;
-  if (cli?.includes("__main__")) {
-    throw new Error("python.cli.source must not reference __main__; the generator owns the launcher");
-  }
   const multipartFiles = Object.fromEntries(
     [...resources].flatMap(([resource, operations]) =>
       operations.flatMap((operation) => {
@@ -883,10 +880,8 @@ export async function generatePython(
     ...(cli === undefined
       ? []
       : [
-          Bun.write(
-            `${root}/cli.py`,
-            `${cli.trimEnd()}\n\n\nMULTIPART_FILES = ${JSON.stringify(multipartFiles)}\n\n\nif __name__ == "__main__":\n    raise SystemExit(main())\n`,
-          ),
+          Bun.write(`${root}/cli.py`, cli),
+          Bun.write(`${root}/_cli_metadata.py`, `MULTIPART_FILES = ${JSON.stringify(multipartFiles)}\n`),
         ]),
     Bun.write(`${root}/_client.py`, clientSource(config)),
     Bun.write(`${root}/_exceptions.py`, EXCEPTIONS_SOURCE),
