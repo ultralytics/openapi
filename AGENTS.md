@@ -42,6 +42,16 @@ bun run build     # build the static documentation application
 
 Run checks through the package scripts. Generated Python additionally supports `python3 -m compileall -q generated/python/src` and `uvx ruff@0.16.2 check generated/python`.
 
+## Product Boundary (CRITICAL)
+
+This repository is a standalone, general-purpose OpenAPI-to-SDK and API documentation product, intended to compete with products such as Stainless and Scalar. Third-party users must be able to generate SDKs and documentation for their own APIs without inheriting Ultralytics application behavior.
+
+- Never add Ultralytics ML-package or Platform-specific integrations, endpoint knowledge, credential stores, filesystem conventions, business rules, or dependencies to the converter or its generated defaults. Configurable product names do not make application-specific policy generic.
+- Ultralytics-specific SDK behavior belongs in `ultralytics/sdk`, which owns the Python SDK and future language SDKs. Platform API behavior and contracts belong in the Platform repository.
+- Extend the converter only with reusable, opt-in capabilities that make sense for independent API providers. Keep language-specific customization under that language's configuration; default generation must remain independent of any consumer.
+- Keep consumer customizations reproducible through generation and synchronization. Never hand-edit generated output or make the converter depend on a consumer repository.
+- Review every change against this boundary. Relocate application-specific work to its owner instead of teaching the converter about one application.
+
 ## Architecture
 
 - Downstream API docs and SDK consumers must track this repository's `main` branch. Never introduce a commit SHA or tag pin for `ultralytics/openapi` in Portal, SDK, or related automation.

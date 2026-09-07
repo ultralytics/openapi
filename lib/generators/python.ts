@@ -653,52 +653,28 @@ function apiClientSource(async: boolean): string {
 }
 
 function clientSource(config: OpenApiConfig): string {
-  const settings = config.apiKey.settings;
   return `from __future__ import annotations
 
 import asyncio
 import json
 import os
-${settings ? "import sys\n" : ""}import time
+import time
 from collections.abc import Sequence
-${settings ? "from pathlib import Path\n" : ""}from typing import Any
+from typing import Any
 from urllib.parse import quote
 
 import httpx
 
-from ._exceptions import APIConnectionError, APIError
+${config.python.authProvider ? "from ._auth import get_api_key\n" : ""}from ._exceptions import APIConnectionError, APIError
 
 
 def _resolve_api_key(api_key: str | None) -> str | None:
-    """Resolve explicit credentials, the environment, then the configured saved key."""
+    """Resolve explicit credentials, the environment, then the optional provider."""
     if api_key is not None:
         return api_key
     if api_key := os.environ.get(${quote(config.apiKey.environment)}):
         return api_key
-${
-  settings
-    ? `    if config_dir := os.environ.get(${quote(settings.environment)}):
-        directory = Path(config_dir).expanduser() / ${quote(settings.directory)}
-    elif sys.platform == "linux":
-        directory = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / ${quote(settings.directory)}
-    elif sys.platform == "win32":
-        directory = Path.home() / "AppData" / "Roaming" / ${quote(settings.directory)}
-    elif sys.platform == "darwin":
-        directory = Path.home() / "Library" / "Application Support" / ${quote(settings.directory)}
-    else:
-        return None
-    # Select the same directory as the settings writer; never revive a key from another location after logout.
-    for candidate in (directory, Path("/tmp") / ${quote(settings.directory)}, Path.cwd() / ${quote(settings.directory)}):
-        if candidate.exists() or os.access(candidate.parent, os.W_OK):
-            break
-    try:
-        settings = json.loads((candidate / ${quote(settings.filename)}).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    api_key = settings.get(${quote(settings.key)}) if isinstance(settings, dict) else None
-    return api_key if isinstance(api_key, str) else None`
-    : "    return None"
-}
+    return ${config.python.authProvider ? "get_api_key()" : "None"}
 
 
 class NotGiven:
@@ -836,7 +812,7 @@ function publicClientSource(
   const enter = async
     ? `    async def __aenter__(self) -> ${className}:  # noqa: PYI034\n        return self\n\n    async def __aexit__(\n        self,\n        exc_type: type[BaseException] | None,\n        exc: BaseException | None,\n        traceback: object,\n    ) -> None:\n        await self.close()`
     : `    def __enter__(self) -> ${className}:  # noqa: PYI034\n        return self\n\n    def __exit__(\n        self,\n        exc_type: type[BaseException] | None,\n        exc: BaseException | None,\n        traceback: object,\n    ) -> None:\n        self.close()`;
-  return `from __future__ import annotations\n\nimport httpx\n\nfrom ._client import ${apiClient}, _resolve_api_key\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float | httpx.Timeout = 60.0,\n        max_retries: int = 2,\n        http_client: ${httpClient} | None = None,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}${config.apiKey.settings ? " then saved settings" : ""}. Pass an empty string to disable authentication.\n            base_url (str): API base URL.\n            timeout (float | httpx.Timeout): Request timeout.\n            max_retries (int): Retries for connection errors and retryable responses.\n            http_client (${httpClient}, optional): Custom HTTP client.\n        """\n        resolved_api_key = _resolve_api_key(api_key)\n        self._client = ${apiClient}(\n            api_key=resolved_api_key,\n            base_url=base_url,\n            timeout=timeout,\n            max_retries=max_retries,\n            http_client=http_client,\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n\n${enter}\n`;
+  return `from __future__ import annotations\n\nimport httpx\n\nfrom ._client import ${apiClient}, _resolve_api_key\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float | httpx.Timeout = 60.0,\n        max_retries: int = 2,\n        http_client: ${httpClient} | None = None,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}${config.python.authProvider ? " then the configured credential provider" : ""}. Pass an empty string to disable authentication.\n            base_url (str): API base URL.\n            timeout (float | httpx.Timeout): Request timeout.\n            max_retries (int): Retries for connection errors and retryable responses.\n            http_client (${httpClient}, optional): Custom HTTP client.\n        """\n        resolved_api_key = _resolve_api_key(api_key)\n        self._client = ${apiClient}(\n            api_key=resolved_api_key,\n            base_url=base_url,\n            timeout=timeout,\n            max_retries=max_retries,\n            http_client=http_client,\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n\n${enter}\n`;
 }
 
 export async function generatePython(
@@ -886,6 +862,7 @@ export async function generatePython(
     ),
     Bun.write(`${output}/README.md`, readme),
     Bun.write(`${output}/LICENSE`, licenseText),
+    ...(config.python.authProvider ? [Bun.write(`${root}/_auth.py`, Bun.file(config.python.authProvider))] : []),
     Bun.write(`${root}/_client.py`, clientSource(config)),
     Bun.write(`${root}/_exceptions.py`, EXCEPTIONS_SOURCE),
     Bun.write(`${root}/client.py`, publicClientSource(config, resources, false, baseUrl)),
