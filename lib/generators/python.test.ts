@@ -1154,7 +1154,8 @@ describe("Python generator", () => {
     const client = await Bun.file(join(output, "src/example_api/client.py")).text();
     const runtime = await Bun.file(join(output, "src/example_api/_client.py")).text();
     const uploads = await Bun.file(join(output, "src/example_api/resources/uploads.py")).text();
-    expect(client).toContain('os.environ.get("EXAMPLE_API_KEY")');
+    expect(client).toContain("_resolve_api_key(api_key)");
+    expect(runtime).toContain('os.environ.get("EXAMPLE_API_KEY")');
     expect(runtime).not.toContain('headers={"Authorization": f"Bearer {api_key}"} if api_key else {}');
     expect(runtime).toContain('path.lstrip("/")');
     expect(runtime).toContain('retryable = method.upper() in {"GET", "HEAD", "OPTIONS"}');

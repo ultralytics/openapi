@@ -5,7 +5,10 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface OpenApiConfig {
-  apiKey: { environment: string };
+  apiKey: {
+    environment: string;
+    settings?: { directory: string; environment: string; filename: string; key: string };
+  };
   docs?: { basePath?: string };
   header?: string;
   license: { file: string; id: string; url?: string };
