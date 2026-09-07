@@ -122,6 +122,8 @@ describe("Python generator", () => {
       await generatePython(document, config, target);
       expect(await Bun.file(join(root, "cli.py")).exists()).toBe(false);
       expect(await Bun.file(join(target, "pyproject.toml")).text()).not.toContain("[project.scripts]");
+      await Bun.write(source, `${runtime}\nif __name__ == "__main__":\n    main()\n`);
+      await expect(generatePython(fixture, cliConfig, target)).rejects.toThrow("must not reference __main__");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

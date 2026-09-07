@@ -834,6 +834,9 @@ export async function generatePython(
   const licenseText = await Bun.file(license.file).text();
   const authProvider = config.python.authProvider ? await Bun.file(config.python.authProvider).text() : undefined;
   const cli = config.python.cli ? await Bun.file(config.python.cli.source).text() : undefined;
+  if (cli?.includes("__main__")) {
+    throw new Error("python.cli.source must not reference __main__; the generator owns the launcher");
+  }
   const multipartFiles = Object.fromEntries(
     [...resources].flatMap(([resource, operations]) =>
       operations.flatMap((operation) => {
