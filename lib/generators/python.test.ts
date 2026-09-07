@@ -97,13 +97,31 @@ describe("Python generator", () => {
     expect(() => getOperations(contentParameter)).toThrow("Unsupported content parameter: query filter");
   });
 
-  test("uses a configured package README", async () => {
+  test("uses configured consumer README and credential provider sources", async () => {
     const directory = await mkdtemp(join(tmpdir(), "openapi-readme-"));
     const readme = join(directory, "README.md");
+    const authProvider = join(directory, "auth.py");
     try {
       await Bun.write(readme, "# Consumer-owned README\n");
-      await generatePython(document, { ...config, python: { ...config.python, readme } }, join(directory, "generated"));
+      const provider = "def get_api_key() -> str | None:\n    return None\n";
+      await Bun.write(authProvider, provider);
+      await generatePython(
+        document,
+        { ...config, python: { ...config.python, authProvider, readme } },
+        join(directory, "generated"),
+      );
+      await expect(
+        generatePython(
+          document,
+          { ...config, python: { ...config.python, authProvider: join(directory, "missing.py") } },
+          join(directory, "generated"),
+        ),
+      ).rejects.toThrow();
       expect(await Bun.file(join(directory, "generated/README.md")).text()).toBe("# Consumer-owned README\n");
+      expect(await Bun.file(join(directory, "generated/src/example_api/_auth.py")).text()).toBe(provider);
+      expect(await Bun.file(join(directory, "generated/src/example_api/_client.py")).text()).toContain(
+        "return get_api_key()",
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

@@ -5,16 +5,14 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface OpenApiConfig {
-  apiKey: {
-    environment: string;
-    settings?: { directory: string; environment: string; filename: string; key: string };
-  };
+  apiKey: { environment: string };
   docs?: { basePath?: string };
   header?: string;
   license: { file: string; id: string; url?: string };
   name: string;
   repository?: string;
   python: {
+    authProvider?: string;
     authors?: Array<{ email?: string; name: string }>;
     client: string;
     classifiers?: string[];
@@ -58,6 +56,9 @@ export function getConfig(): OpenApiConfig {
   if (!isAbsolute(config.license.file)) config.license.file = resolve(directory, config.license.file);
   if (config.python.readme && !isAbsolute(config.python.readme)) {
     config.python.readme = resolve(directory, config.python.readme);
+  }
+  if (config.python.authProvider && !isAbsolute(config.python.authProvider)) {
+    config.python.authProvider = resolve(directory, config.python.authProvider);
   }
   return config;
 }
