@@ -71,6 +71,7 @@ This repository is a standalone, general-purpose OpenAPI-to-SDK and API document
 
 ## Conventions
 
+- Ultralytics-owned PyPI packages use `MAJOR.MINOR.PATCH` versions only; no suffixes.
 - License headers (`# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license`) are added automatically by Ultralytics Actions — don't add or revert them manually.
 - Generated output must be deterministic and is validated in CI.
 - Google-style docstrings, modern type hints, and a 120-character Python line length are formatted by Ruff.
