@@ -97,6 +97,36 @@ describe("Python generator", () => {
     expect(() => getOperations(contentParameter)).toThrow("Unsupported content parameter: query filter");
   });
 
+  test("includes an opt-in consumer CLI in the Python package", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openapi-cli-"));
+    try {
+      const source = join(directory, "cli.py");
+      const target = join(directory, "generated");
+      const runtime = "def main():\n    print(MULTIPART_FILES)\n    return 0\n";
+      await Bun.write(source, runtime);
+      const cliConfig = { ...config, python: { ...config.python, cli: { command: "example", source } } };
+      const fixture = structuredClone(document);
+      const upload = getOperations(fixture).find((operation) => requestMedia(operation)?.[0] === "multipart/form-data");
+      const schema = upload && requestMedia(upload)?.[1].schema;
+      if (!schema) throw new Error("Missing multipart fixture");
+      schema.minProperties = 1;
+      await generatePython(fixture, cliConfig, target);
+      const root = join(target, "src", config.python.package);
+      expect((await Bun.file(join(root, "cli.py")).text()).startsWith(runtime)).toBe(true);
+      const result = Bun.spawnSync(["python3", join(root, "cli.py")]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString().trim()).toBe("{'uploads.create': ['file']}");
+      expect(await Bun.file(join(target, "pyproject.toml")).text()).toContain(
+        `"example" = "${config.python.package}.cli:main"`,
+      );
+      await generatePython(document, config, target);
+      expect(await Bun.file(join(root, "cli.py")).exists()).toBe(false);
+      expect(await Bun.file(join(target, "pyproject.toml")).text()).not.toContain("[project.scripts]");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test("uses configured consumer README and credential provider sources", async () => {
     const directory = await mkdtemp(join(tmpdir(), "openapi-readme-"));
     const readme = join(directory, "README.md");
