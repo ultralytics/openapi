@@ -110,6 +110,13 @@ describe("Python generator", () => {
         { ...config, python: { ...config.python, authProvider, readme } },
         join(directory, "generated"),
       );
+      await expect(
+        generatePython(
+          document,
+          { ...config, python: { ...config.python, authProvider: join(directory, "missing.py") } },
+          join(directory, "generated"),
+        ),
+      ).rejects.toThrow();
       expect(await Bun.file(join(directory, "generated/README.md")).text()).toBe("# Consumer-owned README\n");
       expect(await Bun.file(join(directory, "generated/src/example_api/_auth.py")).text()).toBe(provider);
       expect(await Bun.file(join(directory, "generated/src/example_api/_client.py")).text()).toContain(
