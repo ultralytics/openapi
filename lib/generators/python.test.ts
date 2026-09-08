@@ -103,7 +103,7 @@ describe("Python generator", () => {
       const source = join(directory, "cli.py");
       const target = join(directory, "generated");
       const runtime =
-        '"""Consumer-owned launcher."""\nfrom __future__ import annotations\n\nfrom _cli_metadata import MULTIPART_FILES\n\ndef main():\n    print(MULTIPART_FILES)\n    return 7\n\nif __name__ == "__main__":\n    raise SystemExit(main())\n';
+        '"""Consumer-owned launcher."""\nfrom __future__ import annotations\n\nfrom ._cli_metadata import MULTIPART_FILES\n\ndef main():\n    print(MULTIPART_FILES)\n    return 7\n\nif __name__ == "__main__":\n    raise SystemExit(main())\n';
       await Bun.write(source, runtime);
       const cliConfig = { ...config, python: { ...config.python, cli: { command: "example", source } } };
       const fixture = structuredClone(document);
@@ -114,12 +114,20 @@ describe("Python generator", () => {
       await generatePython(fixture, cliConfig, target);
       const root = join(target, "src", config.python.package);
       expect(await Bun.file(join(root, "cli.py")).text()).toBe(runtime);
-      const result = Bun.spawnSync(["python3", join(root, "cli.py")]);
-      expect(result.exitCode).toBe(7);
-      expect(result.stdout.toString().trim()).toBe("{'uploads.create': ['file']}");
-      expect(await Bun.file(join(target, "pyproject.toml")).text()).toContain(
-        `"example" = "${config.python.package}.cli:main"`,
-      );
+      for (const command of [["python", "-m", `${config.python.package}.cli`], [cliConfig.python.cli.command]]) {
+        const result = Bun.spawnSync([
+          "uv",
+          "run",
+          "--no-project",
+          "--python",
+          "python3",
+          "--with",
+          target,
+          ...command,
+        ]);
+        expect(result.exitCode).toBe(7);
+        expect(result.stdout.toString().trim()).toBe("{'uploads.create': ['file']}");
+      }
       await generatePython(document, config, target);
       expect(await Bun.file(join(root, "cli.py")).exists()).toBe(false);
       expect(await Bun.file(join(root, "_cli_metadata.py")).exists()).toBe(false);
