@@ -33,7 +33,11 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
   "apiKey": { "environment": "EXAMPLE_API_KEY" },
   "docs": { "basePath": "/reference" },
   "header": "Example API - https://example.com/license",
-  "license": { "id": "AGPL-3.0-only", "file": "LICENSE", "url": "https://spdx.org/licenses/AGPL-3.0-only.html" },
+  "license": {
+    "id": "AGPL-3.0-only",
+    "file": "LICENSE",
+    "url": "https://spdx.org/licenses/AGPL-3.0-only.html"
+  },
   "python": {
     "authors": [{ "name": "Example", "email": "hello@example.com" }],
     "classifiers": ["Programming Language :: Python :: 3 :: Only"],
@@ -51,6 +55,9 @@ Edit `openapi.config.json` to use your local or HTTPS OpenAPI specification and 
 ```
 
 `source`, `name`, `apiKey.environment`, and the `python` `client`, `package`, and `project` keys are required; everything else is optional. `python.version` defaults to the contract's `info.version` so one bump in the API releases the SDK, `python.install` defaults to `pip install <project>`, `python.readme` replaces the generated package README, `repository` fills the package URLs, and `docs.basePath` mounts the documentation under a sub-path. Optional `python.authProvider` points to a consumer-owned Python module exporting `get_api_key() -> str | None`. The module is included as `_auth.py` in the generated package. Both clients resolve explicit credentials first, then `apiKey.environment`, then the provider, once at client initialization; an explicit empty string disables authentication. Credential storage and discovery policy belongs in the consumer module, not the converter. Relative paths resolve against the configuration file. The first OpenAPI server becomes the SDK's default base URL. HTTP bearer authentication and header-based API keys are derived from `components.securitySchemes`.
+
+Optional `python.cli` accepts `{ "command": "example", "source": "cli.py" }`. The Python generator copies this consumer-owned source into the package as `cli.py` and registers `example` as `<package>.cli:main`. The source defines `main()` callable without arguments and owns any `if __name__ == "__main__":` launcher for `python -m <package>.cli`. The generated sibling `_cli_metadata.py` exports `MULTIPART_FILES`; use `from ._cli_metadata import MULTIPART_FILES` to access it. This dictionary maps `resource.method` names to binary field names inside whole multipart bodies, whose SDK annotation is a plain dictionary. Other argument information comes from SDK signatures and docstrings. Parsing, command defaults, authentication commands, output, and local-tool delegation belong in the consumer source. Without `python.cli`, no CLI module, metadata module, or executable is generated.
+
 Set `OPENAPI_CONFIG` to use a configuration outside this repository, such as a product-specific consumer:
 
 ```bash

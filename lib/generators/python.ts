@@ -833,6 +833,19 @@ export async function generatePython(
   const license = config.license;
   const licenseText = await Bun.file(license.file).text();
   const authProvider = config.python.authProvider ? await Bun.file(config.python.authProvider).text() : undefined;
+  const cli = config.python.cli ? await Bun.file(config.python.cli.source).text() : undefined;
+  const multipartFiles = Object.fromEntries(
+    [...resources].flatMap(([resource, operations]) =>
+      operations.flatMap((operation) => {
+        const body = operation.arguments.find((argument) => argument.wholeBody);
+        if (!body || operation.contentType !== "multipart/form-data") return [];
+        const files = Object.entries(objectSchema(document, body.schema)?.properties ?? {})
+          .filter(([, schema]) => resolveSchema(document, schema)?.format === "binary")
+          .map(([name]) => name);
+        return files.length ? [[`${resource}.${operation.name}`, files]] : [];
+      }),
+    ),
+  );
   const readme = config.python.readme
     ? await Bun.file(config.python.readme).text()
     : `<div align="center">\n\n# 🔌 ${config.name} Python SDK\n\n[![PyPI - Version](https://img.shields.io/pypi/v/${config.python.project}?logo=pypi&logoColor=white)](https://pypi.org/project/${config.python.project}/)\n[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/${config.python.project}?logo=python&logoColor=gold)](https://pypi.org/project/${config.python.project}/)\n\n</div>\n\nTyped synchronous and asynchronous Python clients generated from the ${config.name} contract.\n\n## 🐍 Installation\n\n\`\`\`bash\n${config.python.install}\n\`\`\`\n\n## 🔑 Authentication\n\nPass your API key directly when creating a client:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nclient = ${config.python.client}(api_key="YOUR_API_KEY")\n\`\`\`\n\nAlternatively, set \`${config.apiKey.environment}\` and omit the \`api_key\` argument.\n\n## 🚀 Usage\n\nResources are grouped under one client and support context-manager cleanup:\n\n\`\`\`python\nfrom ${config.python.package} import ${config.python.client}\n\nwith ${config.python.client}() as client:\n    ${readmeExample ? `response = client.${readmeExample.resource}.${readmeExample.operation.name}()` : "..."}\n\`\`\`\n\nEvery resource is also available through the asynchronous client:\n\n\`\`\`python\nimport asyncio\n\nfrom ${config.python.package} import Async${config.python.client}\n\n\nasync def main():\n    async with Async${config.python.client}() as client:\n        ${readmeExample ? `response = await client.${readmeExample.resource}.${readmeExample.operation.name}()` : "..."}\n\n\nasyncio.run(main())\n\`\`\`\n\n## ✨ Features\n\n- Typed synchronous and asynchronous resource clients\n- Multipart uploads and custom HTTP clients\n- Automatic retries for temporary failures\n- Structured API and connection errors\n- Context-manager cleanup\n\n## 📄 License\n\nThis SDK is licensed under the [${license.id.replace("-only", "")} License](${license.url ?? "LICENSE"}).\n${config.repository ? `\n## 🤝 Support\n\nFor bug reports and feature requests, open an issue at [${config.repository}/issues](${config.repository}/issues).\n` : ""}`;
@@ -859,11 +872,17 @@ export async function generatePython(
   await Promise.all([
     Bun.write(
       `${output}/pyproject.toml`,
-      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${version}"\n${projectMetadata}\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\ndependencies = ["httpx>=0.28,<1"]${projectUrls}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
+      `[build-system]\nrequires = ["uv_build>=0.12.3,<0.13"]\nbuild-backend = "uv_build"\n\n[project]\nname = "${config.python.project}"\nversion = "${version}"\n${projectMetadata}\nreadme = "README.md"\nlicense = "${license.id}"\nlicense-files = ["LICENSE"]\ndependencies = ["httpx>=0.28,<1"]${projectUrls}${config.python.cli ? `\n\n[project.scripts]\n${JSON.stringify(config.python.cli.command)} = "${config.python.package}.cli:main"` : ""}\n\n[tool.ruff]\nline-length = 120\n\n[tool.uv.build-backend]\nmodule-name = "${config.python.package}"\n`,
     ),
     Bun.write(`${output}/README.md`, readme),
     Bun.write(`${output}/LICENSE`, licenseText),
     ...(authProvider === undefined ? [] : [Bun.write(`${root}/_auth.py`, authProvider)]),
+    ...(cli === undefined
+      ? []
+      : [
+          Bun.write(`${root}/cli.py`, cli),
+          Bun.write(`${root}/_cli_metadata.py`, `MULTIPART_FILES = ${JSON.stringify(multipartFiles)}\n`),
+        ]),
     Bun.write(`${root}/_client.py`, clientSource(config)),
     Bun.write(`${root}/_exceptions.py`, EXCEPTIONS_SOURCE),
     Bun.write(`${root}/client.py`, publicClientSource(config, resources, false, baseUrl)),

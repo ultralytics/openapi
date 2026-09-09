@@ -97,6 +97,46 @@ describe("Python generator", () => {
     expect(() => getOperations(contentParameter)).toThrow("Unsupported content parameter: query filter");
   });
 
+  test("includes an opt-in consumer CLI in the Python package", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openapi-cli-"));
+    try {
+      const source = join(directory, "cli.py");
+      const target = join(directory, "generated");
+      const runtime =
+        '"""Consumer-owned launcher."""\nfrom __future__ import annotations\n\nfrom ._cli_metadata import MULTIPART_FILES\n\ndef main():\n    print(MULTIPART_FILES)\n    return 7\n\nif __name__ == "__main__":\n    raise SystemExit(main())\n';
+      await Bun.write(source, runtime);
+      const cliConfig = { ...config, python: { ...config.python, cli: { command: "example", source } } };
+      const fixture = structuredClone(document);
+      const upload = getOperations(fixture).find((operation) => requestMedia(operation)?.[0] === "multipart/form-data");
+      const schema = upload && requestMedia(upload)?.[1].schema;
+      if (!schema) throw new Error("Missing multipart fixture");
+      schema.minProperties = 1;
+      await generatePython(fixture, cliConfig, target);
+      const root = join(target, "src", config.python.package);
+      expect(await Bun.file(join(root, "cli.py")).text()).toBe(runtime);
+      for (const command of [["python", "-m", `${config.python.package}.cli`], [cliConfig.python.cli.command]]) {
+        const result = Bun.spawnSync([
+          "uv",
+          "run",
+          "--no-project",
+          "--python",
+          "python3",
+          "--with",
+          target,
+          ...command,
+        ]);
+        expect(result.exitCode).toBe(7);
+        expect(result.stdout.toString().trim()).toBe("{'uploads.create': ['file']}");
+      }
+      await generatePython(document, config, target);
+      expect(await Bun.file(join(root, "cli.py")).exists()).toBe(false);
+      expect(await Bun.file(join(root, "_cli_metadata.py")).exists()).toBe(false);
+      expect(await Bun.file(join(target, "pyproject.toml")).text()).not.toContain("[project.scripts]");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test("uses configured consumer README and credential provider sources", async () => {
     const directory = await mkdtemp(join(tmpdir(), "openapi-readme-"));
     const readme = join(directory, "README.md");

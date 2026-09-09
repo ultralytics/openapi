@@ -15,6 +15,7 @@ export interface OpenApiConfig {
     authProvider?: string;
     authors?: Array<{ email?: string; name: string }>;
     client: string;
+    cli?: { command: string; source: string };
     classifiers?: string[];
     description?: string;
     install: string;
@@ -59,6 +60,18 @@ export function getConfig(): OpenApiConfig {
   }
   if (config.python.authProvider && !isAbsolute(config.python.authProvider)) {
     config.python.authProvider = resolve(directory, config.python.authProvider);
+  }
+  if (config.python.cli) {
+    if (
+      typeof config.python.cli.command !== "string" ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(config.python.cli.command)
+    ) {
+      throw new Error(`${configPath} requires a valid python.cli.command`);
+    }
+    if (typeof config.python.cli.source !== "string" || !config.python.cli.source) {
+      throw new Error(`${configPath} requires python.cli.source`);
+    }
+    config.python.cli.source = resolve(directory, config.python.cli.source);
   }
   return config;
 }

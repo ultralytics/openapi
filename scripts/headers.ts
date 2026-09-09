@@ -31,7 +31,7 @@ async function addHeader(path: string): Promise<void> {
       if (!prefix) return;
 
       const content = await Bun.file(child).text();
-      if (!content.startsWith(prefix)) await Bun.write(child, `${prefix}${content}`);
+      if (!content.startsWith(`${prefix.trimEnd()}\n`)) await Bun.write(child, `${prefix}${content}`);
     }),
   );
 }
