@@ -632,7 +632,7 @@ function apiClientSource(async: boolean): string {
                     raise APIConnectionError(str(error)) from error
                 ${w}${async ? "asyncio" : "time"}.sleep(_retry_delay(None, attempt))
                 continue
-            if retryable and attempt < self._max_retries and (response.status_code in {408, 409, 429} or response.status_code >= 500):
+            if (retryable or (response.status_code == 429 and kwargs.get("json") is not None)) and attempt < self._max_retries and (response.status_code in {408, 409, 429} or response.status_code >= 500):
                 ${w}${async ? "asyncio" : "time"}.sleep(_retry_delay(response, attempt))
                 continue
             if response.is_error:
