@@ -31,20 +31,20 @@ After opening a PR:
 ## Commands
 
 ```bash
-bun install --frozen-lockfile   # Bun + uv are the whole toolchain; CI also installs Python 3.11 and 3.14
-bun run sync                    # scripts/sync.ts: read `source` from openapi.config.json → public/openapi.json (gitignored)
-bun run generate                # sync → scripts/generate.ts → generated/python (deleted and rewritten) → uvx ruff@0.16.2 format → scripts/headers.ts
-bun run dev                     # sync → next dev (docs at http://localhost:3000; rewrites the nextjs-agent-rules block at the end of this file)
-bun run build                   # sync → next build (static export to out/) → scripts/headers.ts out
-bun run typecheck               # next typegen && tsgo --noEmit (works without public/openapi.json)
-bun run lint                    # biome check . (lint:fix writes); generated/, public/openapi.json, .next, out are excluded in biome.json
-bun run knip                    # knip --exclude binaries (no knip.json; exports of lib/openapi.ts are public via package.json "exports")
-bun run test                    # bun test — the single test file lib/generators/python.test.ts (20 tests, ~2 s); needs uv + python3
-bun test lib/generators/python.test.ts -t "multipart"   # filter tests by name
+bun install --frozen-lockfile                         # Bun + uv are the whole toolchain; CI also installs Python 3.11 and 3.14
+bun run sync                                          # scripts/sync.ts: read `source` from openapi.config.json → public/openapi.json (gitignored)
+bun run generate                                      # sync → scripts/generate.ts → generated/python (deleted and rewritten) → uvx ruff@0.16.2 format → scripts/headers.ts
+bun run dev                                           # sync → next dev (docs at http://localhost:3000; rewrites the nextjs-agent-rules block at the end of this file)
+bun run build                                         # sync → next build (static export to out/) → scripts/headers.ts out
+bun run typecheck                                     # next typegen && tsgo --noEmit (works without public/openapi.json)
+bun run lint                                          # biome check . (lint:fix writes); generated/, public/openapi.json, .next, out are excluded in biome.json
+bun run knip                                          # knip --exclude binaries (no knip.json; exports of lib/openapi.ts are public via package.json "exports")
+bun run test                                          # bun test — the single test file lib/generators/python.test.ts (20 tests, ~2 s); needs uv + python3
+bun test lib/generators/python.test.ts -t "multipart" # filter tests by name
 
 # Generated-Python checks that CI runs after `bun run generate` (Python 3.11 and 3.14)
 python3 -m compileall -q generated/python/src
-uv pip install --system ./generated/python       # CI then imports <python.package>.<python.client> and Async<python.client>
+uv pip install --system ./generated/python # CI then imports <python.package>.<python.client> and Async<python.client>
 uvx ruff@0.16.2 check generated/python
 
 # Generate for a consumer's configuration (relative paths inside it resolve against that file; output still lands in generated/python)
