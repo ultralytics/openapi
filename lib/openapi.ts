@@ -531,7 +531,15 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   return parameters;
 }
 
+class PythonExpression {
+  readonly source: string;
+  constructor(source: string) {
+    this.source = source;
+  }
+}
+
 function pythonLiteral(value: unknown): string {
+  if (value instanceof PythonExpression) return value.source;
   if (value === null) return "None";
   if (value === true) return "True";
   if (value === false) return "False";
@@ -559,6 +567,25 @@ export function pythonCodeSample(
         : request[0].startsWith("text/")
           ? requestBodyExample(document, operation)
           : requestBodyExampleValue(document, request);
+  }
+  if (
+    request?.[0].startsWith("multipart/") &&
+    exampleBody &&
+    typeof exampleBody === "object" &&
+    !Array.isArray(exampleBody)
+  ) {
+    // The SDK passes multipart file fields to httpx as file content, so samples must open the file rather than pass its path
+    const properties = resolveSchema(document, request[1].schema)?.properties ?? {};
+    exampleBody = Object.fromEntries(
+      Object.entries(exampleBody as Record<string, unknown>).map(([name, value]) => [
+        name,
+        isBinarySchema(document, properties[name])
+          ? new PythonExpression(
+              `open(${JSON.stringify(typeof value === "string" && value && value !== "..." ? value : "path/to/file")}, "rb")`,
+            )
+          : value,
+      ]),
+    );
   }
   const bodyValues =
     exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
