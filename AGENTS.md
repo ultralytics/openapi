@@ -72,6 +72,10 @@ Use package scripts: `dev`, `build`, and `generate` synchronize the contract fir
 
 Consumers must follow this repository's `main`, never a SHA or tag. Keep contract definitions in the configured input, language output in its renderer, and generated files untracked. API keys stay in browser memory and out of copied examples. Compose the existing Base UI primitives with `render`, not Radix `asChild`.
 
+## Python output conventions
+
+Use one client with grouped resources, keyword arguments, and environment authentication. Sync and async clients share the same resource tree. Generate Google-style docstrings with parenthesized types in Args, Returns, and Raises. Generated packages use the configured license, defaulting to AGPL-3.0.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
