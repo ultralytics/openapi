@@ -531,7 +531,15 @@ export function sdkArguments(document: OpenApiDocument, operation: ApiOperation)
   return parameters;
 }
 
+class PythonExpression {
+  readonly source: string;
+  constructor(source: string) {
+    this.source = source;
+  }
+}
+
 function pythonLiteral(value: unknown): string {
+  if (value instanceof PythonExpression) return value.source;
   if (value === null) return "None";
   if (value === true) return "True";
   if (value === false) return "False";
@@ -542,6 +550,34 @@ function pythonLiteral(value: unknown): string {
       .join(", ")}}`;
   }
   return JSON.stringify(value);
+}
+
+function pythonFile(value: unknown): PythonExpression {
+  return new PythonExpression(
+    `open(${JSON.stringify(typeof value === "string" && value && value !== "..." ? value : "path/to/file")}, "rb")`,
+  );
+}
+
+// The SDK sends multipart file fields to httpx as file content, so Python samples open the file instead of passing its path
+function pythonMultipartValue(
+  document: OpenApiDocument,
+  argument: SdkArgument,
+  bodySchema: JsonSchema | undefined,
+  value: unknown,
+): unknown {
+  if (value === null || value === undefined) return value;
+  if (!argument.wholeBody)
+    return resolveSchema(document, argument.schema)?.format === "binary" ? pythonFile(value) : value;
+  if (typeof value !== "object" || Array.isArray(value)) return value;
+  const properties = objectSchema(document, bodySchema)?.properties;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([name, item]) => [
+      name,
+      item !== null && item !== undefined && resolveSchema(document, properties?.[name])?.format === "binary"
+        ? pythonFile(item)
+        : item,
+    ]),
+  );
 }
 
 export function pythonCodeSample(
@@ -575,7 +611,11 @@ export function pythonCodeSample(
             : bodyValues[argument.name] !== undefined
               ? bodyValues[argument.name]
               : schemaExample(document, argument.schema, 0, argument.name);
-      return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
+      const sample =
+        argument.location === "body" && request?.[0] === "multipart/form-data"
+          ? pythonMultipartValue(document, argument, request[1].schema, value)
+          : value;
+      return { source: `${argument.pythonName}=${pythonLiteral(sample)}`, value };
     });
   return [
     `from ${config.package} import ${config.client}`,

@@ -13,6 +13,7 @@ import {
   getOperations,
   type OpenApiDocument,
   objectSchema,
+  pythonCodeSample,
   requestBodyExample,
   requestMedia,
   resolveServerUrl,
@@ -279,6 +280,13 @@ describe("Python generator", () => {
       origin: "https://docs.example.com",
     });
     expect(curl).toContain("-F 'file=@path/to/file'");
+    expect(
+      pythonCodeSample(document, upload, {
+        client: config.python.client,
+        environment: config.apiKey.environment,
+        package: config.python.package,
+      }),
+    ).toContain('file=open("path/to/file", "rb")');
     expect(curl).toStartWith("curl https://api.example.com/v1/uploads");
     expect(curl).not.toContain("--request");
     expect(curl).not.toContain("--url");

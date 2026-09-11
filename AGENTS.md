@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents (Claude Code, etc.) when working with code in this repository. CLAUDE.md is a symlink to this file.
+Repository guidance for coding agents. `CLAUDE.md` is a symlink to this file.
 
 ## Core Principles (CRITICAL)
 
@@ -26,22 +26,6 @@ After opening a PR:
 4. Never fight other commits: Ultralytics Actions pushes auto-format and header commits, and multiple users may work on the same PR. `git pull --rebase` before pushing; never reset or revert commits you did not author.
 5. After the PR merges, clean up: remove local worktrees and branches for it, then `git checkout main && git pull`.
 
-## Commands
-
-```bash
-bun install       # install application and generator dependencies
-bun run dev       # run the documentation application
-bun run sync      # fetch the configured OpenAPI contract
-bun run generate  # generate and format all SDK outputs
-bun run typecheck # type-check TypeScript
-bun run lint      # check formatting and lint rules
-bun run knip      # find unused files, exports, and dependencies
-bun run test      # run focused generator tests
-bun run build     # build the static documentation application
-```
-
-Run checks through the package scripts. Generated Python additionally supports `python3 -m compileall -q generated/python/src` and `uvx ruff@0.16.2 check generated/python`.
-
 ## Product Boundary (CRITICAL)
 
 This repository is a standalone, general-purpose OpenAPI-to-SDK and API documentation product, intended to compete with products such as Stainless and Scalar. Third-party users must be able to generate SDKs and documentation for their own APIs without inheriting Ultralytics application behavior.
@@ -52,22 +36,27 @@ This repository is a standalone, general-purpose OpenAPI-to-SDK and API document
 - Keep consumer customizations reproducible through generation and synchronization. Never hand-edit generated output or make the converter depend on a consumer repository.
 - Review every change against this boundary. Relocate application-specific work to its owner instead of teaching the converter about one application.
 
-## Architecture
+## Commands and validation
 
-- Downstream API docs and SDK consumers must track this repository's `main` branch. Never introduce a commit SHA or tag pin for `ultralytics/openapi` in Portal, SDK, or related automation.
-- `openapi.config.json` points to the sole local or remote API contract. Never duplicate or patch endpoint definitions in a generator.
-- `lib/openapi.ts` owns parsing, schema normalization, examples, and operation names shared by documentation and every SDK.
-- `lib/generators/` contains language-specific renderers. Add another language only when its implementation is ready; do not add placeholder abstractions.
-- `generated/` contains ignored local SDK output and is never committed or edited manually. Change the contract, shared representation, or renderer, then regenerate.
-- `components/api-reference.tsx` renders the interactive reference from the same shared operation model. API keys remain in browser memory and never appear in copied examples.
-- The documentation uses shadcn's `base-nova` style with Base UI primitives and Ultralytics design tokens.
+```bash
+bun install --frozen-lockfile
+bun run generate
+bun run typecheck
+bun run lint
+bun run knip
+bun run test
+bun run build
+```
 
-## Python Output
+Use package scripts: `dev`, `build`, and `generate` synchronize the contract first. Bun, Node, uv, and Python are required; the CLI test runs generated Python. Generator changes also require CI's deterministic regeneration, Python compile/import checks, and Ruff checks (`.github/workflows/ci.yml`). `generatePython` deletes its output directory before writing; use only a disposable output path.
 
-- Follow the OpenAI client shape: one client, grouped resources, keyword arguments, and environment-based authentication.
-- Generate synchronous and asynchronous clients with the same resource tree.
-- Generate Google-style docstrings. Types are parenthesized in `Args:`, `Returns:`, and `Raises:` sections.
-- Generated SDK packages default to AGPL-3.0 and use the license configured in `openapi.config.json`.
+## Where to look
+
+- Shared contract interpretation and samples → `lib/openapi.ts`.
+- Python output → `lib/generators/python.ts`, `lib/generators/python.test.ts`.
+- Generation and synchronization → `scripts/generate.ts`, `scripts/sync.ts`.
+- Configuration and fixtures → `openapi.config.json`, `examples/openapi.json`.
+- Documentation UI → `app/`, `components/`.
 
 ## Conventions
 
@@ -75,6 +64,17 @@ This repository is a standalone, general-purpose OpenAPI-to-SDK and API document
 - License headers (`# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license`) are added automatically by Ultralytics Actions — don't add or revert them manually.
 - Generated output must be deterministic and is validated in CI.
 - Google-style docstrings, modern type hints, and a 120-character Python line length are formatted by Ruff.
+
+## Pitfalls
+
+- Determinism is enforced (CI generates twice and diffs). Resource order follows the contract's path order via `Map` insertion; exports are sorted explicitly (`resourceExports.sort()`). Avoid timestamps, randomness, or unordered iteration in generator code.
+- `format.yml` reformats JSON/Markdown/YAML with Prettier and pushes to your branch; `git pull --rebase` before every push.
+
+Consumers must follow this repository's `main`, never a SHA or tag. Keep contract definitions in the configured input, language output in its renderer, and generated files untracked. API keys stay in browser memory and out of copied examples. Compose the existing Base UI primitives with `render`, not Radix `asChild`.
+
+## Python output conventions
+
+Use one client with grouped resources, keyword arguments, and environment authentication. Sync and async clients share the same resource tree. Generate Google-style docstrings with parenthesized types in Args, Returns, and Raises. Generated packages use the configured license, defaulting to AGPL-3.0.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
