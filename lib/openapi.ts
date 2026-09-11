@@ -558,20 +558,6 @@ function pythonFile(value: unknown): PythonExpression {
   );
 }
 
-function isMultipartFileProperty(
-  document: OpenApiDocument,
-  input: JsonSchema | undefined,
-  name: string,
-  depth = 0,
-): boolean {
-  const schema = resolveSchema(document, input);
-  if (!schema || depth > 8) return false;
-  if (isBinarySchema(document, objectSchema(document, schema)?.properties?.[name])) return true;
-  return [...(schema.allOf ?? []), ...(schema.anyOf ?? []), ...(schema.oneOf ?? [])].some((branch) =>
-    isMultipartFileProperty(document, branch, name, depth + 1),
-  );
-}
-
 // The SDK sends multipart file fields to httpx as file content, so Python samples open the file instead of passing its path
 function pythonMultipartValue(
   document: OpenApiDocument,
@@ -580,12 +566,14 @@ function pythonMultipartValue(
   value: unknown,
 ): unknown {
   if (value === null || value === undefined) return value;
-  if (!argument.wholeBody) return isBinarySchema(document, argument.schema) ? pythonFile(value) : value;
+  if (!argument.wholeBody)
+    return resolveSchema(document, argument.schema)?.format === "binary" ? pythonFile(value) : value;
   if (typeof value !== "object" || Array.isArray(value)) return value;
+  const properties = objectSchema(document, bodySchema)?.properties;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([name, item]) => [
       name,
-      item !== null && item !== undefined && isMultipartFileProperty(document, bodySchema, name)
+      item !== null && item !== undefined && resolveSchema(document, properties?.[name])?.format === "binary"
         ? pythonFile(item)
         : item,
     ]),
@@ -624,7 +612,7 @@ export function pythonCodeSample(
               ? bodyValues[argument.name]
               : schemaExample(document, argument.schema, 0, argument.name);
       const sample =
-        argument.location === "body" && request?.[0].startsWith("multipart/")
+        argument.location === "body" && request?.[0] === "multipart/form-data"
           ? pythonMultipartValue(document, argument, request[1].schema, value)
           : value;
       return { source: `${argument.pythonName}=${pythonLiteral(sample)}`, value };
