@@ -552,6 +552,44 @@ function pythonLiteral(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function pythonFile(value: unknown): PythonExpression {
+  return new PythonExpression(
+    `open(${JSON.stringify(typeof value === "string" && value && value !== "..." ? value : "path/to/file")}, "rb")`,
+  );
+}
+
+function multipartPropertySchema(
+  document: OpenApiDocument,
+  input: JsonSchema | undefined,
+  name: string,
+  depth = 0,
+): JsonSchema | undefined {
+  const schema = resolveSchema(document, input);
+  if (!schema || depth > 8) return undefined;
+  const direct = objectSchema(document, schema)?.properties?.[name];
+  if (direct) return direct;
+  for (const branch of [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])]) {
+    const found = multipartPropertySchema(document, branch, name, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+// The SDK sends multipart file fields to httpx as file content, so Python samples open the file instead of passing its path
+function pythonMultipartValue(document: OpenApiDocument, schema: JsonSchema | undefined, value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (isBinarySchema(document, schema)) return pythonFile(value);
+  if (typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([name, item]) => [
+      name,
+      item !== null && item !== undefined && isBinarySchema(document, multipartPropertySchema(document, schema, name))
+        ? pythonFile(item)
+        : item,
+    ]),
+  );
+}
+
 export function pythonCodeSample(
   document: OpenApiDocument,
   operation: ApiOperation,
@@ -568,25 +606,6 @@ export function pythonCodeSample(
           ? requestBodyExample(document, operation)
           : requestBodyExampleValue(document, request);
   }
-  if (
-    request?.[0].startsWith("multipart/") &&
-    exampleBody &&
-    typeof exampleBody === "object" &&
-    !Array.isArray(exampleBody)
-  ) {
-    // The SDK passes multipart file fields to httpx as file content, so samples must open the file rather than pass its path
-    const properties = resolveSchema(document, request[1].schema)?.properties ?? {};
-    exampleBody = Object.fromEntries(
-      Object.entries(exampleBody as Record<string, unknown>).map(([name, value]) => [
-        name,
-        isBinarySchema(document, properties[name])
-          ? new PythonExpression(
-              `open(${JSON.stringify(typeof value === "string" && value && value !== "..." ? value : "path/to/file")}, "rb")`,
-            )
-          : value,
-      ]),
-    );
-  }
   const bodyValues =
     exampleBody && typeof exampleBody === "object" && !Array.isArray(exampleBody)
       ? (exampleBody as Record<string, unknown>)
@@ -602,7 +621,11 @@ export function pythonCodeSample(
             : bodyValues[argument.name] !== undefined
               ? bodyValues[argument.name]
               : schemaExample(document, argument.schema, 0, argument.name);
-      return { source: `${argument.pythonName}=${pythonLiteral(value)}`, value };
+      const sample =
+        argument.location === "body" && request?.[0].startsWith("multipart/")
+          ? pythonMultipartValue(document, argument.wholeBody ? request[1].schema : argument.schema, value)
+          : value;
+      return { source: `${argument.pythonName}=${pythonLiteral(sample)}`, value };
     });
   return [
     `from ${config.package} import ${config.client}`,
