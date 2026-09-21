@@ -36,6 +36,16 @@ This repository is a standalone, general-purpose OpenAPI-to-SDK and API document
 - Keep consumer customizations reproducible through generation and synchronization. Never hand-edit generated output or make the converter depend on a consumer repository.
 - Review every change against this boundary. Relocate application-specific work to its owner instead of teaching the converter about one application.
 
+## Platform API and SDK release version (CRITICAL)
+
+**`ultralytics/portal` owns the version in `scripts/generate-openapi.ts` (Alpha's `info.version`). The `ultralytics-platform` SDK version MUST equal its API contract version.** The SDK repository consumes the deployed contract through automation; it does not choose release versions.
+
+- NEVER set SDK `python.version`, independently bump its patch, or hand-edit generated versions. API `0.1.50` with SDK `0.1.52` is INVALID; `max(API, SDK)` and automatic SDK patch bumps do not coordinate releases.
+- SDK-only CLI/help/auth fixes and generator improvements follow the same sequence: merge the source fix, bump the contract version in Portal, deploy Alpha, then let SDK automation synchronize and publish that version. Verify the live contract and published wheel's required behavior before updating a consumer dependency.
+- If the SDK is already published ahead of the API, advance Portal's contract beyond every published SDK version and synchronize. Never downgrade, reuse a published version, or claim the offset will self-heal. Read Portal's `apps/alpha/AGENTS.md` and SDK's `AGENTS.md` before coordinating a release.
+
+This is the Ultralytics Platform consumer release policy; keep it out of the general-purpose converter and preserve version configuration for third-party APIs.
+
 ## Commands and validation
 
 ```bash
