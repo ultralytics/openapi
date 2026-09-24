@@ -84,6 +84,11 @@ function literalValues(document: OpenApiDocument, input: JsonSchema, depth = 0):
   return values.every((value) => value !== undefined) ? values.flatMap((value) => value ?? []) : undefined;
 }
 
+function objectUnion(document: OpenApiDocument, schema: JsonSchema | undefined): JsonSchema[] | undefined {
+  const variants = schema?.oneOf ?? schema?.anyOf;
+  return variants?.length && variants.every((item) => objectSchema(document, item)?.properties) ? variants : undefined;
+}
+
 function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, collection = "list"): string {
   const schema = resolveSchema(document, input);
   if (!schema) return "Any";
@@ -95,7 +100,7 @@ function pythonType(document: OpenApiDocument, input: JsonSchema | undefined, co
   if (schema.enum?.length) return result(`Literal[${schema.enum.map(quote).join(", ")}]`);
   const variants = schema.oneOf ?? schema.anyOf;
   if (variants?.length) {
-    if (variants.every((item) => objectSchema(document, item)?.properties)) return result("dict[str, Any]");
+    if (objectUnion(document, schema)) return result("dict[str, Any]");
     const literalVariants = literalValues(document, schema);
     if (literalVariants) {
       const values = [...new Set(literalVariants)];
@@ -198,6 +203,29 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
   return resources;
 }
 
+function objectVariants(document: OpenApiDocument, input: JsonSchema | undefined, name: string): string {
+  const schema = resolveSchema(document, input);
+  const variants = objectUnion(document, schema);
+  if (!variants) return "";
+  const shapes = variants.map((item) => {
+    const variant = objectSchema(document, { allOf: [{ ...schema, oneOf: undefined, anyOf: undefined }, item] });
+    const keys = Object.entries(variant?.properties ?? {})
+      .filter(([, property]) => {
+        const negated = resolveSchema(document, property)?.not;
+        const matchesAll =
+          negated === true ||
+          (typeof negated === "object" && !Object.keys(resolveSchema(document, negated) ?? {}).length);
+        return !matchesAll; // `not: true` or `not: {}` forbids the key in this variant
+      })
+      .map(([key, property]) => {
+        const values = literalValues(document, property);
+        return `${key}${variant?.required?.includes(key) ? "" : "?"}${values ? `: ${values.map((value) => JSON.stringify(value)).join("|")}` : ""}`;
+      });
+    return `{${keys.join(", ")}}`;
+  });
+  return `\n                ${pythonDocstringText(`Valid ${name} objects (? marks an optional key): ${shapes.join(" or ")}`)}`;
+}
+
 function docstring(document: OpenApiDocument, operation: PythonOperation, returnType: string): string {
   const lines = [
     `        """${pythonDocstringText((operation.summary ?? operation.name).replace(/\.$/, ""), "        ")}.`,
@@ -206,7 +234,7 @@ function docstring(document: OpenApiDocument, operation: PythonOperation, return
   lines.push("", "        Args:");
   for (const argument of operation.arguments) {
     lines.push(
-      `            ${argument.pythonName} (${pythonType(document, argument.schema, "Sequence")}${argument.required ? "" : ", optional"}): ${pythonDocstringText(argument.description, "                ")}`,
+      `            ${argument.pythonName} (${pythonType(document, argument.schema, "Sequence")}${argument.required ? "" : ", optional"}): ${pythonDocstringText(argument.description, "                ")}${objectVariants(document, argument.schema, argument.pythonName)}`,
     );
   }
   lines.push(

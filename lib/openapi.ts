@@ -25,6 +25,7 @@ export interface JsonSchema {
   minProperties?: number;
   minimum?: number;
   multipleOf?: number;
+  not?: boolean | JsonSchema;
   nullable?: boolean;
   oneOf?: JsonSchema[];
   prefixItems?: JsonSchema[];
