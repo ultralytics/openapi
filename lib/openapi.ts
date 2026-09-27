@@ -687,7 +687,7 @@ export function resolveServerUrl(
 }
 
 export function expandServerUrl(server: OpenApiServer): string {
-  return server.url.replace(/{([^}]+)}/g, (_, name: string) => server.variables?.[name]?.default ?? `{${name}}`);
+  return server.url.replace(/{([^{}]+)}/g, (_, name: string) => server.variables?.[name]?.default ?? `{${name}}`);
 }
 
 export function getAuthentication(document: OpenApiDocument, operation: ApiOperation): ApiAuthentication | undefined {
@@ -871,7 +871,7 @@ function stringFormatMatches(value: string, format?: string): boolean {
       !Number.isNaN(Date.parse(value))
     );
   }
-  if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+  if (format === "email") return /^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$/.test(value);
   if (format === "uri" || format === "url") return URL.canParse(value);
   if (format === "hostname")
     return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(
