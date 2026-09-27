@@ -36,16 +36,9 @@ This repository is a standalone, general-purpose OpenAPI-to-SDK and API document
 - Keep consumer customizations reproducible through generation and synchronization. Never hand-edit generated output or make the converter depend on a consumer repository.
 - Review every change against this boundary. Relocate application-specific work to its owner instead of teaching the converter about one application.
 
-## Platform API and SDK release version (CRITICAL)
+## Platform SDK release version (CRITICAL)
 
-**The upstream Platform API contract's `info.version` owns the `ultralytics-platform` SDK release version. The SDK version MUST equal its API contract version.** The SDK repository consumes the deployed contract through automation; it does not choose release versions.
-
-- Keep public documentation and PR text scoped to the public upstream API contract. Do not include private repository names, internal paths, or private PR links.
-- NEVER set Platform SDK `python.version`, independently bump its patch, or hand-edit generated versions. API `0.1.50` with SDK `0.1.52` is INVALID; `max(API, SDK)` and automatic SDK patch bumps do not coordinate releases.
-- SDK-only CLI/help/auth fixes and generator improvements follow the same sequence: merge the source fix, coordinate a contract version bump and deployment with the Platform API maintainers, then let SDK automation synchronize and publish that version. Verify the live contract and published wheel's required behavior before updating a consumer dependency.
-- If the SDK is already published ahead of the API, the API maintainers must advance the upstream contract beyond every published SDK version and synchronize. Never downgrade, reuse a published version, or claim the offset will self-heal. Read the SDK's `AGENTS.md` before coordinating a release.
-
-This is the Ultralytics Platform consumer release policy; keep it out of the general-purpose converter and preserve version configuration for third-party APIs.
+**The upstream Platform API contract's `info.version` owns the `ultralytics-platform` SDK version; the two MUST be equal.** Never set that SDK's `python.version`, bump it independently, or hand-edit generated versions: generator fixes reach it only after the Platform API maintainers bump and deploy the contract, and `ultralytics/sdk`'s `AGENTS.md` owns the full release and recovery procedure. This consumer policy stays out of the converter; `python.version` remains supported for third-party APIs. Keep public docs and PR text free of private repository names, internal paths, and private PR links.
 
 ## Commands and validation
 
@@ -57,29 +50,28 @@ bun run lint
 bun run knip
 bun run test
 bun run build
+python -m compileall -q generated/python/src
+uvx ruff@0.16.2 check generated/python
 ```
 
-Use package scripts: `dev`, `build`, and `generate` synchronize the contract first. Bun, Node, uv, and Python are required; the CLI test runs generated Python. Generator changes also require CI's deterministic regeneration, Python compile/import checks, and Ruff checks (`.github/workflows/ci.yml`). `generatePython` deletes its output directory before writing; use only a disposable output path.
+Use package scripts: `dev`, `build`, and `generate` synchronize the contract first. Bun, uv, and Python are required; the CLI test runs generated Python. CI (`.github/workflows/ci.yml`) also installs and imports the generated package. `generatePython` deletes its output directory before writing; use only a disposable output path.
 
 ## Where to look
 
 - Shared contract interpretation and samples → `lib/openapi.ts`.
 - Python output → `lib/generators/python.ts`, `lib/generators/python.test.ts`.
-- Generation and synchronization → `scripts/generate.ts`, `scripts/sync.ts`.
-- Configuration and fixtures → `openapi.config.json`, `examples/openapi.json`.
+- Generation, synchronization, and headers → `scripts/generate.ts`, `scripts/sync.ts`, `scripts/headers.ts`.
+- Configuration schema, required keys, `OPENAPI_CONFIG`, and path resolution → `lib/config.ts`; example config and fixture → `openapi.config.json`, `examples/openapi.json`.
 - Documentation UI → `app/`, `components/`.
 
 ## Conventions
 
 - Ultralytics-owned PyPI packages use `MAJOR.MINOR.PATCH` versions only; no suffixes.
 - License headers (`# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license`) are added automatically by Ultralytics Actions — don't add or revert them manually.
-- Generated output must be deterministic and is validated in CI.
-- Google-style docstrings, modern type hints, and a 120-character Python line length are formatted by Ruff.
 
 ## Pitfalls
 
 - Determinism is enforced (CI generates twice and diffs). Resource order follows the contract's path order via `Map` insertion; exports are sorted explicitly (`resourceExports.sort()`). Avoid timestamps, randomness, or unordered iteration in generator code.
-- `format.yml` reformats JSON/Markdown/YAML with Prettier and pushes to your branch; `git pull --rebase` before every push.
 
 Consumers must follow this repository's `main`, never a SHA or tag. Keep contract definitions in the configured input, language output in its renderer, and generated files untracked. API keys stay in browser memory and out of copied examples. Compose the existing Base UI primitives with `render`, not Radix `asChild`.
 
