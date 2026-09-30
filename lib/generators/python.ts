@@ -659,7 +659,7 @@ function apiClientSource(async: boolean): string {
                 )
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:
-                    raise APIConnectionError(str(error)) from error
+                    raise APIConnectionError(str(error) or type(error).__name__) from error  # async timeouts lack one
                 ${w}${async ? "asyncio" : "time"}.sleep(_retry_delay(None, attempt))
                 continue
             if (
