@@ -32,11 +32,9 @@ jobs:
         with:
           bun-version: latest
 
-      - uses: actions/setup-python@v7
+      - uses: ultralytics/actions/setup-uv@main
         with:
           python-version: ${{ matrix.python-version }}
-
-      - uses: ultralytics/actions/setup-uv@main
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -59,6 +57,6 @@ jobs:
       - name: Check generated Python SDK
         run: |
           python -m compileall -q generated/python/src
-          uv pip install --system ./generated/python
+          uv pip install ./generated/python
           python -c 'import importlib, json; c = json.load(open("openapi.config.json"))["python"]; m = importlib.import_module(c["package"]); getattr(m, c["client"]); getattr(m, "Async" + c["client"])'
           uvx ruff@0.16.2 check generated/python
