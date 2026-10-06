@@ -32,7 +32,7 @@ jobs:
         with:
           bun-version: latest
 
-      - uses: ultralytics/actions/setup-uv@setup-uv-defaults
+      - uses: ultralytics/actions/setup-uv@main
         with:
           python-version: ${{ matrix.python-version }}
 
