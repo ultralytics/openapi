@@ -616,7 +616,7 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
   return `from __future__ import annotations\n\n${typingImport}\n${body}\n`;
 }
 
-function apiClientSource(async: boolean): string {
+function apiClientSource(async: boolean, hooks: boolean): string {
   const a = async ? "async " : "";
   const w = async ? "await " : "";
   return `class ${async ? "Async" : "Sync"}APIClient:
@@ -630,7 +630,7 @@ function apiClientSource(async: boolean): string {
         retry_methods: Sequence[str],
         http_client: httpx.${async ? "Async" : ""}Client | None,
     ) -> None:
-        self._client = http_client or httpx.${async ? "Async" : ""}Client(timeout=timeout)
+        self._client = http_client or httpx.${async ? "Async" : ""}Client(timeout=timeout${hooks ? `, event_hooks={"response": [${async ? "async_" : ""}response_hook]}` : ""})
         self._base_url = httpx.URL(f"{base_url.rstrip('/')}/")
         self._api_key = api_key
         self._max_retries = max_retries
@@ -700,7 +700,7 @@ from urllib.parse import quote
 import httpx
 
 ${config.python.authProvider ? "from ._auth import get_api_key\n" : ""}from ._exceptions import APIConnectionError, APIError
-
+${config.python.hooksProvider ? "from ._hooks import async_response_hook, response_hook\n" : ""}
 
 def _resolve_api_key(api_key: str | None) -> str | None:
     """Resolve explicit credentials, the environment, then the optional provider."""
@@ -797,9 +797,9 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
     return min(0.5 * 2.0**attempt, 8.0)
 
 
-${apiClientSource(false)}
+${apiClientSource(false, !!config.python.hooksProvider)}
 
-${apiClientSource(true)}`;
+${apiClientSource(true, !!config.python.hooksProvider)}`;
 }
 
 const EXCEPTIONS_SOURCE = `from __future__ import annotations
@@ -846,7 +846,7 @@ function publicClientSource(
   const enter = async
     ? `    async def __aenter__(self) -> ${className}:  # noqa: PYI034\n        return self\n\n    async def __aexit__(\n        self,\n        exc_type: type[BaseException] | None,\n        exc: BaseException | None,\n        traceback: object,\n    ) -> None:\n        await self.close()`
     : `    def __enter__(self) -> ${className}:  # noqa: PYI034\n        return self\n\n    def __exit__(\n        self,\n        exc_type: type[BaseException] | None,\n        exc: BaseException | None,\n        traceback: object,\n    ) -> None:\n        self.close()`;
-  return `from __future__ import annotations\n\nfrom collections.abc import Sequence\n\nimport httpx\n\nfrom ._client import ${apiClient}, _resolve_api_key\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float | httpx.Timeout = 60.0,\n        max_retries: int = 2,\n        retry_methods: Sequence[str] = ("GET", "HEAD", "OPTIONS"),\n        http_client: ${httpClient} | None = None,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}${config.python.authProvider ? " then the configured credential provider" : ""}. Pass an empty string to disable authentication.\n            base_url (str): API base URL.\n            timeout (float | httpx.Timeout): Request timeout.\n            max_retries (int): Retries for connection errors and retryable responses.\n            retry_methods (Sequence[str]): HTTP methods safe to repeat after network errors or HTTP 408, 409, 429, and 5xx responses. Defaults to GET, HEAD, OPTIONS. Opt in only when the operation is safe to repeat and its request body can be resent.\n            http_client (${httpClient}, optional): Custom HTTP client.\n        """\n        resolved_api_key = _resolve_api_key(api_key)\n        self._client = ${apiClient}(\n            api_key=resolved_api_key,\n            base_url=base_url,\n            timeout=timeout,\n            max_retries=max_retries,\n            retry_methods=retry_methods,\n            http_client=http_client,\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n\n${enter}\n`;
+  return `from __future__ import annotations\n\nfrom collections.abc import Sequence\n\nimport httpx\n\nfrom ._client import ${apiClient}, _resolve_api_key\nfrom .resources import (\n${imports.map((name) => `    ${name},`).join("\n")}\n)\n\n\nclass ${className}:\n    """Client for the ${pythonDocstringText(config.name, "    ")}."""\n\n    def __init__(\n        self,\n        *,\n        api_key: str | None = None,\n        base_url: str = "${baseUrl}",\n        timeout: float | httpx.Timeout = 60.0,\n        max_retries: int = 2,\n        retry_methods: Sequence[str] = ("GET", "HEAD", "OPTIONS"),\n        http_client: ${httpClient} | None = None,\n    ) -> None:\n        """Initialize the client.\n\n        Args:\n            api_key (str, optional): API key. Defaults to ${pythonDocstringText(config.apiKey.environment, "            ")}${config.python.authProvider ? " then the configured credential provider" : ""}. Pass an empty string to disable authentication.\n            base_url (str): API base URL.\n            timeout (float | httpx.Timeout): Request timeout.\n            max_retries (int): Retries for connection errors and retryable responses.\n            retry_methods (Sequence[str]): HTTP methods safe to repeat after network errors or HTTP 408, 409, 429, and 5xx responses. Defaults to GET, HEAD, OPTIONS. Opt in only when the operation is safe to repeat and its request body can be resent.\n            http_client (${httpClient}, optional): Custom HTTP client${config.python.hooksProvider ? ", used as is without the configured response hooks" : ""}.\n        """\n        resolved_api_key = _resolve_api_key(api_key)\n        self._client = ${apiClient}(\n            api_key=resolved_api_key,\n            base_url=base_url,\n            timeout=timeout,\n            max_retries=max_retries,\n            retry_methods=retry_methods,\n            http_client=http_client,\n        )\n${properties}\n\n    ${async ? "async " : ""}def close(self) -> None:\n        """Close the underlying HTTP client."""\n        ${async ? "await " : ""}self._client.close()\n\n${enter}\n`;
 }
 
 export async function generatePython(
@@ -867,6 +867,7 @@ export async function generatePython(
   const license = config.license;
   const licenseText = await Bun.file(license.file).text();
   const authProvider = config.python.authProvider ? await Bun.file(config.python.authProvider).text() : undefined;
+  const hooksProvider = config.python.hooksProvider ? await Bun.file(config.python.hooksProvider).text() : undefined;
   const cli = config.python.cli ? await Bun.file(config.python.cli.source).text() : undefined;
   const multipartFiles = Object.fromEntries(
     [...resources].flatMap(([resource, operations]) =>
@@ -911,6 +912,7 @@ export async function generatePython(
     Bun.write(`${output}/README.md`, readme),
     Bun.write(`${output}/LICENSE`, licenseText),
     ...(authProvider === undefined ? [] : [Bun.write(`${root}/_auth.py`, authProvider)]),
+    ...(hooksProvider === undefined ? [] : [Bun.write(`${root}/_hooks.py`, hooksProvider)]),
     ...(cli === undefined
       ? []
       : [
