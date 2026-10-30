@@ -18,6 +18,7 @@ export interface OpenApiConfig {
     cli?: { command: string; source: string };
     classifiers?: string[];
     description?: string;
+    hooksProvider?: string;
     install: string;
     keywords?: string[];
     maintainers?: Array<{ email?: string; name: string }>;
@@ -55,11 +56,9 @@ export function getConfig(): OpenApiConfig {
     config.source = resolve(directory, config.source);
   }
   if (!isAbsolute(config.license.file)) config.license.file = resolve(directory, config.license.file);
-  if (config.python.readme && !isAbsolute(config.python.readme)) {
-    config.python.readme = resolve(directory, config.python.readme);
-  }
-  if (config.python.authProvider && !isAbsolute(config.python.authProvider)) {
-    config.python.authProvider = resolve(directory, config.python.authProvider);
+  for (const key of ["authProvider", "hooksProvider", "readme"] as const) {
+    const path = config.python[key];
+    if (path && !isAbsolute(path)) config.python[key] = resolve(directory, path);
   }
   if (config.python.cli) {
     if (

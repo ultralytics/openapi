@@ -168,6 +168,30 @@ describe("Python generator", () => {
     }
   });
 
+  test("runs consumer response hooks on the HTTP clients it creates", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openapi-hooks-"));
+    const server = Bun.serve({ fetch: () => Response.json([]), port: 0 });
+    try {
+      const hooksProvider = join(directory, "hooks.py");
+      const target = join(directory, "generated");
+      await Bun.write(
+        hooksProvider,
+        'def response_hook(response):\n    print("sync", response.status_code)\n\n\nasync def async_response_hook(response):\n    print("async", response.status_code)\n',
+      );
+      await generatePython(document, { ...config, python: { ...config.python, hooksProvider } }, target);
+      const script = `import asyncio, httpx\nfrom example_api import AsyncExample, Example\nExample(api_key="", base_url="${server.url}").widgets.list(limit=1)\nExample(api_key="", base_url="${server.url}", http_client=httpx.Client()).widgets.list(limit=1)\nasyncio.run(AsyncExample(api_key="", base_url="${server.url}").widgets.list(limit=1))\n`;
+      const child = Bun.spawn(
+        ["uv", "run", "--no-project", "--python", "python3", "--with", target, "python", "-c", script],
+        { stdout: "pipe" },
+      );
+      expect(await child.exited).toBe(0);
+      expect((await new Response(child.stdout).text()).trim().split("\n")).toEqual(["sync 200", "async 200"]);
+    } finally {
+      server.stop(true);
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("generates resource methods and Google-style docstrings", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
     expect(widgets).toContain("def list(");
