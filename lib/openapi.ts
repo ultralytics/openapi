@@ -1775,10 +1775,11 @@ function parameterValue(document: OpenApiDocument, parameter: Parameter, value: 
   }
 }
 
-function formEntries(values: Record<string, unknown>): Array<[string, unknown]> {
+function formEntries(values: Record<string, unknown>, mediaType: string): Array<[string, unknown]> {
   return Object.entries(values).flatMap(([name, value]) => {
     if (Array.isArray(value)) return value.map((item) => [name, item] as [string, unknown]);
-    if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
+    if (mediaType === "application/x-www-form-urlencoded" && value && typeof value === "object")
+      return Object.entries(value as Record<string, unknown>);
     return [[name, value]];
   });
 }
@@ -1850,22 +1851,21 @@ export function curlCodeSample(
   }
   const formatFormValue = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
   const contentType = request?.[0];
-  const form = formEntries(bodyValues);
-  const multipart =
-    contentType === "multipart/form-data"
-      ? [...new Set([...Object.keys(bodyValues), ...Object.keys(files)])].map((name) => {
+  const multipart = contentType === "multipart/form-data";
+  const form =
+    multipart || contentType === "application/x-www-form-urlencoded"
+      ? formEntries(multipart ? { ...bodyValues, ...files } : bodyValues, contentType).map(([name, bodyValue]) => {
+          if (!multipart) return `  --data-urlencode ${shellQuote(`${name}=${formatFormValue(bodyValue)}`)}`;
           const binary = files[name] || isBinarySchema(document, properties[name]);
-          const bodyFile = bodyValues[name];
           const value = binary
-            ? `@${files[name]?.name ?? (typeof bodyFile === "string" && bodyFile !== "..." ? bodyFile.replace(/^@/, "") : "path/to/file")}`
-            : formatFormValue(bodyValues[name]);
+            ? `@${files[name]?.name ?? (typeof bodyValue === "string" && bodyValue !== "..." ? bodyValue.replace(/^@/, "") : "path/to/file")}`
+            : formatFormValue(bodyValue);
           return `  ${binary ? "-F" : "--form-string"} ${shellQuote(`${name}=${value}`)}`;
         })
       : [];
   const hasBodyArgument =
     ((contentType === "application/json" || contentType?.endsWith("+json")) && Boolean(body)) ||
-    (contentType === "application/x-www-form-urlencoded" && form.length > 0) ||
-    (contentType === "multipart/form-data" && multipart.length > 0) ||
+    form.length > 0 ||
     (contentType !== undefined &&
       !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(contentType) &&
       body !== undefined);
@@ -1900,17 +1900,12 @@ export function curlCodeSample(
     request && (request[0] === "application/json" || request[0].endsWith("+json")) && body
       ? `  -d ${shellQuote(body)}`
       : "",
-    request?.[0] === "application/x-www-form-urlencoded"
-      ? form
-          .map(([name, value]) => `  --data-urlencode ${shellQuote(`${name}=${formatFormValue(value)}`)}`)
-          .join(" \\\n")
-      : "",
     request &&
     body !== undefined &&
     !["application/json", "application/x-www-form-urlencoded", "multipart/form-data"].includes(request[0])
       ? `  -d ${shellQuote(body)}`
       : "",
-    request?.[0] === "multipart/form-data" ? multipart.join(" \\\n") : "",
+    form.join(" \\\n"),
   ]
     .filter(Boolean)
     .join(" \\\n");
@@ -1992,7 +1987,7 @@ export function buildApiRequest(
     } catch {
       throw new Error("Enter valid JSON request values before sending the request.");
     }
-    for (const [name, value] of formEntries(bodyValues)) form.append(name, String(value));
+    for (const [name, value] of formEntries(bodyValues, request[0])) form.append(name, String(value));
     requestBody = form;
   }
   if (request?.[0] === "multipart/form-data") {
@@ -2006,9 +2001,8 @@ export function buildApiRequest(
     } catch {
       throw new Error("Enter valid JSON request values before sending the request.");
     }
-    for (const [name, value] of Object.entries(bodyValues)) {
-      if (isBinarySchema(document, requestSchema?.properties?.[name]) || value === null || value === undefined)
-        continue;
+    for (const [name, value] of formEntries(bodyValues, request[0])) {
+      if (isBinarySchema(document, requestSchema?.properties?.[name]) || bodyValues[name] === null) continue;
       form.append(name, typeof value === "string" ? value : JSON.stringify(value));
     }
     for (const [name, file] of Object.entries(files)) form.append(name, file);
