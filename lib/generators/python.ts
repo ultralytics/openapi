@@ -14,6 +14,7 @@ import {
   resolveServerUrl,
   sdkArguments,
   sdkIdentifier as snake,
+  streamsEvents,
   successMedia,
   successMediaEntries,
   successSchema,
@@ -22,6 +23,7 @@ import {
 interface PythonOperation extends ApiOperation {
   arguments: SdkArgument[];
   contentType?: string;
+  eventStream: boolean;
   name: string;
   responseName?: string;
   responseSchema?: JsonSchema;
@@ -190,6 +192,7 @@ function prepare(document: OpenApiDocument): Map<string, PythonOperation[]> {
       ...operation,
       arguments: sdkArguments(document, operation),
       contentType: requestMedia(operation)?.[0],
+      eventStream: streamsEvents(operation),
       name,
       responseName:
         responseSchema && pythonType(document, responseSchema) !== "None"
@@ -241,7 +244,11 @@ function docstring(document: OpenApiDocument, operation: PythonOperation, return
     "            timeout (float | httpx.Timeout, optional): Request timeout override.",
     "            extra_headers (dict[str, str], optional): Additional request headers.",
   );
-  lines.push("", "        Returns:", `            (${returnType}): The API response.`);
+  lines.push(
+    "",
+    "        Returns:",
+    `            (${returnType}): The API response${operation.eventStream ? ", or for an event stream a generator of its events as they arrive; close it to stop early" : ""}.`,
+  );
   lines.push(
     "",
     "        Raises:",
@@ -269,7 +276,10 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
     "timeout: float | httpx.Timeout | None = None",
     "extra_headers: dict[str, str] | None = None",
   ].join(", ");
-  const returnType = operation.responseName ?? pythonType(document, operation.responseSchema);
+  const buffered = operation.responseName ?? pythonType(document, operation.responseSchema);
+  const returnType = operation.eventStream
+    ? `${buffered} | collections.abc.${async ? "AsyncGenerator[Any, None]" : "Generator[Any, None, None]"}`
+    : buffered;
   const serverOverride = operation.server && operation.server !== document.servers?.[0];
   const server = serverOverride && operation.server ? expandServerUrl(operation.server) : undefined;
   const relativeServer = server && !/^[a-z][a-z\d+.-]*:\/\//i.test(server);
@@ -304,6 +314,7 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
     relativeServer ? `server=${quote(server)}` : "",
     authentication ? `auth=(${quote(authentication.header)}, ${quote(authentication.prefix)})` : "",
     operation.responseText ? "text=True" : "",
+    operation.eventStream ? "event_stream=True" : "",
     query.length
       ? `params=[${query
           .map(
@@ -349,7 +360,7 @@ function methodSource(document: OpenApiDocument, operation: PythonOperation, asy
   ].filter(Boolean);
   const pathValue = path.includes("{") ? `f${quote(path)}` : quote(path);
   const call = `${async ? "await " : ""}self._client.request(${quote(operation.method.toUpperCase())}, ${pathValue}${options.length ? `, ${options.join(", ")}` : ""})`;
-  const result = `cast(${returnType}, ${call})`;
+  const result = `cast(${operation.eventStream ? quote(returnType) : returnType}, ${call})`;
   return [
     `    ${async ? "async " : ""}def ${operation.name}(${signature}) -> ${returnType}:`,
     docstring(document, operation, returnType),
@@ -370,11 +381,12 @@ function resourceSource(document: OpenApiDocument, resource: string, operations:
     .flatMap((operation) => [
       ...operation.arguments.map((argument) => pythonType(document, argument.schema, "Sequence")),
       operation.responseName ?? pythonType(document, operation.responseSchema),
+      operation.eventStream ? "Any" : "",
     ])
     .join(" ")
     .replace(/"(?:[^"\\]|\\.)*"/g, "");
   const typingImports = ["Any", "BinaryIO", "Literal"].filter((name) => new RegExp(`\\b${name}\\b`).test(types));
-  const typingSource = `${/\bSequence\b/.test(types) ? "from collections.abc import Sequence\n" : ""}from typing import ${[...typingImports, "cast"].join(", ")}\n\nimport httpx\n\n`;
+  const typingSource = `${operations.some((operation) => operation.eventStream) ? "import collections.abc\n" : ""}${/\bSequence\b/.test(types) ? "from collections.abc import Sequence\n" : ""}from typing import ${[...typingImports, "cast"].join(", ")}\n\nimport httpx\n\n`;
   const clientImports = [
     ...(body.includes("NotGiven") ? ["NOT_GIVEN"] : []),
     "AsyncAPIClient",
@@ -619,7 +631,41 @@ function modelSource(document: OpenApiDocument, resources: Map<string, PythonOpe
 function apiClientSource(async: boolean, hooks: boolean): string {
   const a = async ? "async " : "";
   const w = async ? "await " : "";
-  return `class ${async ? "Async" : "Sync"}APIClient:
+  return `${a}def _${async ? "async_" : ""}events(response: httpx.Response) -> ${async ? "AsyncGenerator[Any, None]" : "Generator[Any, None, None]"}:
+    """Yield each server-sent event's data, parsed as JSON when it is JSON; closing or finishing closes the response."""
+    decoder = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")  # event streams are UTF-8
+    pending: list[str] = []
+    data: list[str] = []
+    cr = False
+    try:
+        yield None  # request() advances past this, so closing before the first event still closes the response
+        ${a}for chunk in response.${async ? "aiter_bytes" : "iter_bytes"}():
+            text = decoder.decode(chunk)
+            if cr and text.startswith("\\n"):
+                text = text[1:]  # the rest of a CRLF split across chunks
+            cr = text.endswith("\\r")
+            *lines, rest = re.split(r"\\r\\n?|\\n", text)
+            if lines:
+                lines[0], pending = "".join([*pending, lines[0]]), []
+            pending.append(rest)
+            for line in lines:
+                field, _, value = line.partition(":")
+                if field == "data":
+                    data.append(value.removeprefix(" "))
+                elif not line and data:
+                    payload, data = "\\n".join(data), []
+                    try:
+                        payload = json.loads(payload)
+                    except ValueError:
+                        pass
+                    yield payload
+    except httpx.HTTPError as error:
+        raise APIConnectionError(str(error) or type(error).__name__) from error
+    finally:
+        ${w}response.${async ? "aclose" : "close"}()
+
+
+class ${async ? "Async" : "Sync"}APIClient:
     def __init__(
         self,
         *,
@@ -645,9 +691,7 @@ function apiClientSource(async: boolean, hooks: boolean): string {
         url = self._base_url.join(f"{server.rstrip('/')}/{path.lstrip('/')}" if server else path.lstrip("/"))
         for attempt in range(self._max_retries + 1):
             try:
-                response = ${w}self._client.request(
-                    method,
-                    url,
+                options = dict(
                     params=kwargs.get("params"),
                     headers=headers,
                     cookies=_without_none(kwargs.get("cookies") or {}) or None,
@@ -657,6 +701,18 @@ function apiClientSource(async: boolean, hooks: boolean): string {
                     content=_without_not_given(kwargs.get("content")),
                     **({"timeout": timeout} if (timeout := kwargs.get("timeout")) is not None else {}),
                 )
+                if not kwargs.get("event_stream"):
+                    response = ${w}self._client.request(method, url, **options)
+                else:
+                    response = ${w}self._client.send(self._client.build_request(method, url, **options), stream=True)
+                    if response.is_success and response.status_code != 204 and _media_type(response) == "text/event-stream":
+                        events = _${async ? "async_" : ""}events(response)
+                        ${async ? "await anext(events)" : "next(events)"}
+                        return events
+                    try:
+                        ${w}response.${async ? "aread" : "read"}()
+                    finally:
+                        ${w}response.${async ? "aclose" : "close"}()
             except httpx.HTTPError as error:
                 if not retryable or attempt == self._max_retries:
                     raise APIConnectionError(str(error) or type(error).__name__) from error  # async timeouts lack one
@@ -673,7 +729,7 @@ function apiClientSource(async: boolean, hooks: boolean): string {
                 raise APIError(response.status_code, response.text, response.headers.get("x-request-id"))
             if response.status_code == 204 or not response.content:
                 return None
-            media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+            media_type = _media_type(response)
             if media_type == "application/json" or media_type.endswith("+json"):
                 return response.json()
             if kwargs.get("text") or media_type.startswith("text/"):
@@ -690,10 +746,12 @@ function clientSource(config: OpenApiConfig): string {
   return `from __future__ import annotations
 
 import asyncio
+import codecs
 import json
 import os
+import re
 import time
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Generator, Sequence
 from typing import Any
 from urllib.parse import quote
 
@@ -786,6 +844,10 @@ def _form_data(values: dict[str, Any], *, multipart: bool) -> dict[str, Any]:
         else:
             fields[name] = value
     return fields
+
+
+def _media_type(response: httpx.Response) -> str:
+    return response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
 
 
 def _retry_delay(response: httpx.Response | None, attempt: int) -> float:

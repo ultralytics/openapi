@@ -192,6 +192,53 @@ describe("Python generator", () => {
     }
   });
 
+  test("returns server-sent events as they arrive when the contract declares them", async () => {
+    const source = structuredClone(document);
+    const list = source.paths["/widgets"]?.get?.responses?.["200"];
+    if (!list || !("content" in list) || !list.content) throw new Error("fixture lacks GET /widgets");
+    list.content["text/event-stream"] = {};
+    const directory = await mkdtemp(join(tmpdir(), "openapi-events-"));
+    let release = () => {};
+    const encoder = new TextEncoder();
+    const server = Bun.serve({
+      fetch: (request) => {
+        if (new URL(request.url).pathname === "/release") {
+          release();
+          return new Response();
+        }
+        if (request.headers.get("x-mode") !== "events") return Response.json([]);
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        // The second chunk is sent only after the client has the first event, so a buffering client times out.
+        const body = new ReadableStream({
+          async start(controller) {
+            controller.enqueue(encoder.encode('\ufeffdata: {"id": 1}\r\n\r'));
+            await gate;
+            controller.enqueue(encoder.encode("\n: comment\rdata: two\rdata\rdata: lines\r\r"));
+            controller.close();
+          },
+        });
+        return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+      },
+      port: 0,
+    });
+    try {
+      await generatePython(source, config, directory);
+      const script = `import asyncio, httpx\nfrom example_api import AsyncExample, Example\nbase, events = "${server.url}", {"x-mode": "events"}\nstream = Example(api_key="", base_url=base, timeout=5).widgets.list(limit=1, extra_headers=events)\nfirst = next(stream)\nhttpx.get(base + "release")\nprint([first, *stream], Example(api_key="", base_url=base).widgets.list(limit=1))\nasync def main():\n    stream = await AsyncExample(api_key="", base_url=base, timeout=5).widgets.list(limit=1, extra_headers=events)\n    first = await anext(stream)\n    httpx.get(base + "release")\n    print([first, *[event async for event in stream]])\nasyncio.run(main())\n`;
+      const child = Bun.spawn(
+        ["uv", "run", "--no-project", "--python", "python3", "--with", directory, "python", "-c", script],
+        { stdout: "pipe" },
+      );
+      expect(await child.exited).toBe(0);
+      expect((await new Response(child.stdout).text()).trim().split("\n")).toEqual([
+        "[{'id': 1}, 'two\\n\\nlines'] []",
+        "[{'id': 1}, 'two\\n\\nlines']",
+      ]);
+    } finally {
+      server.stop(true);
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("generates resource methods and Google-style docstrings", async () => {
     const widgets = await Bun.file(join(output, "src/example_api/resources/widgets.py")).text();
     expect(widgets).toContain("def list(");

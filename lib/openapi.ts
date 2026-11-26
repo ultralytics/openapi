@@ -1590,6 +1590,17 @@ export function successMediaEntries(operation: ApiOperation): Array<[string, Med
   });
 }
 
+/** Whether a successful response can be server-sent events, whichever media type the SDK prefers for typing. */
+export function streamsEvents(operation: ApiOperation): boolean {
+  return Object.entries(operation.responses ?? {}).some(
+    ([status, response]) =>
+      /^2(\d\d|xx)$/i.test(status) &&
+      Object.keys(response.content ?? {}).some(
+        (type) => type.split(";")[0]?.trim().toLowerCase() === "text/event-stream",
+      ),
+  );
+}
+
 export function successMedia(operation: ApiOperation): [string, MediaType] | undefined {
   return successMediaEntries(operation)[0];
 }
